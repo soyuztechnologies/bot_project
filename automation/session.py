@@ -15,6 +15,7 @@ Responsibilities:
 
 import queue
 import threading
+import random
 
 from browser.browser import setup_browser, close_browser
 from automation.search_engine import (
@@ -127,11 +128,14 @@ def _session_worker(job_queue, config, stop_event):
 
 def _build_jobs(keywords, search_engines, engine_names):
     jobs = []
-
-    for index, keyword in enumerate(keywords):
-        engine_name = engine_names[index % len(engine_names)]
+ 
+    for keyword in keywords:
+        # Assign a random search engine to each keyword for less predictable behavior.
+        engine_name = random.choice(engine_names)
         jobs.append((keyword, engine_name, search_engines[engine_name]))
-
+ 
+    # Shuffle the jobs to further randomize the order of execution across workers.
+    random.shuffle(jobs)
     return jobs
 
 

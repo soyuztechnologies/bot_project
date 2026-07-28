@@ -161,7 +161,7 @@ def main():
     print(f"Keywords          : {len(keywords)}")
 
     # Start automation
-    start_parallel_sessions(
+    completed = start_parallel_sessions(
         keywords=keywords,
         config=config,
         search_engines=search_engines,
@@ -169,7 +169,10 @@ def main():
     )
 
     print("=" * 50)
-    print("Automation Completed")
+    if completed:
+        print("Automation Completed")
+    else:
+        print("Automation Stopped by user")
     print("=" * 50)
 
 
