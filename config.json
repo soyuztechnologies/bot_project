@@ -1,0 +1,37 @@
+{
+  "browser": {
+    "name": "chrome",
+    "mode": "headed",
+    "maximize": true
+  },
+
+  "sessions": {
+    "parallel": 4,
+    "iterations": 1
+  },
+
+  "search": {
+    "engines": ["google", "bing", "duckduckgo", "yahoo"],
+    "maxPages": 20
+  },
+
+  "website": {
+    "domain": "anubhavtrainings.com"
+  },
+
+  "timing": {
+    "typingMin": 0.05,
+    "typingMax": 0.15,
+
+    "sleepMin": 1,
+    "sleepMax": 3,
+
+    "scrollMin": 2,
+    "scrollMax": 5
+  },
+
+  "files": {
+    "keywords": "data/keywords.json",
+    "searchEngines": "data/search_engines.json"
+  }
+}
