@@ -13,14 +13,8 @@ All search engine settings are loaded from
 data/search_engines.json.
 """
 
-from utils.helpers import (
-    human_typing,
-    press_enter,
-    random_sleep,
-    scroll_and_click
-)
+from utils.helpers import human_typing, press_enter, random_sleep, scroll_and_click
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
-
 
 DEFAULT_TIMEOUT = 15
 
@@ -123,11 +117,7 @@ def open_search_engine(driver, engine: dict) -> None:
 
 
 def search_keyword(
-    driver,
-    engine: dict,
-    keyword: str,
-    config: dict,
-    stop_event=None
+    driver, engine: dict, keyword: str, config: dict, stop_event=None
 ) -> None:
     """
     Search a keyword.
@@ -144,9 +134,7 @@ def search_keyword(
     if direct_search_url:
         driver.get(direct_search_url)
         random_sleep(
-            config["timing"]["sleepMin"],
-            config["timing"]["sleepMax"],
-            stop_event
+            config["timing"]["sleepMin"], config["timing"]["sleepMax"], stop_event
         )
         return
 
@@ -158,7 +146,7 @@ def search_keyword(
         keyword,
         config["timing"]["typingMin"],
         config["timing"]["typingMax"],
-        stop_event
+        stop_event,
     )
 
     if stop_event and stop_event.is_set():
@@ -166,11 +154,7 @@ def search_keyword(
 
     press_enter(search_box)
 
-    random_sleep(
-        config["timing"]["sleepMin"],
-        config["timing"]["sleepMax"],
-        stop_event
-    )
+    random_sleep(config["timing"]["sleepMin"], config["timing"]["sleepMax"], stop_event)
 
 
 def next_page(driver, engine: dict, stop_event=None) -> bool:
@@ -204,11 +188,7 @@ def next_page(driver, engine: dict, stop_event=None) -> bool:
 
 
 def find_target_website(
-    driver,
-    engine: dict,
-    target_domain: str,
-    max_pages: int,
-    stop_event=None
+    driver, engine: dict, target_domain: str, max_pages: int, stop_event=None
 ) -> bool:
     """
     Find the target website in search results.

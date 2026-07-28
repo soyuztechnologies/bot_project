@@ -45,7 +45,9 @@ def validate_config(config, keywords, search_engines):
     """Fail early with clear messages for missing or invalid config values."""
 
     required_sections = ["browser", "sessions", "search", "website", "timing", "files"]
-    missing_sections = [section for section in required_sections if section not in config]
+    missing_sections = [
+        section for section in required_sections if section not in config
+    ]
 
     if missing_sections:
         raise KeyError(f"Missing config section(s): {', '.join(missing_sections)}")
@@ -59,9 +61,7 @@ def validate_config(config, keywords, search_engines):
         raise ValueError("Configure at least one search engine in search.engines.")
 
     missing_engines = [
-        engine_name
-        for engine_name in engine_names
-        if engine_name not in search_engines
+        engine_name for engine_name in engine_names if engine_name not in search_engines
     ]
 
     if missing_engines:
@@ -165,7 +165,7 @@ def main():
         keywords=keywords,
         config=config,
         search_engines=search_engines,
-        engine_names=engine_names
+        engine_names=engine_names,
     )
 
     print("=" * 50)

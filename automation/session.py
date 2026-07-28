@@ -24,7 +24,6 @@ from automation.search_engine import (
 )
 from automation.website import visit_website
 
-
 _ACTIVE_DRIVERS = set()
 _ACTIVE_DRIVERS_LOCK = threading.Lock()
 
@@ -91,7 +90,7 @@ def run_session(keyword, config, engine_name, engine, stop_event):
             engine,
             config["website"]["domain"],
             config["search"]["maxPages"],
-            stop_event
+            stop_event,
         )
 
         if stop_event.is_set():
@@ -159,9 +158,7 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
 
     workers = [
         threading.Thread(
-            target=_session_worker,
-            args=(job_queue, config, stop_event),
-            daemon=True
+            target=_session_worker, args=(job_queue, config, stop_event), daemon=True
         )
         for _ in range(max_workers)
     ]

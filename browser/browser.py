@@ -12,7 +12,6 @@ import subprocess
 import threading
 from pathlib import Path
 
-
 _BROWSER_START_LOCK = threading.Lock()
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
@@ -45,9 +44,7 @@ def detect_chrome_major_version(config: dict):
         if not chrome_path.exists():
             continue
 
-        command = (
-            f"(Get-Item '{chrome_path}').VersionInfo.ProductVersion"
-        )
+        command = f"(Get-Item '{chrome_path}').VersionInfo.ProductVersion"
 
         result = subprocess.run(
             ["powershell", "-NoProfile", "-Command", command],

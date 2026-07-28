@@ -27,11 +27,7 @@ def random_sleep(min_seconds: float, max_seconds: float, stop_event=None) -> Non
 
 
 def human_typing(
-    element,
-    text: str,
-    min_delay: float,
-    max_delay: float,
-    stop_event=None
+    element, text: str, min_delay: float, max_delay: float, stop_event=None
 ) -> None:
     """
     Type text like a human.
@@ -73,10 +69,7 @@ def scroll_to_element(driver, element) -> None:
         element: Selenium element.
     """
 
-    driver.execute_script(
-        "arguments[0].scrollIntoView({block:'center'});",
-        element
-    )
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", element)
 
 
 def click_element(driver, element) -> None:
@@ -88,10 +81,7 @@ def click_element(driver, element) -> None:
         element: Selenium element.
     """
 
-    driver.execute_script(
-        "arguments[0].click();",
-        element
-    )
+    driver.execute_script("arguments[0].click();", element)
 
 
 def scroll_and_click(driver, element, stop_event=None) -> None:
@@ -120,9 +110,7 @@ def random_scroll(driver, min_scroll: int = 400, max_scroll: int = 1200) -> None
 
     scroll_position = random.randint(min_scroll, max_scroll)
 
-    driver.execute_script(
-        f"window.scrollTo(0, {scroll_position});"
-    )
+    driver.execute_script(f"window.scrollTo(0, {scroll_position});")
 
 
 def simulate_human_reading(driver, stop_event=None) -> None:
