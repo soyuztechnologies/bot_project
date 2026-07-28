@@ -25,7 +25,7 @@ Important folders:
 - `data/` contains keywords and search engine locator settings.
 - `utils/` contains shared helper functions such as typing, scrolling, and
   sleeps.
-- `logs/` is reserved for runtime logs.
+
 
 ## Requirements
 
