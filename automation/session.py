@@ -27,6 +27,7 @@ from automation.website import visit_website
 
 _ACTIVE_DRIVERS = set()
 _ACTIVE_DRIVERS_LOCK = threading.Lock()
+_STATS_LOCK = threading.Lock()
 
 
 def _register_driver(driver):
@@ -49,7 +50,7 @@ def close_active_drivers():
         close_browser(driver)
 
 
-def run_session(keyword, config, engine_name, engine, stop_event):
+def run_session(keyword, config, engine_name, engine, stop_event, stats):
     """
     Run one complete automation session.
 
@@ -99,13 +100,25 @@ def run_session(keyword, config, engine_name, engine, stop_event):
 
         if found:
             print(f"Website found. [{engine_name}]")
+
+            with _STATS_LOCK:
+                stats["success"] += 1
+
             visit_website(driver, config, stop_event)
+
         else:
             print(f"Website not found. [{engine_name}]")
 
+            with _STATS_LOCK:
+                stats["failed"] += 1
+
     except Exception as error:
-        if not stop_event.is_set():
-            print(f"Session Error ({keyword} | {engine_name}): {error}")
+            if not stop_event.is_set():
+                
+                with _STATS_LOCK:
+                    stats["failed"] += 1
+
+                print(f"Session Error ({keyword} | {engine_name}): {error}")
 
     finally:
         if driver:
@@ -113,7 +126,7 @@ def run_session(keyword, config, engine_name, engine, stop_event):
             close_browser(driver)
 
 
-def _session_worker(job_queue, config, stop_event):
+def _session_worker(job_queue, config, stop_event, stats):
     while not stop_event.is_set():
         try:
             keyword, engine_name, engine = job_queue.get_nowait()
@@ -121,7 +134,9 @@ def _session_worker(job_queue, config, stop_event):
             return
 
         try:
-            run_session(keyword, config, engine_name, engine, stop_event)
+            run_session(keyword, config, engine_name, engine, stop_event, stats)
+        except Exception as error:
+            print(f"Session Error: {error}")
         finally:
             job_queue.task_done()
 
@@ -152,19 +167,27 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
     Returns:
         bool: True when all sessions complete, False when stopped.
     """
+    jobs = _build_jobs(keywords, search_engines, engine_names)
 
+    stats = {
+        "total": len(jobs),
+        "success": 0,
+        "failed": 0
+    }
     max_workers = min(int(config["sessions"]["parallel"]), len(keywords))
     stop_event = threading.Event()
     job_queue = queue.Queue()
 
-    for job in _build_jobs(keywords, search_engines, engine_names):
+    for job in jobs:
         job_queue.put(job)
 
     workers = [
-        threading.Thread(
-            target=_session_worker, args=(job_queue, config, stop_event), daemon=True
-        )
-        for _ in range(max_workers)
+    threading.Thread(
+        target=_session_worker,
+        args=(job_queue, config, stop_event, stats),
+        daemon=True,
+    )
+    for _ in range(max_workers)
     ]
 
     try:
@@ -175,7 +198,12 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
             for worker in workers:
                 worker.join(timeout=0.2)
 
-        return not stop_event.is_set()
+        stats["success_rate"] = round(
+            (stats["success"] / stats["total"]) * 100,
+            2,
+        ) if stats["total"] else 0
+
+        return stats
 
     except KeyboardInterrupt:
         print("\nCtrl+C detected. Stopping all browser sessions...")
@@ -194,4 +222,9 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
             worker.join(timeout=2)
 
         print("Automation stopped.")
-        return False
+        stats["success_rate"] = round(
+            (stats["success"] / stats["total"]) * 100,
+            2,
+        ) if stats["total"] else 0
+
+        return stats

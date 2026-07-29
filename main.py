@@ -161,19 +161,21 @@ def main():
     print(f"Keywords          : {len(keywords)}")
 
     # Start automation
-    completed = start_parallel_sessions(
-        keywords=keywords,
-        config=config,
-        search_engines=search_engines,
-        engine_names=engine_names,
+    stats = start_parallel_sessions(
+        keywords,
+        config,
+        search_engines,
+        engine_names,
     )
 
     print("=" * 50)
-    if completed:
-        print("Automation Completed")
-    else:
-        print("Automation Stopped by user")
+    print("Automation Completed")
     print("=" * 50)
+
+    print(f"Total Sessions : {stats['total']}")
+    print(f"Success        : {stats['success']}")
+    print(f"Failed         : {stats['failed']}")
+    print(f"Success Rate   : {stats['success_rate']}%")
 
 
 if __name__ == "__main__":
