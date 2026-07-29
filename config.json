@@ -19,6 +19,13 @@
     "domain": "anubhavtrainings.com"
   },
 
+  "youtube": {
+    "targetChannel": "Anubhav Trainings",
+    "watchTimeMin": 20,
+    "watchTimeMax": 40,
+    "maxScrolls": 10
+  },
+
   "timing": {
     "typingMin": 0.05,
     "typingMax": 0.15,
