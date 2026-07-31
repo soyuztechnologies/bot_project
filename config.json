@@ -25,13 +25,12 @@
     "watchTimeMax": 40,
     "maxScrolls": 10
   },
-
   "timing": {
-    "typingMin": 0.05,
-    "typingMax": 0.15,
+    "typingMin": 0.10,
+    "typingMax": 0.25,
 
-    "sleepMin": 1,
-    "sleepMax": 3,
+    "sleepMin": 2,
+    "sleepMax": 4,
 
     "scrollMin": 2,
     "scrollMax": 5

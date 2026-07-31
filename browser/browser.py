@@ -121,7 +121,7 @@ def setup_browser(config: dict):
         "options": options,
         "patcher_force_close": False,
         "use_subprocess": True,
-        "user_multi_procs": False,
+        "user_multi_procs": True,
     }
 
     if chrome_version:

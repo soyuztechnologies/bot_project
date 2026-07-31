@@ -43,12 +43,18 @@ def load_youtube_config():
 YOUTUBE = load_youtube_config()
 
 
-def open_youtube(driver):
+def open_youtube(driver, config, stop_event=None):
     """
     Open YouTube home page.
     """
 
     driver.get(YOUTUBE["url"])
+
+    random_sleep(
+        config["timing"]["sleepMin"],
+        config["timing"]["sleepMax"],
+        stop_event,
+    )
 
 
 def search_video(driver, keyword, config, stop_event=None):
@@ -242,20 +248,6 @@ def watch_video(driver, config, stop_event=None):
         if stop_event and stop_event.is_set():
             return
 
-        try:
-
-            driver.execute_script(
-                """
-                window.scrollBy(
-                    0,
-                    Math.floor(Math.random()*300)
-                );
-                """
-            )
-
-        except Exception:
-            pass
-
         random_sleep(
             config["timing"]["sleepMin"],
             config["timing"]["sleepMax"],
@@ -263,3 +255,37 @@ def watch_video(driver, config, stop_event=None):
         )
 
     print("Finished watching video.")
+    print("Returning to YouTube home...")
+    
+
+def go_to_home(driver, config, stop_event=None):
+    """
+    Return to YouTube home page by clicking the logo.
+    """
+    print("Inside go_to_home()")
+
+    try:
+
+        logo = wait_for_element(
+            driver,
+            YOUTUBE["youtubeLogo"],
+        )
+
+        print("YouTube logo Found.")
+
+        scroll_and_click(
+            driver,
+            logo,
+        )
+
+        print("YouTube logo clicked.")
+
+        random_sleep(
+            config["timing"]["sleepMin"],
+            config["timing"]["sleepMax"],
+            stop_event,
+        )
+
+    except Exception as error:
+
+        print(f"Failed to return to home page : {error}")

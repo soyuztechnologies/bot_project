@@ -23,6 +23,7 @@ from automation.youtube import (
     search_video,
     find_target_video,
     watch_video,
+    go_to_home,
 )
 
 _ACTIVE_DRIVERS = set()
@@ -69,7 +70,11 @@ def run_session(keywords, config, stop_event):
         if stop_event.is_set():
             return
 
-        open_youtube(driver)
+        open_youtube(
+                driver,
+                config,
+                stop_event,
+        )
 
         if stop_event.is_set():
           return
@@ -106,8 +111,17 @@ def run_session(keywords, config, stop_event):
               stop_event,
             )
 
+            if stop_event.is_set():
+             return
+
+            go_to_home(
+               driver,
+               config,
+               stop_event,
+            )
+
            else:
-            print("Target channel video not found.")
+              print("Target channel video not found.")
 
     except Exception as error:
 

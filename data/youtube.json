@@ -29,5 +29,10 @@
 "channelName": {
     "by": "CSS_SELECTOR",
     "value": "#channel-name a"
+},
+
+"youtubeLogo": {
+  "by": "CSS_SELECTOR",
+  "value": "a#logo"
 }
 }
