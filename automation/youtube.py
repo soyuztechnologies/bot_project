@@ -114,17 +114,33 @@ def get_video_title(video):
     )
 
 
+# def get_channel_name(video):
+#     """
+#     Return channel name.
+#     """
+
+#     channel_element = video.find_element(
+#         "css selector",
+#         YOUTUBE["channelName"]["value"],
+#     )
+
+#     return channel_element.text.strip()
+
 def get_channel_name(video):
     """
     Return channel name.
     """
 
-    channel_element = video.find_element(
-        "css selector",
-        YOUTUBE["channelName"]["value"],
-    )
+    try:
+        channel_element = video.find_element(
+            "css selector",
+            YOUTUBE["channelName"]["value"],
+        )
 
-    return channel_element.text.strip()
+        return channel_element.get_attribute("textContent").strip()
+
+    except Exception:
+        return ""
 
 def find_target_video(driver, config, stop_event=None):
     """

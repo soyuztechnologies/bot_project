@@ -49,7 +49,7 @@ def close_active_drivers():
         close_browser(driver)
 
 
-def run_session(keyword, config, stop_event):
+def run_session(keywords, config, stop_event):
     """
     Run one complete YouTube automation session.
     """
@@ -61,7 +61,7 @@ def run_session(keyword, config, stop_event):
         if stop_event.is_set():
             return
 
-        print(f"\nStarting YouTube Session : {keyword}")
+        print(f"\nStarting YouTube Session")
 
         driver = setup_browser(config)
         _register_driver(driver)
@@ -72,41 +72,47 @@ def run_session(keyword, config, stop_event):
         open_youtube(driver)
 
         if stop_event.is_set():
-            return
+          return
 
-        search_video(
-            driver,
-            keyword,
-            config,
-            stop_event,
-        )
+        for keyword in keywords:
 
-        if stop_event.is_set():
-            return
+           print(f"\nSearching keyword : {keyword}")
 
-        found = find_target_video(
-            driver,
-            config,
-            stop_event,
-        )
-
-        if stop_event.is_set():
-            return
-
-        if found:
-            print("Target channel video found.")
-            watch_video(
-                driver,
-                config,
-                stop_event,
+           search_video(
+             driver,
+             keyword,
+             config,
+             stop_event,
             )
-        else:
+
+           if stop_event.is_set():
+             return
+
+           found = find_target_video(
+             driver,
+             config,
+             stop_event,
+            )
+
+           if stop_event.is_set():
+            return
+
+           if found:
+            print("Target channel video found.")
+
+            watch_video(
+              driver,
+              config,
+              stop_event,
+            )
+
+           else:
             print("Target channel video not found.")
 
     except Exception as error:
 
-        if not stop_event.is_set():
-            print(f"YouTube Session Error ({keyword}) : {error}")
+     if not stop_event.is_set():
+        print(f"YouTube Session Error : {error}")
 
     finally:
 
@@ -115,25 +121,18 @@ def run_session(keyword, config, stop_event):
             close_browser(driver)
 
 
-def _session_worker(job_queue, config, stop_event):
+def _session_worker(keywords, config, stop_event):
+    """
+    Worker thread that runs one browser session.
+    """
 
-    while not stop_event.is_set():
+    print(f"Worker Started : {threading.current_thread().name}")
 
-        try:
-            keyword = job_queue.get_nowait()
-
-        except queue.Empty:
-            return
-
-        try:
-            run_session(
-                keyword,
-                config,
-                stop_event,
-            )
-
-        finally:
-            job_queue.task_done()
+    run_session(
+        keywords,
+        config,
+        stop_event,
+    )
 
 
 def start_parallel_sessions(keywords, config):
@@ -141,23 +140,15 @@ def start_parallel_sessions(keywords, config):
     Start multiple YouTube sessions in parallel.
     """
 
-    max_workers = min(
-        int(config["sessions"]["parallel"]),
-        len(keywords),
-    )
+    max_workers = int(config["sessions"]["parallel"])
 
     stop_event = threading.Event()
-
-    job_queue = queue.Queue()
-
-    for keyword in keywords:
-        job_queue.put(keyword)
 
     workers = [
         threading.Thread(
             target=_session_worker,
             args=(
-                job_queue,
+                keywords,
                 config,
                 stop_event,
             ),
@@ -171,10 +162,8 @@ def start_parallel_sessions(keywords, config):
         for worker in workers:
             worker.start()
 
-        while any(worker.is_alive() for worker in workers):
-
-            for worker in workers:
-                worker.join(timeout=0.2)
+        for worker in workers:
+            worker.join()
 
         return not stop_event.is_set()
 
@@ -183,15 +172,6 @@ def start_parallel_sessions(keywords, config):
         print("\nCtrl+C detected. Stopping automation...")
 
         stop_event.set()
-
-        while True:
-
-            try:
-                job_queue.get_nowait()
-                job_queue.task_done()
-
-            except queue.Empty:
-                break
 
         close_active_drivers()
 
