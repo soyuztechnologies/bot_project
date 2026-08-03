@@ -12,7 +12,7 @@ Supported search engines:
 All search engine settings are loaded from
 data/search_engines.json.
 """
-
+import base64
 from utils.helpers import human_typing, press_enter, random_sleep, scroll_and_click
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
@@ -73,7 +73,15 @@ def normalize_domain(domain: str) -> str:
 
 
 def extract_result_url(href: str) -> str:
-    """Extract the real destination URL from direct or wrapped result links."""
+    """
+    Extract the real destination URL from direct or wrapped result links.
+
+    Supports:
+    - Google
+    - Bing
+    - Yahoo
+    - DuckDuckGo
+    """
 
     if not href:
         return ""
@@ -85,12 +93,34 @@ def extract_result_url(href: str) -> str:
 
     query_values = parse_qs(parsed.query)
 
-    for key in ("q", "url", "u", "uddg"):
+    # Google / Yahoo / DuckDuckGo
+    for key in ("q", "url", "uddg"):
         value = query_values.get(key, [""])[0]
 
         if value.startswith(("http://", "https://")):
             return unquote(value)
 
+    # Bing redirect URL
+    u = query_values.get("u", [""])[0]
+
+    if u:
+        try:
+            # Bing prefixes base64 string with "a1"
+            if u.startswith("a1"):
+                u = u[2:]
+
+            # Fix missing padding
+            u += "=" * (-len(u) % 4)
+
+            decoded = base64.b64decode(u).decode("utf-8", errors="ignore")
+
+            if decoded.startswith(("http://", "https://")):
+                return decoded
+
+        except Exception:
+            pass
+
+    # Already a direct URL
     return href
 
 

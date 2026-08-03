@@ -175,7 +175,6 @@ def main():
     print(f"Total Sessions : {stats['total']}")
     print(f"Success        : {stats['success']}")
     print(f"Failed         : {stats['failed']}")
-    print(f"Success Rate   : {stats['success_rate']}%")
 
 
 if __name__ == "__main__":

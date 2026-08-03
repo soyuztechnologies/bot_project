@@ -198,11 +198,6 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
             for worker in workers:
                 worker.join(timeout=0.2)
 
-        stats["success_rate"] = round(
-            (stats["success"] / stats["total"]) * 100,
-            2,
-        ) if stats["total"] else 0
-
         return stats
 
     except KeyboardInterrupt:
@@ -222,9 +217,5 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
             worker.join(timeout=2)
 
         print("Automation stopped.")
-        stats["success_rate"] = round(
-            (stats["success"] / stats["total"]) * 100,
-            2,
-        ) if stats["total"] else 0
 
         return stats
