@@ -1,7 +1,7 @@
 {
   "browser": {
     "name": "chrome",
-    "mode": "headed",
+    "mode": "headless",
     "maximize": true
   },
 
@@ -16,7 +16,14 @@
   },
 
   "website": {
-    "domain": "anubhavtrainings.com"
+    "domain": "anubhavtrainings.com",
+    "internal_links": {
+      "enabled": true,
+      "max_to_visit": 3,
+      "selectors": [
+        "//wix-dropdown-menu//a"
+      ]
+    }
   },
 
   "timing": {

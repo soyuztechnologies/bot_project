@@ -74,6 +74,8 @@ def validate_config(config, keywords, search_engines):
     for engine_name in engine_names:
         validate_search_engine(engine_name, search_engines[engine_name])
 
+    validate_website_config(config["website"])
+
     parallel_sessions = int(config["sessions"].get("parallel", 1))
 
     if parallel_sessions < 1:
@@ -112,6 +114,33 @@ def validate_search_engine(engine_name, engine):
             )
 
 
+def validate_website_config(website_config):
+    """Validate the 'website' section of the config."""
+    if not website_config.get("domain"):
+        raise ValueError("website.domain must be configured with your target domain.")
+
+    if "internal_links" in website_config:
+        internal_links_config = website_config["internal_links"]
+
+        if not isinstance(internal_links_config.get("enabled"), bool):
+            raise ValueError(
+                "website.internal_links.enabled must be a boolean (true/false)."
+            )
+
+        if internal_links_config.get("enabled"):
+            max_to_visit = internal_links_config.get("max_to_visit")
+            if not isinstance(max_to_visit, int) or max_to_visit < 0:
+                raise ValueError(
+                    "website.internal_links.max_to_visit must be a non-negative integer."
+                )
+
+            selectors = internal_links_config.get("selectors")
+            if not isinstance(selectors, list) or not selectors:
+                raise ValueError(
+                    "website.internal_links.selectors must be a non-empty list of XPath selectors."
+                )
+
+
 def get_search_engine_names(config, search_engines):
     """Return the configured search engines to rotate across sessions."""
 
@@ -139,6 +168,38 @@ def get_search_engine_names(config, search_engines):
     return list(search_engines.keys())
 
 
+def print_summary(stats, config):
+    """Prints a formatted summary of the automation results."""
+    success_sessions = stats.get("success", [])
+    failed_sessions = stats.get("failed", [])
+    total_sessions = stats.get("total", len(success_sessions) + len(failed_sessions))
+    success_count = len(success_sessions)
+    failed_count = len(failed_sessions)
+
+    # Sort for consistent output
+    success_sessions.sort(key=lambda x: x["keyword"])
+    failed_sessions.sort(key=lambda x: x["keyword"])
+
+    print("\n" + "=" * 50)
+    print(" Session Summary ".center(50, "="))
+    print()
+
+    for session in success_sessions:
+        print(f"✓ {session['keyword']:<30} [{session['engine']}]")
+
+    if success_sessions and failed_sessions:
+        print()
+
+    for session in failed_sessions:
+        print(f"✗ {session['keyword']:<30} [{session['engine']}]")
+
+    print("\n" + "-" * 50)
+    print(f"Total   : {total_sessions}")
+    print(f"Success : {success_count}")
+    print(f"Failed  : {failed_count}")
+    print("=" * 50)
+
+
 def main():
     print("=" * 50)
     print("Automation Project Started")
@@ -157,6 +218,7 @@ def main():
 
     print(f"Project Path      : {BASE_DIR}")
     print(f"Search Engines    : {', '.join(engine_names)}")
+    print(f"Browser Mode      : {config['browser']['mode'].capitalize()}")
     print(f"Parallel Sessions : {config['sessions']['parallel']}")
     print(f"Keywords          : {len(keywords)}")
 
@@ -168,14 +230,7 @@ def main():
         engine_names,
     )
 
-    print("=" * 50)
-    print("Automation Completed")
-    print("=" * 50)
-
-    print(f"Total Sessions : {stats['total']}")
-    print(f"Success        : {stats['success']}")
-    print(f"Failed         : {stats['failed']}")
-
+    print_summary(stats, config)
 
 if __name__ == "__main__":
     main()

@@ -16,6 +16,9 @@ Responsibilities:
 import queue
 import threading
 import random
+import time
+
+from selenium.webdriver.common.by import By
 
 from browser.browser import setup_browser, close_browser
 from automation.search_engine import (
@@ -48,6 +51,64 @@ def close_active_drivers():
 
     for driver in drivers:
         close_browser(driver)
+
+
+def _click_internal_links(driver, config, stop_event):
+    """Finds and navigates to internal links on the website."""
+    internal_links_config = config.get("website", {}).get("internal_links", {})
+
+    if not internal_links_config.get("enabled"):
+        return
+
+    if stop_event.is_set():
+        return
+
+    print("Searching for internal links to visit...")
+
+    max_to_visit = internal_links_config.get("max_to_visit", 0)
+    selectors = internal_links_config.get("selectors", [])
+    target_domain = config["website"]["domain"]
+
+    if max_to_visit <= 0 or not selectors or not target_domain:
+        return
+
+    # Use a set to avoid duplicate URLs
+    link_urls = set()
+    for selector in selectors:
+        if stop_event.is_set():
+            return
+        try:
+            elements = driver.find_elements(By.XPATH, selector)
+            for element in elements:
+                href = element.get_attribute("href")
+                # Ensure the link is valid and internal
+                if href and target_domain in href:
+                    link_urls.add(href)
+        except Exception as e:
+            print(f"Warning: Error finding links with selector '{selector}': {e}")
+
+    if not link_urls:
+        print("No internal links found to visit.")
+        return
+
+    # Get a random sample of links to visit
+    links_to_visit = random.sample(list(link_urls), min(len(link_urls), max_to_visit))
+
+    print(f"Found {len(links_to_visit)} internal link(s) to visit.")
+
+    for url in links_to_visit:
+        if stop_event.is_set():
+            return
+
+        try:
+            print(f"Visiting internal link: {url}")
+            driver.get(url)
+            # Simulate user reading the page
+            min_sleep = config["timing"]["sleepMin"]
+            max_sleep = config["timing"]["sleepMax"]
+            time.sleep(random.uniform(min_sleep, max_sleep))
+        except Exception as e:
+            print(f"Error visiting internal link {url}: {e}")
 
 
 def run_session(keyword, config, engine_name, engine, stop_event, stats):
@@ -102,21 +163,22 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
             print(f"Website found. [{engine_name}]")
 
             with _STATS_LOCK:
-                stats["success"] += 1
+                stats["success"].append({"keyword": keyword, "engine": engine_name})
 
             visit_website(driver, config, stop_event)
+            _click_internal_links(driver, config, stop_event)
 
         else:
             print(f"Website not found. [{engine_name}]")
 
             with _STATS_LOCK:
-                stats["failed"] += 1
+                stats["failed"].append({"keyword": keyword, "engine": engine_name})
 
     except Exception as error:
             if not stop_event.is_set():
                 
                 with _STATS_LOCK:
-                    stats["failed"] += 1
+                    stats["failed"].append({"keyword": keyword, "engine": engine_name})
 
                 print(f"Session Error ({keyword} | {engine_name}): {error}")
 
@@ -171,8 +233,8 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
 
     stats = {
         "total": len(jobs),
-        "success": 0,
-        "failed": 0
+        "success": [],
+        "failed": [],
     }
     max_workers = min(int(config["sessions"]["parallel"]), len(keywords))
     stop_event = threading.Event()
