@@ -10,9 +10,13 @@ Responsibilities:
 """
 
 import json
+import logging
 from pathlib import Path
 from automation.session import start_parallel_sessions
+from utils.logger import setup_logger
 
+
+logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -180,10 +184,11 @@ def print_summary(stats, config):
     success_sessions.sort(key=lambda x: x["keyword"])
     failed_sessions.sort(key=lambda x: x["keyword"])
 
-    print("\n" + "=" * 50)
-    print(" Session Summary ".center(50, "="))
-    print()
+    # Use a mix of logger and print for a clean summary report
+    logger.info("\n" + "=" * 50)
+    logger.info(" Session Summary ".center(50, "="))
 
+    # Using print here for the list to avoid logger's timestamp/level prefixes
     for session in success_sessions:
         print(f"✓ {session['keyword']:<30} [{session['engine']}]")
 
@@ -193,17 +198,19 @@ def print_summary(stats, config):
     for session in failed_sessions:
         print(f"✗ {session['keyword']:<30} [{session['engine']}]")
 
-    print("\n" + "-" * 50)
-    print(f"Total   : {total_sessions}")
-    print(f"Success : {success_count}")
-    print(f"Failed  : {failed_count}")
-    print("=" * 50)
+    logger.info("\n" + "-" * 50)
+    logger.info(f"Browser Mode: {config['browser']['mode'].capitalize()}")
+    logger.info(f"Total   : {total_sessions}")
+    logger.info(f"Success : {success_count}")
+    logger.info(f"Failed  : {failed_count}")
+    logger.info("=" * 50)
 
 
 def main():
-    print("=" * 50)
-    print("Automation Project Started")
-    print("=" * 50)
+    setup_logger()
+    logger.info("=" * 50)
+    logger.info("Automation Project Started")
+    logger.info("=" * 50)
 
     # Load main config
     config = load_json(BASE_DIR / "config.json")
@@ -216,11 +223,11 @@ def main():
 
     engine_names = get_search_engine_names(config, search_engines)
 
-    print(f"Project Path      : {BASE_DIR}")
-    print(f"Search Engines    : {', '.join(engine_names)}")
-    print(f"Browser Mode      : {config['browser']['mode'].capitalize()}")
-    print(f"Parallel Sessions : {config['sessions']['parallel']}")
-    print(f"Keywords          : {len(keywords)}")
+    logger.info(f"Project Path      : {BASE_DIR}")
+    logger.info(f"Search Engines    : {', '.join(engine_names)}")
+    logger.info(f"Browser Mode      : {config['browser']['mode'].capitalize()}")
+    logger.info(f"Parallel Sessions : {config['sessions']['parallel']}")
+    logger.info(f"Keywords          : {len(keywords)}")
 
     # Start automation
     stats = start_parallel_sessions(

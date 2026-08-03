@@ -12,7 +12,7 @@ Responsibilities:
 6. Run multiple sessions in parallel.
 7. Stop running sessions cleanly on Ctrl+C.
 """
-
+import logging
 import queue
 import threading
 import random
@@ -27,6 +27,8 @@ from automation.search_engine import (
     find_target_website,
 )
 from automation.website import visit_website
+
+logger = logging.getLogger(__name__)
 
 _ACTIVE_DRIVERS = set()
 _ACTIVE_DRIVERS_LOCK = threading.Lock()
@@ -63,7 +65,7 @@ def _click_internal_links(driver, config, stop_event):
     if stop_event.is_set():
         return
 
-    print("Searching for internal links to visit...")
+    logger.info("Searching for internal links to visit...")
 
     max_to_visit = internal_links_config.get("max_to_visit", 0)
     selectors = internal_links_config.get("selectors", [])
@@ -85,30 +87,30 @@ def _click_internal_links(driver, config, stop_event):
                 if href and target_domain in href:
                     link_urls.add(href)
         except Exception as e:
-            print(f"Warning: Error finding links with selector '{selector}': {e}")
+            logger.warning(f"Error finding links with selector '{selector}': {e}")
 
     if not link_urls:
-        print("No internal links found to visit.")
+        logger.info("No internal links found to visit.")
         return
 
     # Get a random sample of links to visit
     links_to_visit = random.sample(list(link_urls), min(len(link_urls), max_to_visit))
 
-    print(f"Found {len(links_to_visit)} internal link(s) to visit.")
+    logger.info(f"Found {len(links_to_visit)} internal link(s) to visit.")
 
     for url in links_to_visit:
         if stop_event.is_set():
             return
 
         try:
-            print(f"Visiting internal link: {url}")
+            logger.info(f"Visiting internal link: {url}")
             driver.get(url)
             # Simulate user reading the page
             min_sleep = config["timing"]["sleepMin"]
             max_sleep = config["timing"]["sleepMax"]
             time.sleep(random.uniform(min_sleep, max_sleep))
         except Exception as e:
-            print(f"Error visiting internal link {url}: {e}")
+            logger.error(f"Error visiting internal link {url}: {e}")
 
 
 def run_session(keyword, config, engine_name, engine, stop_event, stats):
@@ -129,7 +131,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
         if stop_event.is_set():
             return
 
-        print(f"Starting session for: {keyword} [{engine_name}]")
+        logger.info(f"Starting session for: {keyword} [{engine_name}]")
 
         driver = setup_browser(config)
         _register_driver(driver)
@@ -160,16 +162,16 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
             return
 
         if found:
-            print(f"Website found. [{engine_name}]")
-
-            with _STATS_LOCK:
-                stats["success"].append({"keyword": keyword, "engine": engine_name})
+            logger.info(f"Website found for '{keyword}' on {engine_name}.")
 
             visit_website(driver, config, stop_event)
             _click_internal_links(driver, config, stop_event)
 
+            with _STATS_LOCK:
+                stats["success"].append({"keyword": keyword, "engine": engine_name})
+
         else:
-            print(f"Website not found. [{engine_name}]")
+            logger.warning(f"Website not found for '{keyword}' on {engine_name}.")
 
             with _STATS_LOCK:
                 stats["failed"].append({"keyword": keyword, "engine": engine_name})
@@ -180,7 +182,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
                 with _STATS_LOCK:
                     stats["failed"].append({"keyword": keyword, "engine": engine_name})
 
-                print(f"Session Error ({keyword} | {engine_name}): {error}")
+                logger.error(f"Session Error ({keyword} | {engine_name})", exc_info=True)
 
     finally:
         if driver:
@@ -198,7 +200,7 @@ def _session_worker(job_queue, config, stop_event, stats):
         try:
             run_session(keyword, config, engine_name, engine, stop_event, stats)
         except Exception as error:
-            print(f"Session Error: {error}")
+            logger.error(f"Unhandled error in session worker: {error}", exc_info=True)
         finally:
             job_queue.task_done()
 
@@ -252,32 +254,23 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
     for _ in range(max_workers)
     ]
 
+    for worker in workers:
+        worker.start()
+
     try:
-        for worker in workers:
-            worker.start()
-
-        while any(worker.is_alive() for worker in workers):
-            for worker in workers:
-                worker.join(timeout=0.2)
-
-        return stats
-
+        # Block until all jobs are processed
+        job_queue.join()
     except KeyboardInterrupt:
-        print("\nCtrl+C detected. Stopping all browser sessions...")
+        logger.info("\nCtrl+C detected. Stopping all browser sessions...")
         stop_event.set()
 
-        while True:
-            try:
-                job_queue.get_nowait()
-                job_queue.task_done()
-            except queue.Empty:
-                break
-
+    finally:
+        # This ensures cleanup happens whether jobs complete or are interrupted
+        stop_event.set()
         close_active_drivers()
-
         for worker in workers:
             worker.join(timeout=2)
+        if stop_event.is_set():
+            logger.info("Automation stopped.")
 
-        print("Automation stopped.")
-
-        return stats
+    return stats
