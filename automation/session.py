@@ -259,7 +259,9 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
 
     try:
         # Block until all jobs are processed
-        job_queue.join()
+        # Use a loop with a sleep to make it interruptible by Ctrl+C
+        while job_queue.unfinished_tasks > 0:
+            time.sleep(0.5)
     except KeyboardInterrupt:
         logger.info("\nCtrl+C detected. Stopping all browser sessions...")
         stop_event.set()
