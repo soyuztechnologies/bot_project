@@ -1,9 +1,12 @@
 {
-  "browser": {
-    "name": "chrome",
-    "mode": "headed",
-    "maximize": true
-  },
+ "browser": {
+  "mode": "headed",
+  "maximize": true,
+
+  "browsers": [
+    "chrome"
+  ]
+},
 
   "sessions": {
     "parallel": 4,
@@ -23,8 +26,19 @@
     "targetChannel": "Anubhav Trainings",
     "watchTimeMin": 20,
     "watchTimeMax": 40,
-    "maxScrolls": 10
+    "maxScrolls": 10,
+
+     "browserRestartAfterKeywords": 50,
+  "browserRestartDelay": 10,
+
+  "cycleDelay": 300,
+
+  "healthCheckInterval": 180,
+
+  "retryCount": 3
   },
+
+  
   "timing": {
     "typingMin": 0.10,
     "typingMax": 0.25,

@@ -8,6 +8,21 @@ across the entire automation project.
 import random
 import time
 
+from selenium.webdriver.common.action_chains import ActionChains
+
+def move_to_element(driver, element, stop_event=None):
+    """
+    Move mouse to an element like a human.
+    """
+
+    actions = ActionChains(driver)
+
+    actions.move_to_element(element).pause(
+        random.uniform(0.3, 1.2)
+    ).perform()
+
+    random_sleep(0.2, 0.8, stop_event)
+
 
 def random_sleep(min_seconds: float, max_seconds: float, stop_event=None) -> None:
     """

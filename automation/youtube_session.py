@@ -15,6 +15,7 @@ Responsibilities:
 
 import queue
 import threading
+import time
 
 from browser.browser import setup_browser, close_browser
 
@@ -24,7 +25,10 @@ from automation.youtube import (
     find_target_video,
     watch_video,
     go_to_home,
+    close_mini_player,
 )
+
+from utils.logger import write_log
 
 _ACTIVE_DRIVERS = set()
 _ACTIVE_DRIVERS_LOCK = threading.Lock()
@@ -50,19 +54,51 @@ def close_active_drivers():
         close_browser(driver)
 
 
-def run_session(keywords, config, stop_event):
+def retry_operation(operation, retries=3, delay=3):
+    """
+    Retry an operation before giving up.
+    """
+
+    for attempt in range(1, retries + 1):
+
+        try:
+            result = operation()
+
+            # Success
+            return True, result
+
+        except Exception as error:
+
+            print(
+                f"Retry {attempt}/{retries} failed : {error}"
+            )
+
+            if attempt < retries:
+                time.sleep(delay)
+
+    return False, None
+
+
+def run_session( keywords, config, stop_event):
     """
     Run one complete YouTube automation session.
     """
 
     driver = None
 
+    browser_name = threading.current_thread().name.replace("Thread-", "Browser-")
+
     try:
 
         if stop_event.is_set():
             return
 
-        print(f"\nStarting YouTube Session")
+        print(f"\n[{browser_name}] Starting YouTube Session")
+
+        write_log(
+          browser_name,
+          "Session Started"
+        )
 
         driver = setup_browser(config)
         _register_driver(driver)
@@ -81,29 +117,45 @@ def run_session(keywords, config, stop_event):
 
         for keyword in keywords:
 
-           print(f"\nSearching keyword : {keyword}")
+           print(f"\n[{browser_name}] Searching keyword : {keyword}")
 
-           search_video(
-             driver,
-             keyword,
-             config,
-             stop_event,
+           success, _ = retry_operation(
+                lambda: search_video(
+                        driver,
+                        keyword,
+                        config,
+                        stop_event,
+                )
             )
+
+           if not success:
+             print(
+              f"[{browser_name}] Failed to search keyword : {keyword}"
+            )
+             continue
 
            if stop_event.is_set():
              return
 
-           found = find_target_video(
-             driver,
-             config,
-             stop_event,
+           success, found = retry_operation(
+                  lambda: find_target_video(
+                        driver,
+                        config,
+                        stop_event,
+                     )
             )
+
+           if not success:
+              print(
+                   f"[{browser_name}] Failed while finding target video."
+            )
+              continue
 
            if stop_event.is_set():
             return
 
            if found:
-            print("Target channel video found.")
+            print(f"[{browser_name}] Target channel video found.")
 
             watch_video(
               driver,
@@ -120,19 +172,23 @@ def run_session(keywords, config, stop_event):
                stop_event,
             )
 
+            close_mini_player(driver)
+
            else:
-              print("Target channel video not found.")
+             print(f"[{browser_name}] Target channel video not found.")
 
     except Exception as error:
 
      if not stop_event.is_set():
-        print(f"YouTube Session Error : {error}")
+        print(f"[{browser_name}] YouTube Session Error : {error}")
 
     finally:
-
-        if driver:
-            _unregister_driver(driver)
+ 
+     if driver:
+        try:
             close_browser(driver)
+        finally:
+            _unregister_driver(driver)
 
 
 def _session_worker(keywords, config, stop_event):
@@ -155,10 +211,15 @@ def start_parallel_sessions(keywords, config):
     """
 
     max_workers = int(config["sessions"]["parallel"])
+    browsers = config["browser"]["browsers"]
 
     stop_event = threading.Event()
 
-    workers = [
+    workers = []
+
+    for i in range(max_workers):
+
+     workers.append(
         threading.Thread(
             target=_session_worker,
             args=(
@@ -167,9 +228,9 @@ def start_parallel_sessions(keywords, config):
                 stop_event,
             ),
             daemon=True,
+            name=f"Thread-{i + 1}",
         )
-        for _ in range(max_workers)
-    ]
+    )
 
     try:
 
@@ -183,15 +244,15 @@ def start_parallel_sessions(keywords, config):
 
     except KeyboardInterrupt:
 
-        print("\nCtrl+C detected. Stopping automation...")
+     print("\nCtrl+C detected. Stopping automation...")
 
-        stop_event.set()
+     stop_event.set()
 
-        close_active_drivers()
+    # close_active_drivers()   <-- Is line ko comment kar do
 
-        for worker in workers:
-            worker.join(timeout=2)
+     for worker in workers:
+        worker.join()
 
-        print("Automation stopped.")
+     print("Automation stopped.")
 
-        return False
+     return False
