@@ -1,0 +1,38 @@
+{
+  "url": "https://www.youtube.com",
+
+  "targetChannel": "Anubhav Trainings",
+
+  "courses": [
+    "SAP Generative AI on SAP BTP Training",
+    "SAP BTP Cloud Workflow Training and process management on Business Application Studio",
+    "(CAPM) Business Technology Platform- Business Technology Platform Training (BTP)",
+    "ABAP on Cloud, Embedded Steampunk, RAP model with SAP BTP and S/4HANA",
+    "Analytics Cloud Training"
+  ],
+
+  "searchBox": {
+    "by": "NAME",
+    "value": "search_query"
+  },
+
+  "videoCards": {
+    "by": "CSS_SELECTOR",
+    "value": "ytd-video-renderer"
+  },
+
+  "videoTitle": {
+    "by": "CSS_SELECTOR",
+    "value": "#video-title"
+},
+
+"channelName": {
+    "by": "CSS_SELECTOR",
+    "value": "#channel-name a"
+},
+
+"youtubeLogo": {
+  "by": "CSS_SELECTOR",
+  "value": "a#logo"
+}
+}

@@ -2,7 +2,8 @@
   "browser": {
     "name": "chrome",
     "mode": "headless",
-    "maximize": true
+    "maximize": true,
+    "browsers": ["chrome"]
   },
 
   "sessions": {
@@ -20,18 +21,32 @@
     "internal_links": {
       "enabled": true,
       "max_to_visit": 3,
-      "selectors": [
-        "//wix-dropdown-menu//a"
-      ]
+      "selectors": ["//wix-dropdown-menu//a"]
     }
   },
 
-  "timing": {
-    "typingMin": 0.05,
-    "typingMax": 0.15,
+  "youtube": {
+    "targetChannel": "Anubhav Trainings",
+    "watchTimeMin": 20,
+    "watchTimeMax": 40,
+    "maxScrolls": 10,
 
-    "sleepMin": 1,
-    "sleepMax": 3,
+    "browserRestartAfterKeywords": 50,
+    "browserRestartDelay": 10,
+
+    "cycleDelay": 300,
+
+    "healthCheckInterval": 180,
+
+    "retryCount": 3
+  },
+
+  "timing": {
+    "typingMin": 0.1,
+    "typingMax": 0.25,
+
+    "sleepMin": 2,
+    "sleepMax": 4,
 
     "scrollMin": 2,
     "scrollMax": 5
