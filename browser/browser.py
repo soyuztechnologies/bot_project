@@ -26,12 +26,21 @@ def setup_browser(config: dict):
         seleniumbase Driver instance.
     """
     with _BROWSER_START_LOCK:
-        # Dynamically handle mode
-        if config["browser"].get("mode") == "headless":
-            driver = Driver(uc=True, headless=True)
-        else:    
-            driver = Driver(uc=True, headless=False)    
-        
+
+     if config["browser"].get("mode") == "headless":
+        driver = Driver(
+            uc=True,
+            headless=True,
+            chromium_arg="--mute-audio"
+        )
+
+     else:
+        driver = Driver(
+            uc=True,
+            headless=False,
+            chromium_arg="--mute-audio"
+        )   
+       
     # Maximize browser if enabled
     if config["browser"].get("maximize", True):
         driver.maximize_window()
