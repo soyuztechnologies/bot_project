@@ -1,15 +1,15 @@
 # SEO & YouTube Automation Bot
- 
-A Python-based browser automation framework built using **SeleniumBase** for automating both Search Engine and YouTube workflows.
- 
-The project is configuration-driven and supports multiple browser sessions running in parallel with human-like interactions.
- 
+
+A Python-based browser automation framework built using **SeleniumBase** for automating both **Search Engine** and **YouTube** workflows.
+
+The framework is configuration-driven, supports parallel browser sessions, human-like interactions, and can be executed either locally or through Docker.
+
 ---
- 
+
 # Features
- 
+
 ## Search Engine Automation
- 
+
 - Google
 - Bing
 - Yahoo
@@ -19,28 +19,39 @@ The project is configuration-driven and supports multiple browser sessions runni
 - Website visit automation
 - Internal page navigation
 - Parallel browser sessions
-- Configurable search engines
 - Human-like typing and scrolling
- 
+- Configurable search engines
+
 ---
- 
+
 ## YouTube Automation
- 
+
 - Search videos using keywords
-- Detect videos and YouTube courses
 - Find videos from the configured target channel
+- Support for videos and YouTube courses
 - Watch videos for random durations
-- Automatically return to YouTube home
-- Close mini player automatically
+- Automatically return to YouTube Home
+- Close Mini Player automatically
 - Retry failed operations
-- Continuous execution (24×7)
 - Parallel browser sessions
 - Human-like scrolling and interaction
- 
+
 ---
- 
+
+## General Features
+
+- Configuration-driven architecture
+- Multi-threaded browser sessions
+- JSON-based configuration
+- Docker support
+- Interactive launcher
+- Automatic logging
+- Modular project structure
+
+---
+
 # Project Structure
- 
+
 ```text
 bot_project/
 │
@@ -63,268 +74,283 @@ bot_project/
 │   ├── helpers.py
 │   └── logger.py
 │
-├── config.json
+├── launcher.py
 ├── main.py
 ├── youtube_main.py
+├── config.json
+├── Dockerfile
+├── .dockerignore
 ├── requirements.txt
 └── README.md
 ```
- 
+
 ---
- 
+
 # Requirements
- 
+
 - Python 3.10+
 - Google Chrome
 - Internet Connection
- 
-Python packages:
- 
+
+Install Python packages:
+
 ```bash
 pip install -r requirements.txt
 ```
- 
-Install ChromeDriver once if required:
- 
+
+Install ChromeDriver (only once if required):
+
 ```bash
 seleniumbase install chromedriver
 ```
- 
+
 ---
- 
-# Setup
- 
+
+# Local Setup
+
 Clone the repository
- 
+
 ```bash
 git clone <repository-url>
 cd bot_project
 ```
- 
-Create virtual environment
- 
-### Windows
- 
+
+### Create Virtual Environment
+
+#### Windows
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
 ```
- 
-### Linux/macOS
- 
+
+#### Linux / macOS
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
- 
+
 Install dependencies
- 
+
 ```bash
 pip install -r requirements.txt
 ```
- 
+
 ---
- 
+
+# Running the Project (Without Docker)
+
+## Website Automation
+
+```bash
+python main.py
+```
+
+## YouTube Automation
+
+```bash
+python youtube_main.py
+```
+
+---
+
+# Docker Setup
+
+The project supports both Website Automation and YouTube Automation using a **single Docker image**.
+
+## Build Docker Image
+
+```bash
+docker build -t seo-bot .
+```
+
+## Run Docker Container
+
+```bash
+docker run -it --rm seo-bot
+```
+
+After starting the container, an interactive launcher will be displayed.
+
+```text
+==================================================
+            SEO AUTOMATION BOT
+==================================================
+
+1. Website Automation
+2. YouTube Automation
+
+Enter your choice:
+```
+
+Choose the required automation and it will start automatically.
+
+---
+
 # Configuration
- 
-The project uses configuration files instead of hardcoded values.
- 
+
+The framework is completely configuration-driven.
+
 ## config.json
- 
-Contains
- 
+
+Contains:
+
 - Browser configuration
-- Parallel sessions
-- Search engine settings
-- Website settings
-- YouTube settings
-- Timing values
- 
+- Parallel session settings
+- Search engine configuration
+- Website configuration
+- YouTube configuration
+- Timing configuration
+
+---
+
 ## search_engines.json
- 
-Contains
- 
+
+Contains:
+
 - Search engine URLs
 - Search box locators
 - Result locators
 - Next page locators
- 
+
+---
+
 ## youtube.json
- 
-Contains
- 
+
+Contains:
+
 - YouTube URL
 - Target channel
 - Search box locator
-- Video locators
-- Channel locators
+- Video locator
+- Channel locator
 - Logo locator
- 
+
+---
+
 ## keywords.json
- 
-Contains the list of keywords used for automation.
- 
+
+Contains the list of keywords used during automation.
+
 ---
- 
-# Entry Points
- 
-This project contains **two independent automation modules**.
- 
----
- 
-## 1. Search Engine Automation
- 
-Entry Point
- 
-```bash
-python main.py
-```
- 
-Workflow
- 
-```
-Load Config
-      ↓
+
+# Automation Workflow
+
+## Website Automation
+
+```text
+Load Configuration
+        │
+        ▼
 Load Keywords
-      ↓
+        │
+        ▼
 Open Search Engine
-      ↓
+        │
+        ▼
 Search Keyword
-      ↓
+        │
+        ▼
 Find Target Website
-      ↓
+        │
+        ▼
 Visit Website
-      ↓
+        │
+        ▼
 Visit Internal Links
-      ↓
+        │
+        ▼
 Close Browser
 ```
- 
-Supported search engines
- 
-- Google
-- Bing
-- Yahoo
-- DuckDuckGo
- 
+
 ---
- 
-## 2. YouTube Automation
- 
-Entry Point
- 
-```bash
-python youtube_main.py
-```
- 
-Workflow
- 
-```
-Load Config
-      ↓
+
+## YouTube Automation
+
+```text
+Load Configuration
+        │
+        ▼
 Load Keywords
-      ↓
-Open YouTube
-      ↓
+        │
+        ▼
+Open Search Engine
+        │
+        ▼
 Search Keyword
-      ↓
+        │
+        ▼
+Open YouTube Result
+        │
+        ▼
 Find Target Channel Video
-      ↓
+        │
+        ▼
 Watch Video
-      ↓
+        │
+        ▼
 Return to Home
-      ↓
-Repeat for Next Keyword
 ```
- 
-The YouTube module automatically restarts after each cycle, making it suitable for long-running deployments.
- 
+
 ---
- 
+
 # Parallel Sessions
- 
-Number of browser sessions is controlled from:
- 
+
+The number of browser sessions is configurable.
+
+Example:
+
 ```json
 "sessions": {
     "parallel": 4
 }
 ```
- 
+
 Each browser runs independently in its own thread.
- 
+
 ---
- 
-# Running the Project
- 
-## Search Engine Automation
- 
-```bash
-python main.py
-```
- 
----
- 
-## YouTube Automation
- 
-```bash
-python youtube_main.py
-```
- 
----
- 
-# Continuous Execution
- 
-The YouTube automation supports continuous execution.
- 
-Features include:
- 
-- Automatic restart after every cycle
-- Configurable cycle delay
-- Retry mechanism for failed operations
-- Parallel browser sessions
-- Suitable for Windows Task Scheduler deployment
-- Graceful shutdown on interruption
- 
----
- 
+
 # Configuration Files
- 
+
 | File | Purpose |
-|------|----------|
+|------|---------|
 | config.json | Global project configuration |
 | keywords.json | Search keywords |
 | search_engines.json | Search engine configuration |
-| youtube.json | YouTube configuration |
- 
+| youtube.json | YouTube automation configuration |
+
 ---
- 
+
 # Technologies Used
- 
+
 - Python
 - SeleniumBase
 - Selenium WebDriver
 - Google Chrome
 - Threading
-- JSON Configuration
- 
+- JSON
+- Docker
+
 ---
- 
+
 # Future Enhancements
- 
+
 - Human-like mouse movement
 - Random video interactions
 - Recommended video navigation
-- Support for additional browsers
-- Advanced activity logging
-- Improved anti-detection behavior
- 
+- Additional browser support
+- Improved anti-detection behaviour
+- Enhanced activity logging
+- Docker Compose support
+- Task Scheduler / Cron integration
+
 ---
- 
+
 # Notes
- 
-- Do not commit `.venv/`
+
+- Do not commit the `.venv/` directory.
 - Do not commit browser cache or temporary files.
 - Search engine and YouTube page structures may change over time.
-- Locator updates may occasionally be required.
-- SeleniumBase automatically manages compatible ChromeDriver versions.
+- Update element locators whenever required.
+- SeleniumBase automatically manages the compatible ChromeDriver version.
