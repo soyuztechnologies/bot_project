@@ -1,7 +1,7 @@
 {
   "browser": {
     "name": "chrome",
-    "mode": "headless",
+    "mode": "headed",
     "maximize": true,
     "browsers": ["chrome"]
   },

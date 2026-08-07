@@ -12,9 +12,14 @@ Responsibilities:
 import json
 import logging
 from pathlib import Path
+from dotenv import load_dotenv
 from automation.session import start_parallel_sessions
+from utils.database import check_db_connection
 from utils.logger import setup_logger
 
+
+# Load environment variables from .env file
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
@@ -211,6 +216,9 @@ def main():
     logger.info("=" * 50)
     logger.info("Automation Project Started")
     logger.info("=" * 50)
+
+    # Check database connection at startup and set fallback if needed
+    check_db_connection()
 
     # Load main config
     config = load_json(BASE_DIR / "config.json")
