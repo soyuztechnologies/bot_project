@@ -80,3 +80,5 @@ instance/
 # ==========================================
 .DS_Store
 Thumbs.db
+
+downloaded_files/

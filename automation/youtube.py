@@ -11,12 +11,16 @@ Responsibilities:
 """
 
 import json
+import random
+import time
+
 from pathlib import Path
 from selenium.webdriver.common.by import By
 
+from selenium.webdriver.common.keys import Keys
+
 from automation.search_engine import (
     wait_for_element,
-    wait_for_elements,
 )
 
 from utils.helpers import (
@@ -49,13 +53,28 @@ def open_youtube(driver, config, stop_event=None):
     Open YouTube home page.
     """
 
+    if stop_event and stop_event.is_set():
+        return False
+
+    print("Opening YouTube...")
+
     driver.get(YOUTUBE["url"])
+
+    if stop_event and stop_event.is_set():
+        return False
 
     random_sleep(
         config["timing"]["sleepMin"],
         config["timing"]["sleepMax"],
         stop_event,
     )
+
+    if stop_event and stop_event.is_set():
+        return False
+
+    print("YouTube opened successfully.")
+
+    return True
 
 
 def search_video(driver, keyword, config, stop_event=None):
@@ -68,14 +87,22 @@ def search_video(driver, keyword, config, stop_event=None):
         YOUTUBE["searchBox"],
     )
 
-    search_box.clear()
+    search_box.click()
+
+    search_box.send_keys(Keys.CONTROL, "a")
+
+    random_sleep(0.2, 0.4, stop_event)
+
+    search_box.send_keys(Keys.DELETE)
+
+    random_sleep(0.2, 0.4, stop_event)
 
     human_typing(
-        search_box,
-        keyword,
-        config["timing"]["typingMin"],
-        config["timing"]["typingMax"],
-        stop_event,
+       search_box,
+       keyword,
+       config["timing"]["typingMin"],
+       config["timing"]["typingMax"],
+       stop_event,
     )
 
     if stop_event and stop_event.is_set():
@@ -90,14 +117,14 @@ def search_video(driver, keyword, config, stop_event=None):
     )
 
 
-
-
-
-def get_video_cards(driver):
+def get_video_cards(driver, stop_event=None):
     """
     Return all visible YouTube search results
     (videos + courses).
     """
+
+    if stop_event and stop_event.is_set():
+        return []
 
     try:
 
@@ -106,13 +133,13 @@ def get_video_cards(driver):
             "ytd-video-renderer"
         )
 
+        if stop_event and stop_event.is_set():
+            return []
+
         course_cards = driver.find_elements(
             By.CSS_SELECTOR,
             "yt-lockup-view-model"
         )
-
-        # print(f"\nVideos Found  : {len(video_cards)}")
-        # print(f"Courses Found : {len(course_cards)}")
 
         return video_cards + course_cards
 
@@ -195,7 +222,7 @@ def find_target_video(driver, config, stop_event=None):
         if stop_event and stop_event.is_set():
             return False
 
-        videos = get_video_cards(driver)
+        videos = get_video_cards(driver, stop_event)
 
         if not videos:
             return False
@@ -207,7 +234,7 @@ def find_target_video(driver, config, stop_event=None):
                 return False
 
             # Refresh elements to avoid stale element errors
-            videos = get_video_cards(driver)
+            videos = get_video_cards(driver, stop_event)
 
             if index >= len(videos):
                 break
@@ -257,7 +284,11 @@ def find_target_video(driver, config, stop_event=None):
                 scroll_and_click(
                     driver,
                     title_element,
+                    stop_event,
                 )
+
+                if stop_event and stop_event.is_set():
+                 return False
 
                 random_sleep(
                     config["timing"]["sleepMin"],
@@ -291,6 +322,9 @@ def find_target_video(driver, config, stop_event=None):
             stop_event,
         )
 
+        if stop_event and stop_event.is_set():
+         return False
+
         new_height = driver.execute_script(
             "return document.documentElement.scrollHeight"
         )
@@ -310,8 +344,6 @@ def watch_video(driver, config, stop_event=None):
     Watch opened YouTube video for a random duration.
     """
 
-    import random
-    import time
 
     watch_time = random.randint(
         config["youtube"]["watchTimeMin"],
@@ -325,7 +357,7 @@ def watch_video(driver, config, stop_event=None):
     while (time.time() - start_time) < watch_time:
 
         if stop_event and stop_event.is_set():
-            return
+            return 0
 
         random_sleep(
             config["timing"]["sleepMin"],
@@ -335,13 +367,14 @@ def watch_video(driver, config, stop_event=None):
 
     print("Finished watching video.")
     print("Returning to YouTube home...")
+
+    return watch_time
     
 
 def go_to_home(driver, config, stop_event=None):
     """
     Return to YouTube home page by clicking the logo.
     """
-    print("Inside go_to_home()")
 
     try:
 

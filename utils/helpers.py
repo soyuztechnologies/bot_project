@@ -102,14 +102,21 @@ def click_element(driver, element) -> None:
 def scroll_and_click(driver, element, stop_event=None) -> None:
     """
     Scroll to an element and click it.
-
-    Args:
-        driver: Selenium WebDriver.
-        element: Selenium element.
     """
 
+    if stop_event and stop_event.is_set():
+        return
+
     scroll_to_element(driver, element)
+
+    if stop_event and stop_event.is_set():
+        return
+
     random_sleep(1, 2, stop_event)
+
+    if stop_event and stop_event.is_set():
+        return
+
     click_element(driver, element)
 
 
@@ -125,7 +132,10 @@ def random_scroll(driver, min_scroll: int = 400, max_scroll: int = 1200) -> None
 
     scroll_position = random.randint(min_scroll, max_scroll)
 
-    driver.execute_script(f"window.scrollTo(0, {scroll_position});")
+    driver.execute_script(
+    "window.scrollTo(0, arguments[0]);",
+     scroll_position,
+)
 
 
 def simulate_human_reading(driver, stop_event=None) -> None:

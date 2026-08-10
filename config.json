@@ -1,13 +1,22 @@
 {
   "browser": {
     "name": "chrome",
-    "mode": "headless",
+    "mode": "headed",
     "maximize": true,
-    "browsers": ["chrome"]
+
+    "browsers": ["chrome"],
+
+    "distribution": {
+        "chrome": 70,
+        "firefox": 10,
+        "edge": 5,
+        "opera": 5,
+        "brave": 10      
+    }
   },
 
   "sessions": {
-    "parallel": 4,
+    "parallel": 5,
     "iterations": 1
   },
 
