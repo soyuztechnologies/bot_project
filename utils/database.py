@@ -1,7 +1,8 @@
 """
 database.py
 
-Handles all database interactions for the bot project.
+Handles all database interactions for the bot project, including
+connection pooling, schema management, and logging.
 """
 
 import os
@@ -11,6 +12,7 @@ import logging, sys
 from contextlib import contextmanager
 from psycopg2.extras import register_uuid
 from .logger import fallback_log
+from datetime import datetime, timedelta
 
 # Register the UUID adapter globally for all connections.
 # This allows psycopg2 to handle Python's uuid.UUID objects correctly.
@@ -74,6 +76,7 @@ def get_db_connection():
     try:
         conn = _connection_pool.getconn()
         yield conn
+        conn.cursor().execute("SET TIMEZONE TO 'Asia/Kolkata';") # Set timezone for the session
     except psycopg2.OperationalError as e:
         # This will be caught by check_db_connection or log_event
         # so we don't need to print here.
@@ -85,91 +88,108 @@ def get_db_connection():
 
 def initialize_database():
     """
-    Ensures the necessary tables exist in the database. Creates 'bot_logs' and
-    'bot_sessions' tables if they're not present.
+    Ensures the necessary tables exist in the database. Creates 'automation_runs' and
+    'automation_logs' tables if they're not present.
+    """
+    create_runs_table_sql = """
+    CREATE TABLE IF NOT EXISTS automation_runs (
+        run_id UUID PRIMARY KEY,
+        automation_type VARCHAR(50) NOT NULL, -- 'SEARCH' or 'YOUTUBE'
+        original_keyword VARCHAR(255) NOT NULL,
+        search_keyword VARCHAR(255) NOT NULL,
+        fallback_used BOOLEAN NOT NULL DEFAULT FALSE,
+        browser_mode VARCHAR(50) NOT NULL,
+        target_website VARCHAR(255), -- Target domain for search, target channel for YouTube
+        search_engine VARCHAR(50), -- Specific search engine used (for SEARCH type)
+        started_at TIMESTAMPTZ NOT NULL,
+        finished_at TIMESTAMPTZ,
+        status VARCHAR(50) NOT NULL, -- 'RUNNING', 'SUCCESS', 'FAILED', 'INTERRUPTED'
+        success_count INTEGER DEFAULT 0, -- 1 if keyword attempt was successful, 0 otherwise
+        failure_count INTEGER DEFAULT 0, -- 1 if keyword attempt failed, 0 otherwise
+        retry_count INTEGER DEFAULT 0 -- Number of retries for this specific keyword operation
+    );
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_started_at ON automation_runs (started_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs (status);
     """
     create_logs_table_sql = """
-    CREATE TABLE IF NOT EXISTS bot_logs (
-        id SERIAL PRIMARY KEY,
-        event_time TIMESTAMPTZ DEFAULT NOW(),
-        session_id UUID,
-        app_module VARCHAR(50), 
-        level VARCHAR(50),
-        keyword VARCHAR(255),
-        engine VARCHAR(50),
-        website VARCHAR(255),
-        message TEXT,
-        error_message TEXT
+    CREATE TABLE IF NOT EXISTS automation_logs (
+        log_id SERIAL PRIMARY KEY,
+        run_id UUID NOT NULL REFERENCES automation_runs(run_id) ON DELETE CASCADE,
+        timestamp TIMESTAMPTZ NOT NULL,
+        level VARCHAR(50) NOT NULL,
+        keyword VARCHAR(255), -- Contextual keyword for the log entry
+        search_engine VARCHAR(50), -- Contextual search engine for the log entry
+        message TEXT NOT NULL
     );
-    """
-    create_sessions_table_sql = """
-    CREATE TABLE IF NOT EXISTS bot_sessions (
-        session_id UUID PRIMARY KEY,
-        app_module VARCHAR(50),
-        thread_id BIGINT,
-        browser_mode VARCHAR(50),
-        target_website VARCHAR(255),
-        session_start_time TIMESTAMPTZ DEFAULT NOW(),
-        session_end_time TIMESTAMPTZ,
-        status VARCHAR(50),
-        total_keywords INTEGER,
-        successful_keywords INTEGER,
-        failed_keywords INTEGER
-    );
+    CREATE INDEX IF NOT EXISTS idx_automation_logs_run_id ON automation_logs (run_id);
+    CREATE INDEX IF NOT EXISTS idx_automation_logs_timestamp ON automation_logs (timestamp);
+    CREATE INDEX IF NOT EXISTS idx_automation_logs_level ON automation_logs (level);
     """
     if _connection_pool is None:
         _initialize_pool()
 
     try:
         with get_db_connection() as conn:
+            # Drop old tables if they exist to ensure clean migration
             with conn.cursor() as cur:
-                cur.execute(create_logs_table_sql)
-                cur.execute(create_sessions_table_sql)
+                cur.execute("DROP TABLE IF EXISTS bot_logs CASCADE;")
+                cur.execute("DROP TABLE IF EXISTS bot_sessions CASCADE;")
                 conn.commit()
-        logger.info("Database initialized: 'bot_logs' and 'bot_sessions' tables are ready.")
+
+            with conn.cursor() as cur:
+                cur.execute(create_runs_table_sql)
+                cur.execute(create_logs_table_sql)
+                conn.commit()
+        logger.info("Database initialized: 'automation_runs' and 'automation_logs' tables are ready.")
     except psycopg2.Error as e:
         logger.error(f"Failed to initialize database: {e}")
         global _db_available
         _db_available = False
 
 
-def create_session_record(session_id, app_module, thread_id, browser_mode, target_website):
+def create_automation_run(run_id, automation_type, original_keyword, search_keyword, browser_mode, target_website, search_engine=None):
     """
-    Creates a new record for a session in the bot_sessions table.
+    Creates a new record for an automation run in the automation_runs table.
     """
     sql = """
-    INSERT INTO bot_sessions (session_id, app_module, thread_id, browser_mode, target_website)
-    VALUES (%s, %s, %s, %s, %s);
+    INSERT INTO automation_runs (run_id, automation_type, original_keyword, search_keyword, browser_mode, target_website, search_engine, started_at, status)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s);
     """
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(sql, (session_id, app_module, thread_id, browser_mode, target_website))
+                cur.execute(sql, (run_id, automation_type, original_keyword, search_keyword, browser_mode, target_website, search_engine, 'RUNNING'))
                 conn.commit()
     except psycopg2.Error as e:
-        logger.error(f"Failed to create session record for {session_id}: {e}")
+        logger.error(f"Failed to create automation run record for {run_id}: {e}")
 
 
-def update_session_record(session_id, session_end_time, status, total_keywords, successful_keywords, failed_keywords):
+def update_automation_run(run_id, finished_at, status, success_count, failure_count, retry_count, fallback_used=False, search_keyword=None):
     """
-    Updates an existing session record with completion details.
+    Updates an existing automation run record with completion details.
     """
+    # Ensure finished_at is a datetime object
+    if not isinstance(finished_at, datetime):
+        finished_at = datetime.now()
+ 
     sql = """
-    UPDATE bot_sessions
-    SET session_end_time = %s,
+    UPDATE automation_runs
+    SET finished_at = %s,
         status = %s,
-        total_keywords = %s,
-        successful_keywords = %s,
-        failed_keywords = %s
-    WHERE session_id = %s;
+        success_count = %s,
+        failure_count = %s,
+        retry_count = %s,
+        fallback_used = %s,
+        search_keyword = COALESCE(%s, search_keyword)
+    WHERE run_id = %s;
     """
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(sql, (session_end_time, status, total_keywords, successful_keywords, failed_keywords, session_id))
+                cur.execute(sql, (finished_at, status, success_count, failure_count, retry_count, fallback_used, search_keyword, run_id))
                 conn.commit()
     except psycopg2.Error as e:
-        logger.error(f"Failed to update session record for {session_id}: {e}")
+        logger.error(f"Failed to update automation run record for {run_id}: {e}")
 
 def close_connection_pool():
     """Closes all connections in the pool."""
@@ -179,35 +199,45 @@ def close_connection_pool():
         _connection_pool.closeall()
         _connection_pool = None
 
-
-
-
-def log_event(**kwargs):
+def delete_old_logs(months_to_keep=4):
     """
-    Inserts a new event into the bot_logs table.
+    Deletes automation run and log records older than a specified number of months.
+    This functionality is currently disabled as per user request.
+    """
+    pass
+
+
+def log_event(run_id, timestamp, level, keyword, search_engine, message):
+    """
+    Inserts a new event into the automation_logs table.
     If the database is unavailable, it writes to a fallback file log.
-    Accepts keyword arguments that match column names in the bot_logs table.
     """
     global _db_available
+    event_data = {
+        "run_id": run_id,
+        "timestamp": timestamp,
+        "level": level,
+        "keyword": keyword,
+        "search_engine": search_engine,
+        "message": message,
+    }
     if not _db_available:
-        fallback_log(kwargs)
+        fallback_log(event_data)
         return
 
-    columns = ', '.join(kwargs.keys())
-    placeholders = ', '.join(['%s'] * len(kwargs))
-    sql = f"INSERT INTO bot_logs ({columns}) VALUES ({placeholders});"
+    sql = "INSERT INTO automation_logs (run_id, timestamp, level, keyword, search_engine, message) VALUES (%s, %s, %s, %s, %s, %s);"
 
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(sql, tuple(kwargs.values()))
+                cur.execute(sql, (run_id, timestamp, level, keyword, search_engine, message))
                 conn.commit()
     except psycopg2.Error as e:
         if _db_available:
             logger.warning(f"Database connection lost during log_event: {e}")
             logger.warning("Switching to fallback file logger for this and subsequent events.")
         _db_available = False
-        fallback_log(kwargs)
+        fallback_log(event_data)
 
 
 class DatabaseHandler(logging.Handler):
@@ -229,18 +259,22 @@ class DatabaseHandler(logging.Handler):
             if record.name == __name__:
                 return
 
-            log_data = {
-                "session_id": getattr(record, "session_id", None),
-                "app_module": getattr(record, "app_module", None),
-                "level": record.levelname,
-                "keyword": getattr(record, "keyword", None),
-                "engine": getattr(record, "engine", None),
-                "website": getattr(record, "website", None),
-                "message": record.getMessage(),
-                "error_message": record.exc_text,
-            }
-            # Pass the complete log data to the event logger.
-            # The log_event function will handle None values correctly.
-            log_event(**log_data)
+            # Extract run_id from the LoggerAdapter's extra context
+            run_id = getattr(record, "session_id", None)
+
+            # If there's no run_id, it's a general log, not a session-specific one.
+            # Do not log it to the database. It will still be handled by other handlers (e.g., StreamHandler).
+            if run_id is None:
+                return
+
+            keyword = getattr(record, "keyword", None)
+            search_engine = getattr(record, "engine", None) # 'engine' is used for search engines, 'youtube' for youtube
+
+            # Use record.created for timestamp (float seconds since epoch) and convert to datetime
+            timestamp = datetime.fromtimestamp(record.created)
+
+            message = record.getMessage() # Use unformatted message
+
+            log_event(run_id, timestamp, record.levelname, keyword, search_engine, message)
         except Exception:
             self.handleError(record)

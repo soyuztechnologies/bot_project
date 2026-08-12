@@ -27,10 +27,10 @@ from browser.browser import setup_browser, close_browser
 from automation.search_engine import (
     open_search_engine,
     search_keyword,
-    find_target_website,
+    retry_operation_search, # Import the new retry wrapper
 )
 from automation.website import visit_website
-from utils.database import create_session_record, update_session_record
+from utils.database import create_automation_run, update_automation_run
 
 # Backwards-compatibility fix for LoggerAdapter.
 # In Python < 3.8, LoggerAdapter overwrites the 'extra' dictionary passed to
@@ -136,38 +136,48 @@ def _click_internal_links(driver, config, stop_event, session_logger):
             session_logger.error(f"Error visiting internal link {url}: {e}", extra={'action': 'INTERNAL_LINK_VISIT', 'status': 'FAILED', 'url': url, 'error_message': str(e)})
 
 
-def run_session(keyword, config, engine_name, engine, stop_event, stats, session_stats):
+def run_session(keyword, config, engine_name, engine, stop_event, stats):
     driver = None
-    session_id = uuid.uuid4()
+    run_id = uuid.uuid4()
     thread_id = threading.get_ident()
     browser_mode = config["browser"]["mode"].capitalize()
     target_website_domain = config.get("website", {}).get("domain")
-    session_start_time = datetime.now()
+    automation_type = "SEARCH"
 
+    original_keyword = keyword
+    current_search_keyword = original_keyword
+    fallback_used = False
+    
     # Create a LoggerAdapter that will add session-specific context to all logs.
     driver = None
     session_logger = logging.LoggerAdapter(
         logger,
         {
             "keyword": keyword,
-            "engine": engine_name,
-            "session_id": session_id,
-            "app_module": "SEARCH",
+            "engine": engine_name, # This will be used as search_engine in automation_logs
+            "search_keyword": current_search_keyword,
+            "session_id": run_id, # Pass run_id as session_id for LoggerAdapter
+            "app_module": automation_type,
             "website": config.get("website", {}).get("domain"),
             "target_website": target_website_domain,
             "thread_id": thread_id,
         },
     )
+    
+    # Initialize run-specific stats
+    success_count = 0
+    failure_count = 0
+    retry_count = 0
 
     # Create initial session record in the database
-    create_session_record(session_id, "SEARCH", thread_id, browser_mode, target_website_domain)
+    create_automation_run(run_id, automation_type, original_keyword, current_search_keyword, browser_mode, target_website_domain, engine_name)
 
     try:
         if stop_event.is_set():
             return
 
         session_logger.info(
-            f"Starting session for: {keyword} [{engine_name}]",
+            f"Starting session for: {original_keyword} [{engine_name}]",
             extra={'action': 'SESSION_STARTED', 'status': 'RUNNING'}
         )
 
@@ -187,89 +197,105 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, session
         if stop_event.is_set():
             return
 
-        search_keyword(driver, engine, keyword, config, stop_event, session_logger)
+        search_keyword(driver, engine, current_search_keyword, config, stop_event, session_logger)
 
         if stop_event.is_set():
             return
 
-        found = find_target_website(
+        found, retry_count = retry_operation_search( # Use the retry wrapper
             driver,
             engine,
             target_website_domain,
-            config["search"]["maxPages"],
-            stop_event,
-            session_logger, # Pass session_logger to find_target_website
-        )
+            20, # As per requirement, check up to 20 pages initially
+            stop_event, session_logger)
+
+        if not found:
+            extra_keyword = config.get("website", {}).get("extra_keyword", "").strip()
+            if extra_keyword and extra_keyword.lower() not in original_keyword.lower():
+                fallback_used = True
+                current_search_keyword = f"{original_keyword} {extra_keyword}"
+                session_logger.extra['search_keyword'] = current_search_keyword
+
+                session_logger.warning(
+                    f"Website not found. Retrying with fallback keyword: '{current_search_keyword}'",
+                    extra={'action': 'FALLBACK_SEARCH_STARTED', 'status': 'RUNNING'}
+                )
+
+                # Search again with the fallback keyword
+                search_keyword(driver, engine, current_search_keyword, config, stop_event, session_logger)
+                found, fallback_retry_count = retry_operation_search(
+                    driver, engine, target_website_domain,
+                    config["search"]["maxPages"], # Use configured max pages for fallback
+                    stop_event, session_logger
+                )
+                retry_count += fallback_retry_count
 
         if stop_event.is_set():
             return
 
         if found:
             session_logger.info(
-                f"Website found for '{keyword}' on {engine_name}.",
+                f"Website found for '{current_search_keyword}' on {engine_name}.",
                 extra={'action': 'WEBSITE_FOUND', 'status': 'SUCCESS', 'url': driver.current_url}
             )
 
             visit_website(driver, config, stop_event)
             _click_internal_links(driver, config, stop_event, session_logger)
-
             with _STATS_LOCK:
-                stats["success"].append({"keyword": keyword, "engine": engine_name})
-            session_stats["success_count"] += 1
+                stats["success"].append({"keyword": original_keyword, "engine": engine_name})
+            success_count = 1
+            status = "SUCCESS"
 
         else:
             session_logger.warning(
-                f"Website not found for '{keyword}' on {engine_name}.",
+                f"Website not found for '{current_search_keyword}' on {engine_name}.",
                 extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'FAILED'}
             )
-            session_stats["failed_count"] += 1
+            failure_count = 1
+            status = "FAILED"
 
             with _STATS_LOCK:
-                stats["failed"].append({"keyword": keyword, "engine": engine_name})
+                stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
 
     except Exception as error:
             if not stop_event.is_set():
-                
                 with _STATS_LOCK:
-                    stats["failed"].append({"keyword": keyword, "engine": engine_name})
-                session_stats["failed_count"] += 1 # Mark as failed due to exception
-
+                    stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+                failure_count = 1 # Mark as failed due to exception
+                status = "FAILED"
                 session_logger.error(
-                    f"Session Error ({keyword} | {engine_name})",
+                    f"Session Error ({original_keyword} | {engine_name})",
                     exc_info=True,
                     extra={'action': 'SESSION_ERROR', 'status': 'FAILED', 'error_message': str(error)}
                 )
-
     finally:
         if driver:
             _unregister_driver(driver)
             close_browser(driver)
 
         session_end_time = datetime.now()
-        session_status = "COMPLETED" if session_stats["failed_count"] == 0 else "FAILED"
+        if 'status' not in locals(): # If status was not set in try block
+            status = "FAILED" if failure_count > 0 else "COMPLETED"
         if stop_event.is_set():
-            session_status = "INTERRUPTED"
+            status = "INTERRUPTED"
 
-        update_session_record(
-            session_id,
+        update_automation_run(
+            run_id,
             session_end_time,
-            session_status,
-            session_stats["total_count"],
-            session_stats["success_count"],
-            session_stats["failed_count"]
+            status,
+            success_count,
+            failure_count,
+            retry_count,
+            fallback_used=fallback_used,
+            search_keyword=current_search_keyword
         )
 
 
-def _session_worker(job_queue, config, stop_event, stats):
+def _session_worker(job_queue, config, stop_event, stats): # Removed session_stats
     while not stop_event.is_set():
         try:
             keyword, engine_name, engine = job_queue.get_nowait()
-            # Each session worker manages its own stats for the session_id
-            session_stats = {
-                "total_count": 1, # Each job is one keyword attempt
-                "success_count": 0,
-                "failed_count": 0}
-            run_session(keyword, config, engine_name, engine, stop_event, stats, session_stats)
+            run_session(keyword, config, engine_name, engine, stop_event, stats)
         except queue.Empty:
             return
 

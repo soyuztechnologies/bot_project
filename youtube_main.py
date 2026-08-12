@@ -8,10 +8,10 @@ import json
 import time
 import logging
 from pathlib import Path
-from dotenv import load_dotenv
+from dotenv import load_dotenv # type: ignore
 
 from automation.youtube_session import start_parallel_sessions
-from utils.database import check_db_connection, DatabaseHandler, close_connection_pool
+from utils.database import check_db_connection, DatabaseHandler, close_connection_pool, initialize_database
 from utils.logger import setup_logger
 
 
@@ -29,10 +29,48 @@ def load_json(path):
         return json.load(file)
 
 
+def print_summary(stats, config):
+    """Prints a formatted summary of the automation results."""
+    success_sessions = stats.get("success", [])
+    failed_sessions = stats.get("failed", [])
+    total_sessions = stats.get("total", len(success_sessions) + len(failed_sessions))
+    success_count = len(success_sessions)
+    failed_count = len(failed_sessions)
+
+    # Sort for consistent output
+    success_sessions.sort(key=lambda x: x["keyword"])
+    failed_sessions.sort(key=lambda x: x["keyword"])
+
+    # Use a mix of logger and print for a clean summary report
+    logger.info("\n" + "=" * 50)
+    logger.info(" Session Summary ".center(50, "="))
+
+    # Using print here for the list to avoid logger's timestamp/level prefixes
+    for session in success_sessions:
+        print(f"✓ {session['keyword']:<30} [{session['engine']}]")
+
+    if success_sessions and failed_sessions:
+        print()
+
+    for session in failed_sessions:
+        print(f"✗ {session['keyword']:<30} [{session['engine']}]")
+
+    logger.info("\n" + "-" * 50)
+    logger.info(f"Browser Mode: {config['browser']['mode'].capitalize()}")
+    logger.info(f"Total   : {total_sessions}")
+    logger.info(f"Success : {success_count}")
+    logger.info(f"Failed  : {failed_count}")
+    logger.info("=" * 50)
+
+
 def main():
     """Main function to run the YouTube automation bot."""
     try:
         setup_logger()
+        # Initialize database and then check the connection
+        initialize_database()
+        check_db_connection()
+
 
         # Add the custom database handler to the root logger.
         # This will capture logs from the entire application.
@@ -43,7 +81,6 @@ def main():
                 # Check database connection at the start of each cycle
                 # It will switch to a fallback file logger if connection fails.
                 check_db_connection()
-
                 config = load_json(BASE_DIR / "config.json")
 
                 keywords = load_json(
@@ -58,10 +95,11 @@ def main():
                 logger.info(f"Keywords : {len(keywords)}")
                 logger.info("=" * 60)
 
-                start_parallel_sessions(
+                stats = start_parallel_sessions(
                     keywords,
                     config,
                 )
+                print_summary(stats, config)
 
                 logger.info("\nCycle completed.")
                 logger.info("Waiting 5 minutes before next cycle...\n")
@@ -77,6 +115,7 @@ def main():
                 logger.info("Restarting automation in 30 seconds...\n")
                 time.sleep(30)
     finally:
+        logger.info("YouTube Automation Project Finished.")
         close_connection_pool()
 
 if __name__ == "__main__":

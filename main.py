@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from automation.session import start_parallel_sessions
-from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool
+from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool, delete_old_logs
 from utils.logger import setup_logger
 
 
@@ -219,10 +219,11 @@ def main():
         # Add the custom database handler to the root logger.
         # This will capture logs from the entire application.
         logging.getLogger().addHandler(DatabaseHandler())
-
         # Initialize database and then check the connection
         initialize_database()
         check_db_connection()
+        # Clean up old logs
+        delete_old_logs()
 
         logger.info("=" * 50)
         logger.info("Automation Project Started")

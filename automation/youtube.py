@@ -314,7 +314,7 @@ def watch_video(driver, config, stop_event, session_logger, keyword=None):
     """
 
     import random
-    import time
+    import time # type: ignore
 
     watch_time = random.randint(
         config["youtube"]["watchTimeMin"],

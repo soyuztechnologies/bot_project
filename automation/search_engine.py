@@ -13,6 +13,7 @@ All search engine settings are loaded from
 data/search_engines.json.
 """
 import base64
+import time
 from utils.helpers import human_typing, press_enter, random_sleep, scroll_and_click
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
@@ -286,3 +287,30 @@ def find_target_website(
     if session_logger:
         session_logger.warning(f"Target website '{target_domain}' not found after checking {page + 1} page(s).", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'FAILED'})
     return False
+
+
+def retry_operation_search(driver, engine, target_domain, max_pages, stop_event, session_logger, retries=3, delay=3):
+    """
+    Retries the find_target_website operation.
+    Returns (found, actual_retry_count)
+    """
+    actual_retry_count = 0
+    for attempt in range(1, retries + 1):
+        if stop_event and stop_event.is_set():
+            return False, actual_retry_count
+
+        found = find_target_website(driver, engine, target_domain, max_pages, stop_event, session_logger)
+        if found:
+            return True, actual_retry_count
+        
+        if attempt < retries:
+            actual_retry_count += 1
+            session_logger.warning(
+                f"Target website not found on attempt {attempt}/{retries}. Retrying in {delay} seconds...",
+                extra={'action': 'WEBSITE_SEARCH_RETRY', 'status': 'RETRYING', 'retry_attempt': attempt}
+            )
+            if stop_event and stop_event.is_set():
+                return False, actual_retry_count
+            time.sleep(delay)
+
+    return False, actual_retry_count

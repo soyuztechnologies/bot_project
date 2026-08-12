@@ -13,15 +13,17 @@ Responsibilities:
 7. Stop running sessions cleanly on Ctrl+C.
 """
 
+import random
 import logging
 import queue
+import time
 import threading
 from datetime import datetime
 import uuid
 
 from browser.browser import setup_browser, close_browser
 
-from utils.database import create_session_record, update_session_record
+from utils.database import create_automation_run, update_automation_run
 from automation.youtube import (
     open_youtube,
     search_video,
@@ -32,6 +34,7 @@ from automation.youtube import (
 )
 
 _ACTIVE_DRIVERS = set()
+_STATS_LOCK = threading.Lock() # Need a lock for stats if multiple threads update a shared stats object
 _ACTIVE_DRIVERS_LOCK = threading.Lock()
 logger = logging.getLogger(__name__)
 
@@ -81,28 +84,50 @@ def retry_operation(session_logger, operation, stop_event, retries=3, delay=3):
     return False, None
 
 
-def run_session(keywords, config, stop_event):
+def run_session(keyword, config, stop_event, stats):
     """
-    Run one complete YouTube automation session.
+    Run one complete YouTube automation session for a single keyword.
     """
 
     driver = None
-    session_id = uuid.uuid4()
+    run_id = uuid.uuid4() # Renamed from session_id to run_id
     thread_id = threading.get_ident()
     browser_mode = config["browser"]["mode"].capitalize()
-    target_website_domain = "youtube.com" # Fixed for YouTube
-    session_start_time = datetime.now()
+    target_channel = config["youtube"]["targetChannel"]
+    automation_type = "YOUTUBE"
 
-    session_id = uuid.uuid4()
+    original_keyword = keyword
+    current_search_keyword = original_keyword
+    fallback_used = False
+
+    # Initialize run-specific stats
+    success_count = 0
+    failure_count = 0
+    retry_count = 0
+
     session_logger = logging.LoggerAdapter(
         logger,
         {
-            "session_id": session_id,
-            "app_module": "YOUTUBE",
+            "keyword": original_keyword, # Add keyword to logger context
+            "engine": "youtube", # Use 'youtube' as the engine name for logs
+            "search_keyword": current_search_keyword,
+            "session_id": run_id, # Pass run_id as session_id for LoggerAdapter
+            "app_module": automation_type,
             "website": "youtube.com",
-            "target_website": target_website_domain,
+            "target_website": target_channel, # Target is the channel for YouTube
             "thread_id": thread_id,
         },
+    )
+
+    # Create initial session record in the database
+    create_automation_run(
+        run_id=run_id,
+        automation_type=automation_type,
+        original_keyword=original_keyword,
+        search_keyword=current_search_keyword,
+        browser_mode=browser_mode,
+        target_website=target_channel,
+        search_engine="youtube"
     )
 
     try:
@@ -110,11 +135,7 @@ def run_session(keywords, config, stop_event):
         if stop_event.is_set():
             return
 
-        session_logger.info("Starting YouTube session")
-        # Create initial session record in the database
-        create_session_record(session_id, "YOUTUBE", thread_id, browser_mode, target_website_domain)
-
-        session_logger.info("Starting YouTube session", extra={'action': 'SESSION_STARTED', 'status': 'RUNNING'})
+        session_logger.info(f"Starting YouTube session for keyword: {original_keyword}", extra={'action': 'SESSION_STARTED', 'status': 'RUNNING'})
 
         driver = setup_browser(config)
         _register_driver(driver)
@@ -127,64 +148,93 @@ def run_session(keywords, config, stop_event):
         if stop_event.is_set():
             return
 
-        session_stats = {
-            "total_keywords": len(keywords),
-            "successful_keywords": 0,
-            "failed_keywords": 0,
-        }
+        session_logger.info(f"Searching for keyword: {current_search_keyword}", extra={'action': 'KEYWORD_SEARCH', 'status': 'RUNNING'})
 
-        for keyword in keywords:
-            if stop_event.is_set():
-                return
+        success, _ = retry_operation(
+            session_logger,
+            lambda: search_video(driver, current_search_keyword, config, stop_event, session_logger),
+            stop_event,
+        )
 
-            # Add keyword to the logger's context for this loop
-            session_logger.extra['keyword'] = keyword
+        if not success:
+            session_logger.error(f"Failed to search for keyword: {current_search_keyword}", extra={'action': 'KEYWORD_SEARCH', 'status': 'FAILED'})
+            raise Exception(f"Failed to search for keyword: {current_search_keyword}")
 
-            session_logger.info(f"Searching for keyword: {keyword}", extra={'action': 'KEYWORD_SEARCH', 'status': 'RUNNING'})
+        if stop_event.is_set():
+            return
 
-            success, _ = retry_operation(
-                session_logger,
-                lambda: search_video(driver, keyword, config, stop_event, session_logger),
-                stop_event,
-            )
+        success, found = retry_operation(
+            session_logger,
+            lambda: find_target_video(driver, config, stop_event, session_logger),
+            stop_event,
+        )
 
-            if not success:
-                session_logger.error(f"Failed to search for keyword: {keyword}", extra={'action': 'KEYWORD_SEARCH', 'status': 'FAILED'})
-                session_stats["failed_keywords"] += 1
-                continue
+        if not success:
+            session_logger.error("Failed while finding target video.", extra={'action': 'VIDEO_SEARCH', 'status': 'FAILED'})
+            raise Exception("Failed while finding target video.")
 
-            if stop_event.is_set():
-                return
+        if not found:
+            extra_keyword = config.get("youtube", {}).get("extra_keyword", "").strip()
+            if extra_keyword and extra_keyword.lower() not in original_keyword.lower():
+                fallback_used = True
+                current_search_keyword = f"{original_keyword} {extra_keyword}"
+                session_logger.extra['search_keyword'] = current_search_keyword
 
-            success, found = retry_operation(
-                session_logger,
-                lambda: find_target_video(driver, config, stop_event, session_logger),
-                stop_event,
-            )
+                session_logger.warning(
+                    f"Video not found. Retrying with fallback keyword: '{current_search_keyword}'",
+                    extra={'action': 'FALLBACK_SEARCH_STARTED', 'status': 'RUNNING'}
+                )
 
-            if not success:
-                session_logger.error("Failed while finding target video.", extra={'action': 'VIDEO_SEARCH', 'status': 'FAILED'})
-                continue
+                # Search again with the fallback keyword
+                success, _ = retry_operation(
+                    session_logger,
+                    lambda: search_video(driver, current_search_keyword, config, stop_event, session_logger),
+                    stop_event,
+                )
+                if not success:
+                    session_logger.error(f"Failed to search for fallback keyword: {current_search_keyword}", extra={'action': 'KEYWORD_SEARCH', 'status': 'FAILED'})
+                    raise Exception(f"Failed to search for fallback keyword: {current_search_keyword}")
 
-            if stop_event.is_set():
-                return
+                # Find video again
+                success, found = retry_operation(
+                    session_logger,
+                    lambda: find_target_video(driver, config, stop_event, session_logger),
+                    stop_event,
+                )
+                if not success:
+                    session_logger.error("Failed while finding target video on fallback.", extra={'action': 'VIDEO_SEARCH', 'status': 'FAILED'})
+                    raise Exception("Failed while finding target video on fallback.")
 
-            if found:
-                session_logger.info("Target channel video found.", extra={'action': 'VIDEO_FOUND', 'status': 'SUCCESS'})
-                watch_video(driver, config, stop_event, session_logger, keyword=keyword)
-                if stop_event.is_set(): return
-                go_to_home(driver, config, stop_event, session_logger)
-                close_mini_player(driver, session_logger)
-                session_stats["successful_keywords"] += 1
-            else:
-                session_logger.warning("Target channel video not found.", extra={'action': 'VIDEO_NOT_FOUND', 'status': 'FAILED'})
-                session_stats["failed_keywords"] += 1
+        if stop_event.is_set():
+            return
+
+        if found:
+            session_logger.info("Target channel video found.", extra={'action': 'VIDEO_FOUND', 'status': 'SUCCESS'})
+            watch_video(driver, config, stop_event, session_logger, keyword=current_search_keyword)
+            if stop_event.is_set(): return
+            go_to_home(driver, config, stop_event, session_logger)
+            close_mini_player(driver, session_logger)
+            with _STATS_LOCK:
+                stats["success"].append({"keyword": original_keyword, "engine": "youtube"})
+            success_count = 1
+            status = "SUCCESS"
+        else:
+            session_logger.warning("Target channel video not found.", extra={'action': 'VIDEO_NOT_FOUND', 'status': 'FAILED'})
+            with _STATS_LOCK:
+                stats["failed"].append({"keyword": original_keyword, "engine": "youtube"})
+            failure_count = 1
+            status = "FAILED"
 
     except Exception as error:
         if not stop_event.is_set():
+            with _STATS_LOCK:
+                stats["failed"].append({"keyword": original_keyword, "engine": "youtube"})
+            failure_count = 1
+            status = "FAILED"
             session_logger.error(
-                "YouTube Session Error",
+                f"Session Error ({original_keyword} | YouTube)",
                 exc_info=True,
+                extra={'action': 'SESSION_ERROR', 'status': 'FAILED', 'error_message': str(error)}
             )
 
     finally:
@@ -195,63 +245,76 @@ def run_session(keywords, config, stop_event):
                 _unregister_driver(driver)
 
         session_end_time = datetime.now()
-        session_status = "COMPLETED"
+        if 'status' not in locals():
+            status = "FAILED" if failure_count > 0 else "COMPLETED"
         if stop_event.is_set():
-            session_status = "INTERRUPTED"
+            status = "INTERRUPTED"
 
-        update_session_record(
-            session_id,
-            session_end_time,
-            session_status,
-            session_stats.get("total_keywords", 0),
-            session_stats.get("successful_keywords", 0),
-            session_stats.get("failed_keywords", 0)
+        update_automation_run(
+            run_id=run_id,
+            finished_at=session_end_time,
+            status=status,
+            success_count=success_count,
+            failure_count=failure_count,
+            retry_count=retry_count,
+            fallback_used=fallback_used,
+            search_keyword=current_search_keyword
         )
 
 
-def _session_worker(keywords, config, stop_event):
+def _session_worker(job_queue, config, stop_event, stats):
     """
     Worker thread that runs one browser session.
     """
-    run_session(keywords, config, stop_event)
+    while not stop_event.is_set():
+        try:
+            keyword = job_queue.get_nowait()
+            run_session(keyword, config, stop_event, stats)
+        except queue.Empty:
+            return
+        except Exception as error:
+            logger.error(f"Unhandled error in session worker: {error}", exc_info=True)
+        finally:
+            job_queue.task_done()
 
 
 def start_parallel_sessions(keywords, config):
     """
     Start multiple YouTube sessions in parallel.
     """
-
-    max_workers = int(config["sessions"]["parallel"])
-
+    stats = {
+        "total": len(keywords),
+        "success": [],
+        "failed": [],
+    }
+    max_workers = min(int(config["sessions"]["parallel"]), len(keywords))
     stop_event = threading.Event()
+    job_queue = queue.Queue()
+
+    # Shuffle keywords to randomize order
+    random.shuffle(keywords)
+    for keyword in keywords:
+        job_queue.put(keyword)
 
     workers = []
-
-    for i in range(max_workers):
-
+    for _ in range(max_workers):
         workers.append(
             threading.Thread(
                 target=_session_worker,
-                args=(
-                    keywords,
-                    config,
-                    stop_event,
-                ),
+                args=(job_queue, config, stop_event, stats),
                 daemon=True,
-                name=f"Thread-{i + 1}",
             )
         )
 
     try:
-
         for worker in workers:
             worker.start()
-        for worker in workers:
-            worker.join()
+        # Block until all jobs are processed
+        while job_queue.unfinished_tasks > 0:
+            time.sleep(0.5)
     except KeyboardInterrupt:
 
         logger.info("\nCtrl+C detected. Stopping automation...")
-
         stop_event.set()
 
     finally:
@@ -262,3 +325,5 @@ def start_parallel_sessions(keywords, config):
             worker.join(timeout=2)
         if stop_event.is_set():
             logger.info("Automation stopped.")
+
+    return stats # Return stats for summary printing
