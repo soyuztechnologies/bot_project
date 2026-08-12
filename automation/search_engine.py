@@ -147,7 +147,7 @@ def open_search_engine(driver, engine: dict) -> None:
 
 
 def search_keyword(
-    driver, engine: dict, keyword: str, config: dict, stop_event=None
+    driver, engine: dict, keyword: str, config: dict, stop_event=None, session_logger=None
 ) -> None:
     """
     Search a keyword.
@@ -158,6 +158,8 @@ def search_keyword(
         keyword (str): Keyword to search.
         config (dict): Global configuration.
     """
+    if session_logger:
+        session_logger.info(f"Performing search for keyword: {keyword}", extra={'action': 'KEYWORD_SEARCH', 'status': 'RUNNING'})
 
     direct_search_url = build_search_url(engine, keyword)
 
@@ -185,6 +187,8 @@ def search_keyword(
     press_enter(search_box)
 
     random_sleep(config["timing"]["sleepMin"], config["timing"]["sleepMax"], stop_event)
+    if session_logger:
+        session_logger.info(f"Search for keyword '{keyword}' initiated.", extra={'action': 'KEYWORD_SEARCH', 'status': 'SUCCESS'})
 
 
 def next_page(driver, engine: dict, stop_event=None) -> bool:
@@ -218,7 +222,7 @@ def next_page(driver, engine: dict, stop_event=None) -> bool:
 
 
 def find_target_website(
-    driver, engine: dict, target_domain: str, max_pages: int, stop_event=None
+    driver, engine: dict, target_domain: str, max_pages: int, stop_event=None, session_logger=None
 ) -> bool:
     """
     Find the target website in search results.
@@ -228,10 +232,14 @@ def find_target_website(
         engine (dict): Search engine configuration.
         target_domain (str): Website domain.
         max_pages (int): Maximum pages to scan.
-
+        stop_event: Event to signal stopping.
+        session_logger: Logger for the session.
     Returns:
         bool
     """
+
+    if session_logger:
+        session_logger.info(f"Searching for target website '{target_domain}' in search results.", extra={'action': 'WEBSITE_SEARCH', 'status': 'RUNNING'})
 
     from selenium.common.exceptions import StaleElementReferenceException
 
@@ -275,4 +283,6 @@ def find_target_website(
 
             break
 
+    if session_logger:
+        session_logger.warning(f"Target website '{target_domain}' not found after checking {page + 1} page(s).", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'FAILED'})
     return False

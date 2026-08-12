@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from automation.session import start_parallel_sessions
-from utils.database import check_db_connection
+from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool
 from utils.logger import setup_logger
 
 
@@ -212,40 +212,51 @@ def print_summary(stats, config):
 
 
 def main():
-    setup_logger()
-    logger.info("=" * 50)
-    logger.info("Automation Project Started")
-    logger.info("=" * 50)
+    """Main function to run the SEO automation bot."""
+    try:
+        setup_logger()
 
-    # Check database connection at startup and set fallback if needed
-    check_db_connection()
+        # Add the custom database handler to the root logger.
+        # This will capture logs from the entire application.
+        logging.getLogger().addHandler(DatabaseHandler())
 
-    # Load main config
-    config = load_json(BASE_DIR / "config.json")
+        # Initialize database and then check the connection
+        initialize_database()
+        check_db_connection()
 
-    # Load project data
-    keywords = load_json(project_path(config["files"]["keywords"]))
-    search_engines = load_json(project_path(config["files"]["searchEngines"]))
+        logger.info("=" * 50)
+        logger.info("Automation Project Started")
+        logger.info("=" * 50)
 
-    validate_config(config, keywords, search_engines)
+        # Load main config
+        config = load_json(BASE_DIR / "config.json")
 
-    engine_names = get_search_engine_names(config, search_engines)
+        # Load project data
+        keywords = load_json(project_path(config["files"]["keywords"]))
+        search_engines = load_json(project_path(config["files"]["searchEngines"]))
 
-    logger.info(f"Project Path      : {BASE_DIR}")
-    logger.info(f"Search Engines    : {', '.join(engine_names)}")
-    logger.info(f"Browser Mode      : {config['browser']['mode'].capitalize()}")
-    logger.info(f"Parallel Sessions : {config['sessions']['parallel']}")
-    logger.info(f"Keywords          : {len(keywords)}")
+        validate_config(config, keywords, search_engines)
 
-    # Start automation
-    stats = start_parallel_sessions(
-        keywords,
-        config,
-        search_engines,
-        engine_names,
-    )
+        engine_names = get_search_engine_names(config, search_engines)
 
-    print_summary(stats, config)
+        logger.info(f"Project Path      : {BASE_DIR}")
+        logger.info(f"Search Engines    : {', '.join(engine_names)}")
+        logger.info(f"Browser Mode      : {config['browser']['mode'].capitalize()}")
+        logger.info(f"Parallel Sessions : {config['sessions']['parallel']}")
+        logger.info(f"Keywords          : {len(keywords)}")
+
+        # Start automation
+        stats = start_parallel_sessions(
+            keywords,
+            config,
+            search_engines,
+            engine_names,
+        )
+
+        print_summary(stats, config)
+    finally:
+        logger.info("Automation Project Finished.")
+        close_connection_pool()
 
 if __name__ == "__main__":
     main()

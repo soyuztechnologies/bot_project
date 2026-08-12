@@ -10,6 +10,7 @@ Responsibilities:
 4. Watch the opened video.
 """
 
+import logging
 import json
 from pathlib import Path
 from selenium.webdriver.common.by import By
@@ -27,6 +28,7 @@ from utils.helpers import (
 )
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+logger = logging.getLogger(__name__)
 
 
 def load_youtube_config():
@@ -44,10 +46,12 @@ def load_youtube_config():
 YOUTUBE = load_youtube_config()
 
 
-def open_youtube(driver, config, stop_event=None):
+def open_youtube(driver, config, stop_event=None, session_logger=None):
     """
     Open YouTube home page.
     """
+    if session_logger:
+        session_logger.info(f"Opening YouTube: {YOUTUBE['url']}", extra={'action': 'YOUTUBE_OPEN', 'status': 'RUNNING', 'url': YOUTUBE['url']})
 
     driver.get(YOUTUBE["url"])
 
@@ -56,12 +60,18 @@ def open_youtube(driver, config, stop_event=None):
         config["timing"]["sleepMax"],
         stop_event,
     )
+    if session_logger:
+        session_logger.info("YouTube home page opened.", extra={'action': 'YOUTUBE_OPEN', 'status': 'SUCCESS', 'url': driver.current_url})
 
 
-def search_video(driver, keyword, config, stop_event=None):
+def search_video(driver, keyword, config, stop_event=None, session_logger=None):
     """
     Search keyword on YouTube.
     """
+    if session_logger:
+        session_logger.info(f"Searching for video with keyword: '{keyword}'",
+                            extra={'action': 'VIDEO_SEARCH_STARTED', 'status': 'RUNNING'})
+
 
     search_box = wait_for_element(
         driver,
@@ -87,11 +97,9 @@ def search_video(driver, keyword, config, stop_event=None):
         config["timing"]["sleepMin"],
         config["timing"]["sleepMax"],
         stop_event,
-    )
-
-
-
-
+    )  # This sleep is after the search is initiated.
+    if session_logger:
+        session_logger.info(f"Video search for '{keyword}' initiated.", extra={'action': 'VIDEO_SEARCH_STARTED', 'status': 'SUCCESS'})
 
 def get_video_cards(driver):
     """
@@ -110,9 +118,6 @@ def get_video_cards(driver):
             By.CSS_SELECTOR,
             "yt-lockup-view-model"
         )
-
-        # print(f"\nVideos Found  : {len(video_cards)}")
-        # print(f"Courses Found : {len(course_cards)}")
 
         return video_cards + course_cards
 
@@ -180,30 +185,32 @@ def get_channel_name(result):
     return ""
 
 
-def find_target_video(driver, config, stop_event=None):
+def find_target_video(driver, config, stop_event, session_logger):
     """
     Find the first video/course uploaded by the target channel.
     """
 
     target_channel = config["youtube"]["targetChannel"]
 
+    session_logger.info(f"Scanning results for target channel: '{target_channel}'", extra={'action': 'SCAN_FOR_CHANNEL', 'status': 'RUNNING'})
     checked = set()
     last_height = 0
 
     while True:
 
-        if stop_event and stop_event.is_set():
+        if stop_event.is_set():
             return False
 
         videos = get_video_cards(driver)
 
         if not videos:
+            session_logger.warning("No video cards found on the page.")
             return False
 
         # Check visible results one by one
         for index in range(len(videos)):
 
-            if stop_event and stop_event.is_set():
+            if stop_event.is_set():
                 return False
 
             # Refresh elements to avoid stale element errors
@@ -231,8 +238,8 @@ def find_target_video(driver, config, stop_event=None):
 
             checked.add(key)
 
-            print(f"Checking : {title}")
-            print(f"Channel  : {channel}")
+            # This is very verbose, so using DEBUG level.
+            session_logger.debug(f"Checking video: '{title}' by '{channel}'")
 
             # Human reading pause
             random_sleep(
@@ -242,17 +249,14 @@ def find_target_video(driver, config, stop_event=None):
             )
 
             if target_channel.lower() in channel.lower():
-
-                print(f"\nTarget channel found : {channel}")
-
                 # Small pause before click
                 random_sleep(
                     1,
                     2,
                     stop_event,
                 )
-
-                print(f"Opening : {title}")
+                session_logger.info(f"Target channel video found: '{title}'")
+                session_logger.info(f"Opening video: {title}", extra={'action': 'OPEN_VIDEO', 'status': 'RUNNING', 'url': title_element.get_attribute('href')})
 
                 scroll_and_click(
                     driver,
@@ -265,6 +269,7 @@ def find_target_video(driver, config, stop_event=None):
                     stop_event,
                 )
 
+                session_logger.info(f"Video '{title}' opened successfully.", extra={'action': 'OPEN_VIDEO', 'status': 'SUCCESS', 'url': driver.current_url})
                 return True
 
             # Scroll a little after every 3 checked cards
@@ -297,15 +302,13 @@ def find_target_video(driver, config, stop_event=None):
 
         if new_height == last_height:
 
-            print("\nReached end of search results.")
+            session_logger.info("Reached end of search results.")
             return False
 
         last_height = new_height
 
 
-
-
-def watch_video(driver, config, stop_event=None):
+def watch_video(driver, config, stop_event, session_logger, keyword=None):
     """
     Watch opened YouTube video for a random duration.
     """
@@ -318,30 +321,24 @@ def watch_video(driver, config, stop_event=None):
         config["youtube"]["watchTimeMax"],
     )
 
-    print(f"\nWatching video for {watch_time} seconds...")
-
+    session_logger.info(f"Watching video for {watch_time} seconds...", extra={'action': 'WATCH_VIDEO', 'status': 'RUNNING', 'duration_ms': watch_time * 1000, 'url': driver.current_url, 'keyword': keyword})
     start_time = time.time()
 
     while (time.time() - start_time) < watch_time:
 
-        if stop_event and stop_event.is_set():
-            return
+        # Use wait instead of sleep to be responsive to stop_event
+        wait_duration = min(watch_time - (time.time() - start_time), 1)
+        if stop_event.wait(wait_duration):
+            break
 
-        random_sleep(
-            config["timing"]["sleepMin"],
-            config["timing"]["sleepMax"],
-            stop_event,
-        )
+    session_logger.info("Finished watching video.", extra={'action': 'WATCH_VIDEO', 'status': 'SUCCESS', 'url': driver.current_url, 'duration_ms': (time.time() - start_time) * 1000, 'keyword': keyword})
 
-    print("Finished watching video.")
-    print("Returning to YouTube home...")
-    
 
-def go_to_home(driver, config, stop_event=None):
+def go_to_home(driver, config, stop_event, session_logger):
     """
     Return to YouTube home page by clicking the logo.
     """
-    print("Inside go_to_home()")
+    session_logger.info("Returning to YouTube home...", extra={'action': 'GO_HOME', 'status': 'RUNNING'})
 
     try:
 
@@ -350,29 +347,23 @@ def go_to_home(driver, config, stop_event=None):
             YOUTUBE["youtubeLogo"],
         )
 
-        print("YouTube logo Found.")
-
-        scroll_and_click(
+        scroll_and_click(  # This click might navigate away, so log URL before.
             driver,
             logo,
         )
-
-        print("YouTube logo clicked.")
 
         random_sleep(
             config["timing"]["sleepMin"],
             config["timing"]["sleepMax"],
             stop_event,
         )
-
+        session_logger.info("Successfully returned to home page.", extra={'action': 'GO_HOME', 'status': 'SUCCESS', 'url': driver.current_url})
     except Exception as error:
-
-        print(f"Failed to return to home page : {error}")
-
-
+        session_logger.warning(f"Failed to return to home page by clicking logo: {error}",
+                               extra={'action': 'GO_HOME', 'status': 'FAILED', 'error_message': str(error), 'url': driver.current_url})
 
 
-def close_mini_player(driver):
+def close_mini_player(driver, session_logger=None):
     """
     Close YouTube mini player if it is open.
     """
@@ -386,7 +377,8 @@ def close_mini_player(driver):
 
         close_btn.click()
 
-        print("Mini player closed.")
+        if session_logger:
+            session_logger.info("Mini player closed.", extra={'action': 'MINIPLAYER_CLOSED', 'status': 'SUCCESS'})
 
     except Exception:
         pass
