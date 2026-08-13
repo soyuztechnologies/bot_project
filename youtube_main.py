@@ -43,7 +43,8 @@ def main():
 
         completed = start_parallel_sessions(
               keywords,
-              config,
+              config, 
+              search_engines,
         )
 
         if completed:

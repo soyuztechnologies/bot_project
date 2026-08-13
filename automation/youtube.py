@@ -342,15 +342,37 @@ def find_target_video(driver, config, stop_event=None):
 def watch_video(driver, config, stop_event=None):
     """
     Watch opened YouTube video for a random duration.
+    Video audio is muted for all supported browsers.
     """
 
+    # Mute YouTube video
+    try:
+        video = driver.find_element(
+            By.TAG_NAME,
+            "video"
+        )
+
+        driver.execute_script(
+            """
+            arguments[0].muted = true;
+            arguments[0].volume = 0;
+            """,
+            video,
+        )
+
+        print("Video audio muted.")
+
+    except Exception as error:
+        print(f"Failed to mute video : {error}")
 
     watch_time = random.randint(
         config["youtube"]["watchTimeMin"],
         config["youtube"]["watchTimeMax"],
     )
 
-    print(f"\nWatching video for {watch_time} seconds...")
+    print(
+        f"\nWatching video for {watch_time} seconds..."
+    )
 
     start_time = time.time()
 
