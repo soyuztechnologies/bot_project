@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from automation.session import start_parallel_sessions
-from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool, delete_old_logs
+from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool
 from utils.logger import setup_logger
 
 
@@ -222,9 +222,6 @@ def main():
         # Initialize database and then check the connection
         initialize_database()
         check_db_connection()
-        # Clean up old logs
-        delete_old_logs()
-
         logger.info("=" * 50)
         logger.info("Automation Project Started")
         logger.info("=" * 50)
@@ -255,6 +252,10 @@ def main():
         )
 
         print_summary(stats, config)
+    except KeyboardInterrupt:
+        logger.info("\nAutomation stopped by user.")
+    except Exception as error:
+        logger.error(f"Unexpected automation error: {error}", exc_info=True)
     finally:
         logger.info("Automation Project Finished.")
         close_connection_pool()

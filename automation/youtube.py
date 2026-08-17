@@ -12,7 +12,9 @@ Responsibilities:
 
 import logging
 import json
+import time
 from pathlib import Path
+from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
 
 from automation.search_engine import (
@@ -45,23 +47,77 @@ def load_youtube_config():
 
 YOUTUBE = load_youtube_config()
 
+NETWORK_NAVIGATION_ERRORS = (
+    "ERR_INTERNET_DISCONNECTED",
+    "ERR_NETWORK_CHANGED",
+    "ERR_NAME_NOT_RESOLVED",
+    "ERR_CONNECTION_RESET",
+    "ERR_CONNECTION_TIMED_OUT",
+    "ERR_PROXY_CONNECTION_FAILED",
+    "ERR_TUNNEL_CONNECTION_FAILED",
+)
+
+
+def _is_network_navigation_error(error):
+    message = str(error)
+    return "net::" in message and any(code in message for code in NETWORK_NAVIGATION_ERRORS)
+
 
 def open_youtube(driver, config, stop_event=None, session_logger=None):
     """
     Open YouTube home page.
     """
-    if session_logger:
-        session_logger.info(f"Opening YouTube: {YOUTUBE['url']}", extra={'action': 'YOUTUBE_OPEN', 'status': 'RUNNING', 'url': YOUTUBE['url']})
+    retry_count = max(1, int(config.get("youtube", {}).get("retryCount", 3)))
+    retry_delay = max(1, int(config.get("youtube", {}).get("navigationRetryDelay", 10)))
 
-    driver.get(YOUTUBE["url"])
+    for attempt in range(1, retry_count + 1):
+        if stop_event and stop_event.is_set():
+            return
 
-    random_sleep(
-        config["timing"]["sleepMin"],
-        config["timing"]["sleepMax"],
-        stop_event,
-    )
-    if session_logger:
-        session_logger.info("YouTube home page opened.", extra={'action': 'YOUTUBE_OPEN', 'status': 'SUCCESS', 'url': driver.current_url})
+        if session_logger:
+            session_logger.info(
+                f"Opening YouTube: {YOUTUBE['url']}",
+                extra={
+                    'action': 'YOUTUBE_OPEN',
+                    'status': 'RUNNING',
+                    'url': YOUTUBE['url'],
+                },
+            )
+
+        try:
+            driver.get(YOUTUBE["url"])
+
+            random_sleep(
+                config["timing"]["sleepMin"],
+                config["timing"]["sleepMax"],
+                stop_event,
+            )
+            if session_logger:
+                session_logger.info(
+                    "YouTube home page opened.",
+                    extra={'action': 'YOUTUBE_OPEN', 'status': 'SUCCESS', 'url': driver.current_url},
+                )
+            return
+
+        except WebDriverException as error:
+            if not _is_network_navigation_error(error) or attempt == retry_count:
+                raise
+
+            if session_logger:
+                session_logger.warning(
+                    f"YouTube navigation failed due to a network error. Retrying in {retry_delay} seconds ({attempt}/{retry_count}).",
+                    extra={
+                        'action': 'YOUTUBE_OPEN',
+                        'status': 'RETRYING',
+                        'url': YOUTUBE['url'],
+                        'error_message': str(error),
+                    },
+                )
+
+            if stop_event:
+                stop_event.wait(retry_delay)
+            else:
+                time.sleep(retry_delay)
 
 
 def search_video(driver, keyword, config, stop_event=None, session_logger=None):
@@ -321,7 +377,7 @@ def watch_video(driver, config, stop_event, session_logger, keyword=None):
         config["youtube"]["watchTimeMax"],
     )
 
-    session_logger.info(f"Watching video for {watch_time} seconds...", extra={'action': 'WATCH_VIDEO', 'status': 'RUNNING', 'duration_ms': watch_time * 1000, 'url': driver.current_url, 'keyword': keyword})
+    session_logger.info(f"Watching video for {watch_time} seconds...", extra={'action': 'WATCH_VIDEO', 'status': 'RUNNING', 'url': driver.current_url, 'keyword': keyword})
     start_time = time.time()
 
     while (time.time() - start_time) < watch_time:
@@ -331,7 +387,7 @@ def watch_video(driver, config, stop_event, session_logger, keyword=None):
         if stop_event.wait(wait_duration):
             break
 
-    session_logger.info("Finished watching video.", extra={'action': 'WATCH_VIDEO', 'status': 'SUCCESS', 'url': driver.current_url, 'duration_ms': (time.time() - start_time) * 1000, 'keyword': keyword})
+    session_logger.info("Finished watching video.", extra={'action': 'WATCH_VIDEO', 'status': 'SUCCESS', 'url': driver.current_url, 'keyword': keyword})
 
 
 def go_to_home(driver, config, stop_event, session_logger):

@@ -8,11 +8,14 @@ connection pooling, schema management, and logging.
 import os
 import psycopg2
 from psycopg2 import pool
-import logging, sys
+import logging
 from contextlib import contextmanager
-from psycopg2.extras import register_uuid
+from dotenv import load_dotenv
+from psycopg2.extras import Json, register_uuid
 from .logger import fallback_log
-from datetime import datetime, timedelta
+from datetime import datetime
+
+load_dotenv()
 
 # Register the UUID adapter globally for all connections.
 # This allows psycopg2 to handle Python's uuid.UUID objects correctly.
@@ -24,7 +27,7 @@ logger = logging.getLogger(__name__)
 # instead of hardcoding them.
 DB_NAME = os.getenv("DB_NAME", "seo_bot_db")
 DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "vipul123")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
 
@@ -43,6 +46,19 @@ def _initialize_pool():
             )
         except psycopg2.OperationalError as e:
             logger.warning(f"Failed to initialize database connection pool: {e}")
+
+
+def _json_safe(value):
+    """Convert logging context values into JSON-friendly values."""
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    return str(value)
 
 
 def check_db_connection():
@@ -75,11 +91,13 @@ def get_db_connection():
         raise psycopg2.OperationalError("Connection pool is not initialized.")
     try:
         conn = _connection_pool.getconn()
+        with conn.cursor() as cur:
+            cur.execute("SET TIMEZONE TO 'Asia/Kolkata';")
         yield conn
-        conn.cursor().execute("SET TIMEZONE TO 'Asia/Kolkata';") # Set timezone for the session
-    except psycopg2.OperationalError as e:
-        # This will be caught by check_db_connection or log_event
-        # so we don't need to print here.
+        conn.commit()
+    except psycopg2.Error:
+        if conn:
+            conn.rollback()
         raise
     finally:
         if conn and _connection_pool:
@@ -91,6 +109,8 @@ def initialize_database():
     Ensures the necessary tables exist in the database. Creates 'automation_runs' and
     'automation_logs' tables if they're not present.
     """
+    global _db_available
+
     create_runs_table_sql = """
     CREATE TABLE IF NOT EXISTS automation_runs (
         run_id UUID PRIMARY KEY,
@@ -99,7 +119,7 @@ def initialize_database():
         search_keyword VARCHAR(255) NOT NULL,
         fallback_used BOOLEAN NOT NULL DEFAULT FALSE,
         browser_mode VARCHAR(50) NOT NULL,
-        target_website VARCHAR(255), -- Target domain for search, target channel for YouTube
+        target VARCHAR(255), -- Target domain for search, target channel for YouTube
         search_engine VARCHAR(50), -- Specific search engine used (for SEARCH type)
         started_at TIMESTAMPTZ NOT NULL,
         finished_at TIMESTAMPTZ,
@@ -110,6 +130,8 @@ def initialize_database():
     );
     CREATE INDEX IF NOT EXISTS idx_automation_runs_started_at ON automation_runs (started_at);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs (status);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_type_status_started_at ON automation_runs (automation_type, status, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_engine_status_started_at ON automation_runs (search_engine, status, started_at DESC);
     """
     create_logs_table_sql = """
     CREATE TABLE IF NOT EXISTS automation_logs (
@@ -119,11 +141,47 @@ def initialize_database():
         level VARCHAR(50) NOT NULL,
         keyword VARCHAR(255), -- Contextual keyword for the log entry
         search_engine VARCHAR(50), -- Contextual search engine for the log entry
+        action VARCHAR(80), -- Structured step name, e.g. KEYWORD_SEARCH
+        event_status VARCHAR(50), -- Structured step status, e.g. RUNNING/SUCCESS/FAILED
+        url TEXT,
+        error_message TEXT,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
         message TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_automation_logs_run_id ON automation_logs (run_id);
     CREATE INDEX IF NOT EXISTS idx_automation_logs_timestamp ON automation_logs (timestamp);
     CREATE INDEX IF NOT EXISTS idx_automation_logs_level ON automation_logs (level);
+    CREATE INDEX IF NOT EXISTS idx_automation_logs_run_timestamp ON automation_logs (run_id, timestamp);
+    """
+    migrate_runs_table_sql = """
+    DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'automation_runs'
+              AND column_name = 'target_website'
+        ) AND NOT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'automation_runs'
+              AND column_name = 'target'
+        ) THEN
+            ALTER TABLE automation_runs RENAME COLUMN target_website TO target;
+        END IF;
+    END $$;
+    """
+    migrate_logs_table_sql = """
+    ALTER TABLE automation_logs ADD COLUMN IF NOT EXISTS action VARCHAR(80);
+    ALTER TABLE automation_logs ADD COLUMN IF NOT EXISTS event_status VARCHAR(50);
+    ALTER TABLE automation_logs ADD COLUMN IF NOT EXISTS url TEXT;
+    ALTER TABLE automation_logs ADD COLUMN IF NOT EXISTS error_message TEXT;
+    ALTER TABLE automation_logs ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE automation_logs DROP COLUMN IF EXISTS duration_ms;
+    ALTER TABLE automation_logs DROP COLUMN IF EXISTS retry_attempt;
+    CREATE INDEX IF NOT EXISTS idx_automation_logs_action_status ON automation_logs (action, event_status);
     """
     if _connection_pool is None:
         _initialize_pool()
@@ -138,27 +196,29 @@ def initialize_database():
 
             with conn.cursor() as cur:
                 cur.execute(create_runs_table_sql)
+                cur.execute(migrate_runs_table_sql)
                 cur.execute(create_logs_table_sql)
+                cur.execute(migrate_logs_table_sql)
                 conn.commit()
+        _db_available = True
         logger.info("Database initialized: 'automation_runs' and 'automation_logs' tables are ready.")
     except psycopg2.Error as e:
         logger.error(f"Failed to initialize database: {e}")
-        global _db_available
         _db_available = False
 
 
-def create_automation_run(run_id, automation_type, original_keyword, search_keyword, browser_mode, target_website, search_engine=None):
+def create_automation_run(run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine=None):
     """
     Creates a new record for an automation run in the automation_runs table.
     """
     sql = """
-    INSERT INTO automation_runs (run_id, automation_type, original_keyword, search_keyword, browser_mode, target_website, search_engine, started_at, status)
+    INSERT INTO automation_runs (run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine, started_at, status)
     VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s);
     """
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(sql, (run_id, automation_type, original_keyword, search_keyword, browser_mode, target_website, search_engine, 'RUNNING'))
+                cur.execute(sql, (run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine, 'RUNNING'))
                 conn.commit()
     except psycopg2.Error as e:
         logger.error(f"Failed to create automation run record for {run_id}: {e}")
@@ -199,15 +259,19 @@ def close_connection_pool():
         _connection_pool.closeall()
         _connection_pool = None
 
-def delete_old_logs(months_to_keep=4):
-    """
-    Deletes automation run and log records older than a specified number of months.
-    This functionality is currently disabled as per user request.
-    """
-    pass
-
-
-def log_event(run_id, timestamp, level, keyword, search_engine, message):
+def log_event(
+    run_id,
+    timestamp,
+    level,
+    keyword,
+    search_engine,
+    message,
+    action=None,
+    event_status=None,
+    url=None,
+    error_message=None,
+    metadata=None,
+):
     """
     Inserts a new event into the automation_logs table.
     If the database is unavailable, it writes to a fallback file log.
@@ -219,18 +283,53 @@ def log_event(run_id, timestamp, level, keyword, search_engine, message):
         "level": level,
         "keyword": keyword,
         "search_engine": search_engine,
+        "action": action,
+        "event_status": event_status,
+        "url": url,
+        "error_message": error_message,
+        "metadata": metadata or {},
         "message": message,
     }
     if not _db_available:
         fallback_log(event_data)
         return
 
-    sql = "INSERT INTO automation_logs (run_id, timestamp, level, keyword, search_engine, message) VALUES (%s, %s, %s, %s, %s, %s);"
+    sql = """
+    INSERT INTO automation_logs (
+        run_id,
+        timestamp,
+        level,
+        keyword,
+        search_engine,
+        action,
+        event_status,
+        url,
+        error_message,
+        metadata,
+        message
+    )
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+    """
 
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(sql, (run_id, timestamp, level, keyword, search_engine, message))
+                cur.execute(
+                    sql,
+                    (
+                        run_id,
+                        timestamp,
+                        level,
+                        keyword,
+                        search_engine,
+                        action,
+                        event_status,
+                        url,
+                        error_message,
+                        Json(metadata or {}),
+                        message,
+                    ),
+                )
                 conn.commit()
     except psycopg2.Error as e:
         if _db_available:
@@ -247,6 +346,21 @@ class DatabaseHandler(logging.Handler):
 
     def __init__(self):
         super().__init__()
+
+    def _metadata_from_record(self, record):
+        metadata_keys = (
+            "search_keyword",
+            "app_module",
+            "website",
+            "target",
+            "thread_id",
+        )
+        metadata = {}
+        for key in metadata_keys:
+            value = getattr(record, key, None)
+            if value is not None:
+                metadata[key] = _json_safe(value)
+        return metadata
 
     def emit(self, record):
         """
@@ -269,12 +383,29 @@ class DatabaseHandler(logging.Handler):
 
             keyword = getattr(record, "keyword", None)
             search_engine = getattr(record, "engine", None) # 'engine' is used for search engines, 'youtube' for youtube
+            action = getattr(record, "action", None)
+            event_status = getattr(record, "status", None)
+            url = getattr(record, "url", None)
+            error_message = getattr(record, "error_message", None)
+            metadata = self._metadata_from_record(record)
 
             # Use record.created for timestamp (float seconds since epoch) and convert to datetime
             timestamp = datetime.fromtimestamp(record.created)
 
             message = record.getMessage() # Use unformatted message
 
-            log_event(run_id, timestamp, record.levelname, keyword, search_engine, message)
+            log_event(
+                run_id,
+                timestamp,
+                record.levelname,
+                keyword,
+                search_engine,
+                message,
+                action=action,
+                event_status=event_status,
+                url=url,
+                error_message=error_message,
+                metadata=metadata,
+            )
         except Exception:
             self.handleError(record)

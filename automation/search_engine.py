@@ -307,7 +307,7 @@ def retry_operation_search(driver, engine, target_domain, max_pages, stop_event,
             actual_retry_count += 1
             session_logger.warning(
                 f"Target website not found on attempt {attempt}/{retries}. Retrying in {delay} seconds...",
-                extra={'action': 'WEBSITE_SEARCH_RETRY', 'status': 'RETRYING', 'retry_attempt': attempt}
+                extra={'action': 'WEBSITE_SEARCH_RETRY', 'status': 'RETRYING'}
             )
             if stop_event and stop_event.is_set():
                 return False, actual_retry_count

@@ -114,7 +114,7 @@ def run_session(keyword, config, stop_event, stats):
             "session_id": run_id, # Pass run_id as session_id for LoggerAdapter
             "app_module": automation_type,
             "website": "youtube.com",
-            "target_website": target_channel, # Target is the channel for YouTube
+            "target": target_channel,
             "thread_id": thread_id,
         },
     )
@@ -126,7 +126,7 @@ def run_session(keyword, config, stop_event, stats):
         original_keyword=original_keyword,
         search_keyword=current_search_keyword,
         browser_mode=browser_mode,
-        target_website=target_channel,
+        target=target_channel,
         search_engine="youtube"
     )
 
@@ -316,6 +316,8 @@ def start_parallel_sessions(keywords, config):
 
         logger.info("\nCtrl+C detected. Stopping automation...")
         stop_event.set()
+        # Re-raise the exception to allow the main loop to catch it and exit.
+        raise
 
     finally:
         # This ensures cleanup happens whether jobs complete or are interrupted

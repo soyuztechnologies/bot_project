@@ -69,8 +69,6 @@ def main():
         setup_logger()
         # Initialize database and then check the connection
         initialize_database()
-        check_db_connection()
-
 
         # Add the custom database handler to the root logger.
         # This will capture logs from the entire application.
@@ -114,6 +112,10 @@ def main():
                 logger.error(f"\nUnexpected Error : {error}", exc_info=True)
                 logger.info("Restarting automation in 30 seconds...\n")
                 time.sleep(30)
+    except KeyboardInterrupt:
+        logger.info("\nYouTube automation stopped by user.")
+    except Exception as error:
+        logger.error(f"Fatal YouTube automation error: {error}", exc_info=True)
     finally:
         logger.info("YouTube Automation Project Finished.")
         close_connection_pool()

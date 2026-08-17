@@ -118,6 +118,7 @@ def _click_internal_links(driver, config, stop_event, session_logger):
 
     session_logger.info(
         f"Found {len(links_to_visit)} internal link(s) to visit.",
+        extra={'action': 'INTERNAL_LINK_SEARCH', 'status': 'SUCCESS'}
     )
 
     for url in links_to_visit:
@@ -141,7 +142,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
     run_id = uuid.uuid4()
     thread_id = threading.get_ident()
     browser_mode = config["browser"]["mode"].capitalize()
-    target_website_domain = config.get("website", {}).get("domain")
+    target = config.get("website", {}).get("domain")
     automation_type = "SEARCH"
 
     original_keyword = keyword
@@ -159,7 +160,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
             "session_id": run_id, # Pass run_id as session_id for LoggerAdapter
             "app_module": automation_type,
             "website": config.get("website", {}).get("domain"),
-            "target_website": target_website_domain,
+            "target": target,
             "thread_id": thread_id,
         },
     )
@@ -170,7 +171,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
     retry_count = 0
 
     # Create initial session record in the database
-    create_automation_run(run_id, automation_type, original_keyword, current_search_keyword, browser_mode, target_website_domain, engine_name)
+    create_automation_run(run_id, automation_type, original_keyword, current_search_keyword, browser_mode, target, engine_name)
 
     try:
         if stop_event.is_set():
@@ -205,7 +206,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
         found, retry_count = retry_operation_search( # Use the retry wrapper
             driver,
             engine,
-            target_website_domain,
+            target,
             20, # As per requirement, check up to 20 pages initially
             stop_event, session_logger)
 
@@ -224,7 +225,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
                 # Search again with the fallback keyword
                 search_keyword(driver, engine, current_search_keyword, config, stop_event, session_logger)
                 found, fallback_retry_count = retry_operation_search(
-                    driver, engine, target_website_domain,
+                    driver, engine, target,
                     config["search"]["maxPages"], # Use configured max pages for fallback
                     stop_event, session_logger
                 )
@@ -298,9 +299,6 @@ def _session_worker(job_queue, config, stop_event, stats): # Removed session_sta
             run_session(keyword, config, engine_name, engine, stop_event, stats)
         except queue.Empty:
             return
-
-        try:
-            pass # The work is done in the try block above, this is for the exception.
         except Exception as error:
             logger.error(f"Unhandled error in session worker: {error}", exc_info=True)
         finally:
@@ -367,6 +365,8 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
     except KeyboardInterrupt:
         logger.info("\nCtrl+C detected. Stopping all browser sessions...")
         stop_event.set()
+        # Re-raise the exception to allow the main loop to catch it and exit.
+        raise
 
     finally:
         # This ensures cleanup happens whether jobs complete or are interrupted

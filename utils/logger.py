@@ -5,11 +5,28 @@ from pathlib import Path
 from datetime import datetime
 
 
+def _enable_logger_adapter_extra_merge():
+    """Preserve per-log extra fields while keeping session context."""
+    if getattr(logging.LoggerAdapter, "_seo_bot_merges_extra", False):
+        return
+
+    def process(self, msg, kwargs):
+        adapter_extra = self.extra or {}
+        call_extra = kwargs.get("extra") or {}
+        kwargs["extra"] = {**adapter_extra, **call_extra}
+        return msg, kwargs
+
+    logging.LoggerAdapter.process = process
+    logging.LoggerAdapter._seo_bot_merges_extra = True
+
+
 
 def setup_logger():
     """
     Set up the root logger to print to stdout with a consistent format.
     """
+    _enable_logger_adapter_extra_merge()
+
     # Create a logger
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
