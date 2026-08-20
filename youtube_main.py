@@ -21,46 +21,46 @@ def load_json(path):
 
 def main():
 
-    while True:
+    try:
 
-        try:
+        config = load_json(BASE_DIR / "config.json")
 
-            config = load_json(BASE_DIR / "config.json")
+        keywords = load_json(
+            BASE_DIR / config["files"]["keywords"]
+        )
 
-            keywords = load_json(
-                BASE_DIR / config["files"]["keywords"]
-            )
+        search_engines = load_json(
+            BASE_DIR / config["files"]["searchEngines"]
+        )
 
-            print("=" * 60)
-            print("YouTube Automation Started")
-            print("=" * 60)
-            print(f"Browsers : {', '.join(config['browser']['browsers'])}")
-            print(f"Sessions : {config['sessions']['parallel']}")
-            print(f"Keywords : {len(keywords)}")
-            print("=" * 60)
+        print("=" * 60)
+        print("YouTube Automation Started")
+        print("=" * 60)
+        print(f"Browsers : {', '.join(config['browser']['browsers'])}")
+        print(f"Sessions : {config['sessions']['parallel']}")
+        print(f"Keywords : {len(keywords)}")
+        print("=" * 60)
 
-            start_parallel_sessions(
-                keywords,
-                config,
-            )
+        completed = start_parallel_sessions(
+              keywords,
+              config, 
+              search_engines,
+        )
 
-            print("\nCycle completed.")
-            print("Waiting 5 minutes before next cycle...\n")
+        if completed:
+          print("\nCycle completed.")
+          print("Automation completed successfully.")
+        else:
+         print("\nAutomation stopped by user.")
 
-            time.sleep(300)
+    except KeyboardInterrupt:
 
-        except KeyboardInterrupt:
+        print("\nAutomation stopped by user.")
 
-            print("\nAutomation stopped by user.")
-            break
+    except Exception as error:
 
-        except Exception as error:
+        print(f"\nUnexpected Error : {error}")
 
-            print(f"\nUnexpected Error : {error}")
-
-            print("Restarting automation in 30 seconds...\n")
-
-            time.sleep(30)
 
 if __name__ == "__main__":
     main()

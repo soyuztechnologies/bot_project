@@ -1,18 +1,27 @@
 {
   "browser": {
     "name": "chrome",
-    "mode": "headless",
+    "mode": "headed",
     "maximize": true,
-    "browsers": ["chrome"]
+
+    "browsers": ["chrome"],
+
+    "distribution": {
+        "chrome" : 20,
+        "edge" : 20,
+        "opera" : 20,
+        "firefox" : 20,
+        "brave" : 20          
+    }
   },
 
   "sessions": {
-    "parallel": 4,
+    "parallel": 5,
     "iterations": 1
   },
 
   "search": {
-    "engines": ["google", "bing", "duckduckgo", "yahoo"],
+    "engines": ["yahoo", "duckduckgo", "google","bing" ],
     "maxPages": 20
   },
 
@@ -29,7 +38,8 @@
     "targetChannel": "Anubhav Trainings",
     "watchTimeMin": 20,
     "watchTimeMax": 40,
-    "maxScrolls": 10,
+    "maxScrolls": 1,
+    "maxSearchPages": 1,
 
     "browserRestartAfterKeywords": 50,
     "browserRestartDelay": 10,

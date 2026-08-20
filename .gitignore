@@ -81,5 +81,7 @@ instance/
 .DS_Store
 Thumbs.db
 
-profiles/
 downloaded_files/
+profiles/
+profiles/brave
+
