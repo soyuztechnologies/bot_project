@@ -82,3 +82,6 @@ instance/
 Thumbs.db
 
 downloaded_files/
+profiles/
+profiles/brave
+
