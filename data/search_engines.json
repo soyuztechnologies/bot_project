@@ -17,7 +17,29 @@
     "resultLinks": {
       "by": "XPATH",
       "value": "//a[@href]"
+    },
+
+    "videoTab": {
+      "by": "XPATH",
+      "value": "//a[.//span[normalize-space()='Videos']]"
+    },
+
+    "videoResultLinks": {
+      "by": "XPATH",
+      "value": "//a[contains(@href,'youtube.com/watch') and contains(@class,'zReHs')]"
+    },
+
+    "videoResultChannel": {
+       "by": "XPATH",
+       "value": ".//span[normalize-space()='Anubhav Trainings (official channel)']"
+    },
+
+    "videoResultTarget": {
+      "by": "XPATH",
+      "value": "//div[@role='button' and contains(@aria-label,'by Anubhav Trainings (official channel) on YouTube')]"
     }
+
+    
   },
 
   "bing": {
@@ -37,7 +59,22 @@
 
     "resultLinks": {
       "by": "XPATH",
-      "value": "//a[@href]"
+      "value": "div.mc_vtvc_con_rc[ourl]"
+    },
+
+    "videoTab": {
+      "by": "XPATH",
+      "value": "//a[normalize-space()='Videos']"
+    },
+
+    "videoResultLinks": {
+      "by": "CSS_SELECTOR",
+      "value": "div.mc_vtvc_con_rc[ourl]"
+    },
+
+    "videoResultChannel": {
+      "by": "CSS_SELECTOR",
+      "value": ".mc_vtvc_meta_row_channel"
     }
   },
 
@@ -59,7 +96,24 @@
     "resultLinks": {
       "by": "XPATH",
       "value": "//a[@href]"
-    }
+    },
+
+    "videoTab": {
+      "by": "XPATH",
+      "value": "//a[contains(@href,'ia=videos') or contains(@href,'iax=videos')]"
+    },
+
+    "videoResultLinks": {
+      "by": "CSS_SELECTOR",
+      "value": "a[href*='youtube.com/watch']"
+    },
+
+    "videoResultPublisher": {
+       "by": "CSS_SELECTOR",
+       "value": "span"
+    },
+
+    "isDuckDuckGo": true
   },
 
   "yahoo": {
@@ -80,6 +134,16 @@
     "resultLinks": {
       "by": "XPATH",
       "value": "//a[@href]"
+    },
+
+    "videoTab": {
+      "by": "XPATH",
+      "value": "//a[contains(@href,'video.search.yahoo.com')]"
+    },
+
+    "videoResultLinks": {
+      "by": "CSS_SELECTOR",
+      "value": "a.video-tile[data-referenceurl*='youtube.com/watch']"
     }
   }
 }

@@ -16,6 +16,7 @@ Responsibilities:
 import threading
 import time
 import traceback
+import random
 
 from automation.search_engine_selector import select_search_engine
 from utils.session_stats import SessionStats
@@ -23,14 +24,18 @@ from utils.session_stats import SessionStats
 from browser.browser_selector import select_browser
 
 from browser.browser import setup_browser, close_browser
+from .search_engine import is_google_verification_page
 
 from automation.search_engine import (
     open_search_engine,
     search_keyword,
     find_target_website,
+    open_video_tab,
+    find_target_video_in_video_results,
 )
 
 from automation.youtube import (
+    YOUTUBE,
     open_youtube,
     search_video,
     find_target_video,
@@ -40,6 +45,10 @@ from automation.youtube import (
 )
 
 from utils.logger import write_log
+from utils.helpers import random_sleep
+
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 
 _ACTIVE_DRIVERS = set()
 _ACTIVE_DRIVERS_LOCK = threading.Lock()
@@ -167,6 +176,166 @@ def is_browser_alive(driver):
         return False
 
 
+def process_youtube_first_flow(
+    driver,
+    keyword,
+    config,
+    stop_event,
+    stats,
+    thread_name,
+    selected_browser,
+):
+    """
+    CASE 1:
+    Open YouTube directly, search the keyword,
+    find Anubhav Trainings video, and watch it.
+    """
+
+    # --------------------------------
+    # Open YouTube
+    # --------------------------------
+
+    youtube_success, youtube_opened = retry_operation(
+        lambda: open_youtube(
+            driver,
+            config,
+            stop_event,
+        ),
+        stop_event=stop_event,
+        stats=stats,
+        driver=driver,
+        operation_name="Open YouTube",
+    )
+
+    if not youtube_success or not youtube_opened:
+
+        print(
+            f"[{thread_name}] "
+            f"Failed to open YouTube for keyword : "
+            f"{keyword}"
+        )
+
+        return False
+
+    if stop_event.is_set():
+        return False
+
+    # --------------------------------
+    # Search Keyword on YouTube
+    # --------------------------------
+
+    print(
+        f"\n[{thread_name}]"
+        f"[{selected_browser.upper()}] "
+        f"Searching keyword on YouTube : "
+        f"{keyword}"
+    )
+
+    success, _ = retry_operation(
+        lambda: search_video(
+            driver,
+            keyword,
+            config,
+            stop_event,
+        ),
+        stop_event=stop_event,
+        stats=stats,
+        driver=driver,
+        operation_name="YouTube Search",
+    )
+
+    if not success:
+
+        print(
+            f"[{thread_name}]"
+            f"[{selected_browser.upper()}] "
+            f"Failed to search keyword : "
+            f"{keyword}"
+        )
+
+        return False
+
+    if stop_event.is_set():
+        return False
+
+    # --------------------------------
+    # Find Target Video
+    # --------------------------------
+
+    success, found = retry_operation(
+        lambda: find_target_video(
+            driver,
+            config,
+            stop_event,
+        ),
+        stop_event=stop_event,
+        stats=stats,
+        driver=driver,
+        operation_name="Find Target Video",
+    )
+
+    if not success:
+
+        print(
+            f"[{thread_name}]"
+            f"[{selected_browser.upper()}] "
+            f"Failed while finding target video."
+        )
+
+        return False
+
+    if stop_event.is_set():
+        return False
+
+    # --------------------------------
+    # Watch Video
+    # --------------------------------
+
+    if found:
+
+        stats.record_video_found()
+
+        print(
+            f"[{thread_name}]"
+            f"[{selected_browser.upper()}] "
+            f"Target channel video found."
+        )
+
+        watch_time = watch_video(
+            driver,
+            config,
+            stop_event,
+        )
+
+        stats.record_watch_time(watch_time)
+
+        if stop_event.is_set():
+            return False
+
+        # --------------------------------
+        # Return to YouTube Home
+        # --------------------------------
+
+        go_to_home(
+            driver,
+            config,
+            stop_event,
+        )
+
+        close_mini_player(driver)
+
+    else:
+
+        stats.record_video_not_found()
+
+        print(
+            f"[{thread_name}]"
+            f"[{selected_browser.upper()}] "
+            f"Target channel video not found."
+        )
+
+    return True
+
 def run_session(
     keywords,
     config,
@@ -188,6 +357,19 @@ def run_session(
 
     selected_browser = select_browser(config)
     selected_search_engine = select_search_engine(config)
+
+    # ---------------------------------------------------------
+    # TEMPORARY:
+    # We are testing Case 2 first.
+    # Later this will become random flow selection.
+    # ---------------------------------------------------------
+
+    flow = random.choice([
+            "youtube_first",
+            "search_engine_first",
+    ])
+
+    # flow = "search_engine_first"
 
     try:
 
@@ -215,6 +397,11 @@ def run_session(
         f"{selected_search_engine}"
     )
 
+    print(
+        f"[{thread_name}] Selected Flow : "
+        f"{flow}"
+    )
+
     try:
 
         if stop_event.is_set():
@@ -231,9 +418,9 @@ def run_session(
             "Session Started"
         )
 
-        # --------------------------------
-        # Start Browser
-        # --------------------------------
+        # =====================================================
+        # START BROWSER
+        # =====================================================
 
         try:
 
@@ -260,9 +447,9 @@ def run_session(
         if stop_event.is_set():
             return
 
-        # --------------------------------
-        # Process Keywords
-        # --------------------------------
+        # =====================================================
+        # PROCESS KEYWORDS
+        # =====================================================
 
         for keyword in keywords:
 
@@ -270,6 +457,10 @@ def run_session(
                 return
 
             stats.record_keyword()
+
+            # -------------------------------------------------
+            # Check browser
+            # -------------------------------------------------
 
             if not is_browser_alive(driver):
 
@@ -284,234 +475,511 @@ def run_session(
 
                 return
 
-            # --------------------------------
-            # Search Engine
-            # --------------------------------
+            # =================================================
+            # CASE 1 - YOUTUBE FIRST
+            # =================================================
 
-            print(
-                f"\n[{thread_name}]"
-                f"[{selected_browser.upper()}] "
-                f"[{selected_search_engine.upper()}] "
-                f"Processing keyword : {keyword}"
-            )
-
-            search_success, _ = retry_operation(
-                lambda: (
-                    open_search_engine(
-                        driver,
-                        engine_config,
-                    ),
-                    search_keyword(
-                        driver,
-                        engine_config,
-                        keyword,
-                        config,
-                        stop_event,
-                    ),
-                ),
-                stop_event=stop_event,
-                stats=stats,
-                driver=driver,
-                operation_name="Search Engine",
-            )
-
-            if not search_success:
-
-                session_success = False
-                stats.record_search_error()
-                stats.record_keyword_failure()
+            if flow == "youtube_first":
 
                 print(
-                    f"[{thread_name}]"
-                    f"[{selected_search_engine.upper()}] "
-                    f"Failed to process search keyword : "
-                    f"{keyword}"
+                    f"\n[{thread_name}]"
+                    f"[{selected_browser.upper()}] "
+                    f"[YOUTUBE_FIRST] "
+                    f"Processing keyword : {keyword}"
                 )
 
-                if not is_browser_alive(driver):
-                    stats.record_browser_error()
-                    return
-
-                continue
-
-            if stop_event.is_set():
-                return
-
-            print(
-                f"[{thread_name}] "
-                f"{selected_search_engine.upper()} "
-                f"search completed."
-            )
-
-            # --------------------------------
-            # Return to YouTube
-            # --------------------------------
-
-            youtube_success, youtube_opened = retry_operation(
-                lambda: open_youtube(
-                    driver,
-                    config,
-                    stop_event,
-                ),
-                stop_event=stop_event,
-                stats=stats,
-                driver=driver,
-                operation_name="Open YouTube",
-            )
-
-            if not youtube_success or not youtube_opened:
-
-                session_success = False
-                stats.record_browser_error()
-                stats.record_keyword_failure()
-
-                print(
-                    f"[{thread_name}] "
-                    f"Failed to open YouTube for keyword : "
-                    f"{keyword}"
-                )
-
-                if not is_browser_alive(driver):
-                    return
-
-                continue
-
-            if stop_event.is_set():
-                return
-
-            # --------------------------------
-            # YouTube Search
-            # --------------------------------
-
-            print(
-                f"\n[{thread_name}]"
-                f"[{selected_browser.upper()}] "
-                f"Searching keyword on YouTube : "
-                f"{keyword}"
-            )
-
-            success, _ = retry_operation(
-                lambda: search_video(
+                success = process_youtube_first_flow(
                     driver,
                     keyword,
                     config,
                     stop_event,
-                ),
-                stop_event=stop_event,
-                stats=stats,
-                driver=driver,
-                operation_name="YouTube Search",
-            )
-
-            if not success:
-
-                session_success = False
-                stats.record_keyword_failure()
-
-                print(
-                    f"[{thread_name}]"
-                    f"[{selected_browser.upper()}] "
-                    f"Failed to search keyword : "
-                    f"{keyword}"
+                    stats,
+                    thread_name,
+                    selected_browser,
                 )
 
-                if not is_browser_alive(driver):
-                    stats.record_browser_error()
-                    return
+                if not success:
+
+                    session_success = False
+                    stats.record_keyword_failure()
+
+                    if not is_browser_alive(driver):
+
+                        stats.record_browser_error()
+                        return
 
                 continue
 
-            if stop_event.is_set():
-                return
+            # =================================================
+            # CASE 2 - SEARCH ENGINE FIRST
+            # =================================================
 
-            # --------------------------------
-            # Find Target Video
-            # --------------------------------
-
-            success, found = retry_operation(
-                lambda: find_target_video(
-                    driver,
-                    config,
-                    stop_event,
-                ),
-                stop_event=stop_event,
-                stats=stats,
-                driver=driver,
-                operation_name="Find Target Video",
+            print(
+                f"\n[{thread_name}]"
+                f"[{selected_browser.upper()}] "
+                f"[SEARCH_ENGINE_FIRST] "
+                f"Processing keyword : {keyword}"
             )
 
-            if not success:
+            # -------------------------------------------------
+            # Target Channel Configuration
+            # -------------------------------------------------
 
-                session_success = False
-                stats.record_keyword_failure()
+            youtube_config = config.get(
+                "youtube",
+                {}
+            )
 
-                print(
-                    f"[{thread_name}]"
-                    f"[{selected_browser.upper()}] "
-                    f"Failed while finding target video."
-                )
+            target_channel = youtube_config["targetChannel"]
 
-                if not is_browser_alive(driver):
-                    stats.record_browser_error()
-                    return
+            max_search_pages = youtube_config["maxSearchPages"]
 
-                continue
+            # -------------------------------------------------
+            # Search Engine Fallback Order
+            # -------------------------------------------------
 
-            if stop_event.is_set():
-                return
+            fallback_engines = config["search"]["engines"]
 
-            # --------------------------------
-            # Watch Video
-            # --------------------------------
+            keyword_completed = False
+            target_video_found = False
 
-            if found:
+            # -------------------------------------------------
+            # Try each configured search engine
+            # -------------------------------------------------
 
-                stats.record_video_found()
-
-                print(
-                    f"[{thread_name}]"
-                    f"[{selected_browser.upper()}] "
-                    f"Target channel video found."
-                )
-
-                watch_time = watch_video(
-                    driver,
-                    config,
-                    stop_event,
-                )
-
-                stats.record_watch_time(
-                    watch_time
-                )
+            for current_engine in fallback_engines:
 
                 if stop_event.is_set():
                     return
 
-                # --------------------------------
-                # Return to YouTube Home
-                # --------------------------------
+                # -------------------------------------------------
+                # Skip engine if it is not configured
+                # -------------------------------------------------
 
-                go_to_home(
+                if current_engine not in search_engines:
+
+                    print(
+                        f"[{thread_name}] "
+                        f"{current_engine.upper()} is not configured. "
+                        f"Skipping."
+                    )
+
+                    continue
+
+                current_engine_config = search_engines[
+                    current_engine
+                ]
+
+                print()
+                print(
+                    "=" * 60
+                )
+
+                print(
+                    f"[{thread_name}] "
+                    f"Trying Search Engine : "
+                    f"{current_engine.upper()}"
+                )
+
+                print(
+                    f"Keyword : {keyword}"
+                )
+
+                print(
+                    "=" * 60
+                )
+
+                # -------------------------------------------------
+                # Clear previous target URL
+                # -------------------------------------------------
+
+                driver.target_video_url = None
+
+                # -------------------------------------------------
+                # 1. Open Search Engine + Search Keyword
+                # -------------------------------------------------
+
+                search_success, _ = retry_operation(
+
+                    lambda: (
+                        open_search_engine(
+                            driver,
+                            current_engine_config,
+                        ),
+
+                        search_keyword(
+                            driver,
+                            current_engine_config,
+                            keyword,
+                            config,
+                            stop_event,
+                        ),
+                    ),
+
+                    stop_event=stop_event,
+                    stats=stats,
+                    driver=driver,
+                    operation_name=(
+                        f"{current_engine.upper()} Search Engine"
+                    ),
+                )
+
+                if not search_success:
+
+                    print(
+                        f"[{thread_name}] "
+                        f"{current_engine.upper()} "
+                        f"search failed."
+                    )
+
+                    print(
+                        f"[{thread_name}] "
+                        f"Trying next search engine..."
+                    )
+
+                    continue
+
+                if stop_event.is_set():
+                    return
+
+                print(
+                    f"[{thread_name}] "
+                    f"{current_engine.upper()} "
+                    f"search completed."
+                )
+
+                # -------------------------------------------------
+                # Google verification check
+                # -------------------------------------------------
+
+                if current_engine == "google":
+
+                    if is_google_verification_page(driver):
+
+                        print()
+                        print(
+                            "[SEARCH ENGINE] "
+                            "Google verification detected."
+                        )
+
+                        print(
+                            "[SEARCH ENGINE] "
+                            "Google unavailable for this keyword."
+                        )
+
+                        print(
+                            "[SEARCH ENGINE] "
+                            "Switching to next search engine..."
+                        )
+
+                        continue
+
+                # -------------------------------------------------
+                # DuckDuckGo promo popup
+                # -------------------------------------------------
+
+                if current_engine == "duckduckgo":
+
+                    try:
+
+                        close_button = driver.find_element(
+                            By.CSS_SELECTOR,
+                            '[data-testid="serp-popover-promo-close"]'
+                        )
+
+                        close_button.click()
+
+                        print(
+                            "DUCKDUCKGO promo popup closed."
+                        )
+
+                    except Exception:
+
+                        print(
+                            "DUCKDUCKGO promo popup not found."
+                        )
+
+                # -------------------------------------------------
+                # 2. Open Videos Tab
+                # -------------------------------------------------
+
+                print(
+                    f"[{thread_name}] "
+                    f"[{current_engine.upper()}] "
+                    f"Opening Videos tab..."
+                )
+
+                video_tab_success = open_video_tab(
                     driver,
+                    current_engine_config,
                     config,
                     stop_event,
                 )
 
-                close_mini_player(driver)
+                if not video_tab_success:
 
-            else:
+                    print(
+                        f"[{thread_name}] "
+                        f"[{current_engine.upper()}] "
+                        f"Failed to open Videos tab."
+                    )
 
-                stats.record_video_not_found()
+                    print(
+                        f"[{thread_name}] "
+                        f"Trying next search engine..."
+                    )
+
+                    continue
+
+                if stop_event.is_set():
+                    return
+
+                # -------------------------------------------------
+                # 3. Find Target Video
+                # -------------------------------------------------
 
                 print(
-                    f"[{thread_name}]"
-                    f"[{selected_browser.upper()}] "
-                    f"Target channel video not found."
+                    f"[{thread_name}] "
+                    f"[{current_engine.upper()}] "
+                    f"Searching Videos results for target "
+                    f"channel : {target_channel}"
                 )
 
-        # --------------------------------
-        # Session Completed
-        # --------------------------------
+                video_success, found = retry_operation(
+
+                    lambda: find_target_video_in_video_results(
+                        driver,
+                        current_engine_config,
+                        target_channel,
+                        max_search_pages,
+                        stop_event,
+                        YOUTUBE,
+                    ),
+
+                    stop_event=stop_event,
+                    stats=stats,
+                    driver=driver,
+                    operation_name=(
+                        f"Find Target Video - "
+                        f"{current_engine.upper()}"
+                    ),
+                )
+
+                if not video_success:
+
+                    print(
+                        f"[{thread_name}] "
+                        f"[{current_engine.upper()}] "
+                        f"Error while searching target video."
+                    )
+
+                    print(
+                        f"[{thread_name}] "
+                        f"Trying next search engine..."
+                    )
+
+                    continue
+
+                if stop_event.is_set():
+                    return
+
+                # -------------------------------------------------
+                # Target Video Found
+                # -------------------------------------------------
+
+                if found:
+
+                    target_video_url = getattr(
+                        driver,
+                        "target_video_url",
+                        None,
+                    )
+
+                    if not target_video_url:
+
+                        print(
+                            f"[{thread_name}] "
+                            f"[{current_engine.upper()}] "
+                            f"Target video found but URL was not stored."
+                        )
+
+                        print(
+                            f"[{thread_name}] "
+                            f"Trying next search engine..."
+                        )
+
+                        continue
+
+                    # -------------------------------------------------
+                    # SUCCESSFUL SEARCH ENGINE
+                    # -------------------------------------------------
+
+                    print()
+                    print(
+                        "=" * 60
+                    )
+
+                    print(
+                        f"[{thread_name}] "
+                        f"TARGET VIDEO FOUND"
+                    )
+
+                    print(
+                        f"Search Engine : "
+                        f"{current_engine.upper()}"
+                    )
+
+                    print(
+                        f"Target Channel : "
+                        f"{target_channel}"
+                    )
+
+                    print(
+                        f"Target Video URL : "
+                        f"{target_video_url}"
+                    )
+
+                    print(
+                        "=" * 60
+                    )
+
+                    stats.record_video_found()
+
+                    target_video_found = True
+                    keyword_completed = True
+
+                    # -------------------------------------------------
+                    # 4. Open Exact Target Video
+                    # -------------------------------------------------
+
+                    print(
+                        f"[{thread_name}] "
+                        f"[{selected_browser.upper()}] "
+                        f"Opening target video : "
+                        f"{target_video_url}"
+                    )
+
+                    driver.get(
+                        target_video_url
+                    )
+
+                    random_sleep(
+                        2,
+                        4,
+                        stop_event,
+                    )
+
+                    if stop_event.is_set():
+                        return
+
+                    # -------------------------------------------------
+                    # Give YouTube time to load
+                    # -------------------------------------------------
+
+                    random_sleep(
+                        config["timing"]["sleepMin"],
+                        config["timing"]["sleepMax"],
+                        stop_event,
+                    )
+
+                    if stop_event.is_set():
+                        return
+
+                    # -------------------------------------------------
+                    # 5. Watch Video
+                    # -------------------------------------------------
+
+                    watch_time = watch_video(
+                        driver,
+                        config,
+                        stop_event,
+                    )
+
+                    stats.record_watch_time(
+                        watch_time
+                    )
+
+                    if stop_event.is_set():
+                        return
+
+                    # -------------------------------------------------
+                    # 6. Return to YouTube Home
+                    # -------------------------------------------------
+
+                    go_to_home(
+                        driver,
+                        config,
+                        stop_event,
+                    )
+
+                    close_mini_player(
+                        driver
+                    )
+
+                    # -------------------------------------------------
+                    # Target found -> stop engine fallback
+                    # -------------------------------------------------
+
+                    break
+
+                # -------------------------------------------------
+                # Target Video NOT Found
+                # -------------------------------------------------
+
+                else:
+
+                    stats.record_video_not_found()
+
+                    print(
+                        f"[{thread_name}] "
+                        f"[{current_engine.upper()}] "
+                        f"Target channel video not found."
+                    )
+
+                    print(
+                        f"[{thread_name}] "
+                        f"Trying next search engine..."
+                    )
+
+            # -------------------------------------------------
+            # All Search Engines Exhausted
+            # -------------------------------------------------
+
+            if not keyword_completed:
+
+                session_success = False
+
+                stats.record_keyword_failure()
+
+                print()
+                print(
+                    "=" * 60
+                )
+
+                print(
+                    f"[{thread_name}] "
+                    f"All search engines exhausted."
+                )
+
+                print(
+                    f"[{thread_name}] "
+                    f"Target video could not be processed "
+                    f"for keyword : {keyword}"
+                )
+
+                print(
+                    "=" * 60
+                )
+
+                if not is_browser_alive(driver):
+
+                    stats.record_browser_error()
+
+                    return
+
+        # =====================================================
+        # SESSION COMPLETED
+        # =====================================================
 
         if session_success:
 
@@ -520,6 +988,10 @@ def run_session(
         else:
 
             stats.record_failure()
+
+    # =========================================================
+    # UNEXPECTED SESSION ERROR
+    # =========================================================
 
     except Exception as error:
 
@@ -536,6 +1008,10 @@ def run_session(
             )
 
             traceback.print_exc()
+
+    # =========================================================
+    # CLOSE BROWSER
+    # =========================================================
 
     finally:
 

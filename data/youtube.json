@@ -31,6 +31,11 @@
     "value": "#channel-name a"
 },
 
+"videoPageChannelName": {
+  "by": "XPATH",
+  "value": "//span[contains(@class,'ytAttributedStringHost') and contains(normalize-space(),'Anubhav Trainings')]"
+},
+
 "youtubeLogo": {
   "by": "CSS_SELECTOR",
   "value": "a#logo"

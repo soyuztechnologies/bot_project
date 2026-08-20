@@ -202,6 +202,24 @@ def setup_browser(config: dict, browser_name: str):
 
     browser_name = browser_name.lower()
 
+    # -----------------------------------------------------
+    # Persistent browser profile
+    # -----------------------------------------------------
+
+    profile_path = os.path.abspath(
+        os.path.join(
+            "profiles",
+            browser_name,
+            f"thread_{threading.get_ident()}",
+        )
+    )
+
+    os.makedirs(profile_path, exist_ok=True)
+
+    print(
+        f"[{browser_name.upper()}] Profile : {profile_path}"
+    )
+
     print(
         f"[{browser_name.upper()}] Launching browser..."
     )
@@ -217,7 +235,8 @@ def setup_browser(config: dict, browser_name: str):
             driver = Driver(
                 browser="chrome",
                 uc=True,
-                headless=headless,
+                user_data_dir=profile_path,
+                headless=False,
                 chromium_arg=get_chromium_args(),
             )
 
@@ -229,8 +248,9 @@ def setup_browser(config: dict, browser_name: str):
 
             driver = Driver(
                 browser="edge",
-                headless=headless,
-                chromium_arg=get_chromium_args(),
+                uc=True,
+                user_data_dir=profile_path,
+                headless=False,
             )
 
         # -----------------------------------------------------
@@ -241,6 +261,7 @@ def setup_browser(config: dict, browser_name: str):
 
             driver = Driver(
                 browser="firefox",
+                uc=False,
                 headless=headless,
                 firefox_pref="media.volume_scale=0.0",
             )
@@ -253,7 +274,8 @@ def setup_browser(config: dict, browser_name: str):
 
             driver = Driver(
                 browser="opera",
-                headless=headless,
+                uc=False,
+                user_data_dir=profile_path,
                 chromium_arg=get_chromium_args(),
             )
 
@@ -271,9 +293,10 @@ def setup_browser(config: dict, browser_name: str):
 
             driver = Driver(
                 browser="chrome",
-                headless=headless,
                 binary_location=brave_binary,
-                chromium_arg=get_chromium_args(),
+                uc=True,
+                user_data_dir=profile_path,
+                headless=False,
             )
 
         else:
@@ -284,6 +307,34 @@ def setup_browser(config: dict, browser_name: str):
 
         print(
             f"[{browser_name.upper()}] Browser launched."
+        )
+
+    # -----------------------------------------------------
+    # Opera - deny geolocation permission
+    # -----------------------------------------------------
+
+    if browser_name == "opera":
+
+      try:
+        driver.execute_cdp_cmd(
+            "Browser.setPermission",
+            {
+                "permission": {
+                    "name": "geolocation"
+                },
+                "setting": "denied",
+                "origin": "https://www.google.com",
+            },
+        )
+
+        print(
+            "[OPERA] Geolocation permission denied."
+        )
+
+      except Exception as error:
+
+        print(
+            f"[OPERA] Geolocation permission setup failed : {error}"
         )
 
     # -----------------------------------------------------
