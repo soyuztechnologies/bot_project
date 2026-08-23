@@ -296,9 +296,10 @@ def _session_worker(job_queue, config, stop_event, stats): # Removed session_sta
     while not stop_event.is_set():
         try:
             keyword, engine_name, engine = job_queue.get_nowait()
-            run_session(keyword, config, engine_name, engine, stop_event, stats)
         except queue.Empty:
             return
+        try:
+            run_session(keyword, config, engine_name, engine, stop_event, stats)
         except Exception as error:
             logger.error(f"Unhandled error in session worker: {error}", exc_info=True)
         finally:

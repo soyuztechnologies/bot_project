@@ -5,120 +5,201 @@ Entry point for YouTube Automation.
 """
 
 import json
-import time
 import logging
 from pathlib import Path
-from dotenv import load_dotenv # type: ignore
+
+from dotenv import load_dotenv  # type: ignore
 
 from automation.youtube_session import start_parallel_sessions
-from utils.database import check_db_connection, DatabaseHandler, close_connection_pool, initialize_database
+from utils.database import (
+    check_db_connection,
+    DatabaseHandler,
+    close_connection_pool,
+    initialize_database,
+)
 from utils.logger import setup_logger
 
+# ---------------------------------------------------------
+# Base Configuration
+# ---------------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parent
 
 # Load environment variables from .env file
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-BASE_DIR = Path(__file__).resolve().parent
+
+# ---------------------------------------------------------
+# JSON Loader
+# ---------------------------------------------------------
 
 
 def load_json(path):
+    """
+    Load and return JSON data from the given path.
+    """
 
     with open(path, "r", encoding="utf-8") as file:
         return json.load(file)
 
 
-def print_summary(stats, config):
-    """Prints a formatted summary of the automation results."""
-    success_sessions = stats.get("success", [])
-    failed_sessions = stats.get("failed", [])
-    total_sessions = stats.get("total", len(success_sessions) + len(failed_sessions))
-    success_count = len(success_sessions)
-    failed_count = len(failed_sessions)
-
-    # Sort for consistent output
-    success_sessions.sort(key=lambda x: x["keyword"])
-    failed_sessions.sort(key=lambda x: x["keyword"])
-
-    # Use a mix of logger and print for a clean summary report
-    logger.info("\n" + "=" * 50)
-    logger.info(" Session Summary ".center(50, "="))
-
-    # Using print here for the list to avoid logger's timestamp/level prefixes
-    for session in success_sessions:
-        print(f"✓ {session['keyword']:<30} [{session['engine']}]")
-
-    if success_sessions and failed_sessions:
-        print()
-
-    for session in failed_sessions:
-        print(f"✗ {session['keyword']:<30} [{session['engine']}]")
-
-    logger.info("\n" + "-" * 50)
-    logger.info(f"Browser Mode: {config['browser']['mode'].capitalize()}")
-    logger.info(f"Total   : {total_sessions}")
-    logger.info(f"Success : {success_count}")
-    logger.info(f"Failed  : {failed_count}")
-    logger.info("=" * 50)
+# ---------------------------------------------------------
+# Main
+# ---------------------------------------------------------
 
 
 def main():
-    """Main function to run the YouTube automation bot."""
+    """
+    Run one complete YouTube automation cycle.
+
+    Database logging is initialized before the automation starts.
+    The automation itself follows the current File-1 flow.
+    """
+
+    db_initialized = False
+
     try:
+
+        # -----------------------------------------------------
+        # Logging Setup
+        # -----------------------------------------------------
+
         setup_logger()
-        # Initialize database and then check the connection
-        initialize_database()
 
-        # Add the custom database handler to the root logger.
-        # This will capture logs from the entire application.
-        logging.getLogger().addHandler(DatabaseHandler())
+        # -----------------------------------------------------
+        # Database Setup
+        # -----------------------------------------------------
 
-        while True:
-            try:
-                # Check database connection at the start of each cycle
-                # It will switch to a fallback file logger if connection fails.
-                check_db_connection()
-                config = load_json(BASE_DIR / "config.json")
+        try:
 
-                keywords = load_json(
-                    BASE_DIR / config["files"]["keywords"]
-                )
+            initialize_database()
+            db_initialized = True
 
-                logger.info("=" * 60)
-                logger.info("YouTube Automation Started")
-                logger.info("=" * 60)
-                logger.info(f"Browsers : {', '.join(config['browser']['browsers'])}")
-                logger.info(f"Sessions : {config['sessions']['parallel']}")
-                logger.info(f"Keywords : {len(keywords)}")
-                logger.info("=" * 60)
+            # Check whether the database is currently reachable.
+            # Existing database implementation may switch to its
+            # fallback logger when the connection is unavailable.
+            check_db_connection()
 
-                stats = start_parallel_sessions(
-                    keywords,
-                    config,
-                )
-                print_summary(stats, config)
+            # Add database logging to the root logger so logs from
+            # the complete application can be stored.
+            logging.getLogger().addHandler(DatabaseHandler())
 
-                logger.info("\nCycle completed.")
-                logger.info("Waiting 5 minutes before next cycle...\n")
+            logger.info("Database logging initialized successfully.")
 
-                time.sleep(300)
+        except Exception as db_error:
 
-            except KeyboardInterrupt:
-                logger.info("\nAutomation stopped by user.")
-                break
+            # Do not stop the automation only because database
+            # initialization failed.
+            logger.error(
+                f"Database initialization failed : {db_error}",
+                exc_info=True,
+            )
 
-            except Exception as error:
-                logger.error(f"\nUnexpected Error : {error}", exc_info=True)
-                logger.info("Restarting automation in 30 seconds...\n")
-                time.sleep(30)
+            logger.info("Continuing YouTube automation without " "database logging.")
+
+        # -----------------------------------------------------
+        # Load Configuration
+        # -----------------------------------------------------
+
+        config = load_json(BASE_DIR / "config.json")
+
+        # -----------------------------------------------------
+        # Load Keywords
+        # -----------------------------------------------------
+
+        keywords = load_json(BASE_DIR / config["files"]["keywords"])
+
+        # -----------------------------------------------------
+        # Start Message
+        # -----------------------------------------------------
+
+        print("=" * 60)
+        print("YouTube Automation Started")
+        print("=" * 60)
+
+        print(f"Browsers : " f"{', '.join(config['browser']['browsers'])}")
+
+        print(f"Sessions : " f"{config['sessions']['parallel']}")
+
+        print(f"Keywords : {len(keywords)}")
+
+        print("=" * 60)
+
+        # -----------------------------------------------------
+        # Start Parallel YouTube Sessions
+        # -----------------------------------------------------
+
+        stats = {
+            "total": len(keywords),
+            "success": [],
+            "failed": [],
+        }
+
+        completed = start_parallel_sessions(
+            keywords,
+            config,
+            stats,
+        )
+
+        # -----------------------------------------------------
+        # Completion Status
+        # -----------------------------------------------------
+
+        if completed:
+
+            print("\nCycle completed.")
+            print("Automation completed successfully.")
+
+            logger.info("YouTube automation cycle completed successfully.")
+
+        else:
+
+            print("\nAutomation stopped by user.")
+
+            logger.info("YouTube automation stopped before completion.")
+
     except KeyboardInterrupt:
-        logger.info("\nYouTube automation stopped by user.")
+
+        print("\nAutomation stopped by user.")
+
+        logger.info("YouTube automation stopped by user.")
+
     except Exception as error:
-        logger.error(f"Fatal YouTube automation error: {error}", exc_info=True)
+
+        print(f"\nUnexpected Error : {error}")
+
+        logger.error(
+            f"Unexpected YouTube automation error : {error}",
+            exc_info=True,
+        )
+
     finally:
-        logger.info("YouTube Automation Project Finished.")
-        close_connection_pool()
+
+        # -----------------------------------------------------
+        # Database Cleanup
+        # -----------------------------------------------------
+
+        if db_initialized:
+
+            try:
+
+                close_connection_pool()
+
+                logger.info("Database connection pool closed.")
+
+            except Exception as db_error:
+
+                logger.error(
+                    f"Failed to close database connection pool : " f"{db_error}",
+                    exc_info=True,
+                )
+
+
+# ---------------------------------------------------------
+# Entry Point
+# ---------------------------------------------------------
 
 if __name__ == "__main__":
     main()

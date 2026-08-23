@@ -267,26 +267,28 @@ def _session_worker(job_queue, config, stop_event, stats):
     Worker thread that runs one browser session.
     """
     while not stop_event.is_set():
+        keyword = None
         try:
             keyword = job_queue.get_nowait()
             run_session(keyword, config, stop_event, stats)
         except queue.Empty:
-            return
+            return # No more jobs, worker can exit.
         except Exception as error:
-            logger.error(f"Unhandled error in session worker: {error}", exc_info=True)
+            # This catches crashes within run_session (e.g., browser connection lost)
+            logger.error(f"Unhandled error in session worker for keyword '{keyword}': {error}", exc_info=True)
+            if keyword: # Ensure the failed keyword is tracked
+                with _STATS_LOCK:
+                    if not any(d.get('keyword') == keyword for d in stats['failed']):
+                         stats["failed"].append({"keyword": keyword, "engine": "youtube"})
         finally:
-            job_queue.task_done()
+            if keyword: # Ensure task_done is only called if a keyword was retrieved
+                job_queue.task_done()
 
 
-def start_parallel_sessions(keywords, config):
+def start_parallel_sessions(keywords, config, stats):
     """
     Start multiple YouTube sessions in parallel.
     """
-    stats = {
-        "total": len(keywords),
-        "success": [],
-        "failed": [],
-    }
     max_workers = min(int(config["sessions"]["parallel"]), len(keywords))
     stop_event = threading.Event()
     job_queue = queue.Queue()
@@ -328,4 +330,4 @@ def start_parallel_sessions(keywords, config):
         if stop_event.is_set():
             logger.info("Automation stopped.")
 
-    return stats # Return stats for summary printing
+    return stats
