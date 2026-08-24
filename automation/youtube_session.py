@@ -441,6 +441,7 @@ def run_session(
                 f"[{selected_browser.upper()}] "
                 f"Browser startup failed : {error}"
             )
+            traceback.print_exc()
 
             return
 

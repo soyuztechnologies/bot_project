@@ -1,16 +1,30 @@
-# Virtual environment
+# Python
 .venv/
- 
-# Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
- 
-# Docker files
-Dockerfile
-.dockerignore
- 
+
 # Git
 .git/
 .gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Runtime
+profiles/
+logs/
+
+# Environment / secrets
+.env
+.env.*
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Logs
+*.log

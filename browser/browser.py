@@ -11,6 +11,7 @@ Responsible for:
 """
 
 import os
+import traceback
 import shutil
 import subprocess
 import sys
@@ -234,9 +235,9 @@ def setup_browser(config: dict, browser_name: str):
 
             driver = Driver(
                 browser="chrome",
-                uc=True,
+                uc=False,
                 user_data_dir=profile_path,
-                headless=False,
+                headless=headless,
                 chromium_arg=get_chromium_args(),
             )
 
@@ -248,9 +249,9 @@ def setup_browser(config: dict, browser_name: str):
 
             driver = Driver(
                 browser="edge",
-                uc=True,
+                uc=False,
                 user_data_dir=profile_path,
-                headless=False,
+                headless=headless,
             )
 
         # -----------------------------------------------------
@@ -258,12 +259,10 @@ def setup_browser(config: dict, browser_name: str):
         # -----------------------------------------------------
 
         elif browser_name == "firefox":
-
             driver = Driver(
                 browser="firefox",
                 uc=False,
                 headless=headless,
-                firefox_pref="media.volume_scale=0.0",
             )
 
         # -----------------------------------------------------
@@ -271,14 +270,16 @@ def setup_browser(config: dict, browser_name: str):
         # -----------------------------------------------------
 
         elif browser_name == "opera":
-
             driver = Driver(
-                browser="opera",
+                browser="chrome",
+                binary_location="/usr/bin/opera",
                 uc=False,
+                headless=headless,
+                no_sandbox=True,
+                disable_gpu=True,
                 user_data_dir=profile_path,
                 chromium_arg=get_chromium_args(),
             )
-
         # -----------------------------------------------------
         # Brave
         # -----------------------------------------------------
@@ -294,9 +295,10 @@ def setup_browser(config: dict, browser_name: str):
             driver = Driver(
                 browser="chrome",
                 binary_location=brave_binary,
-                uc=True,
+                uc=False,
                 user_data_dir=profile_path,
-                headless=False,
+                headless=headless,
+                chromium_arg=get_chromium_args(),
             )
 
         else:
