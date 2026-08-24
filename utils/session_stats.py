@@ -46,12 +46,39 @@ class SessionStats:
         self.browser_usage = {}
 
         # --------------------------------
+        # Per-keyword Records
+        # --------------------------------
+
+        self.success = []
+        self.failed = []
+
+        # --------------------------------
         # Error / Retry Statistics
         # --------------------------------
 
         self.retry_count = 0
         self.browser_errors = 0
         self.search_errors = 0
+
+    # ==================================
+    # DICT-STYLE ACCESS
+    # ==================================
+
+    def __getitem__(self, key):
+
+        if key == "success":
+            return self.success
+
+        if key == "failed":
+            return self.failed
+
+        if key == "total":
+            return (
+                self.successful_sessions
+                + self.failed_sessions
+            )
+
+        raise KeyError(key)
 
     # ==================================
     # SESSION METHODS

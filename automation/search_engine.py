@@ -14,6 +14,7 @@ data/search_engines.json.
 """
 import base64
 from selenium.webdriver.common.by import By
+import time
 from utils.helpers import human_typing, press_enter, random_sleep, scroll_and_click
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
@@ -135,16 +136,33 @@ def is_target_url(url: str, target_domain: str) -> bool:
     return hostname == target or hostname.endswith(f".{target}")
 
 
-def open_search_engine(driver, engine: dict) -> None:
-    """
-    Open the selected search engine.
+def _is_browser_alive_se(driver) -> bool:
+    if not driver:
+        return False
+    try:
+        _ = driver.current_url
+        return True
+    except Exception:
+        return False
 
-    Args:
-        driver: Selenium WebDriver.
-        engine (dict): Search engine configuration.
-    """
 
-    driver.get(engine["url"])
+def open_search_engine(driver, engine: dict, session_logger=None, stop_event=None) -> None:
+    """
+    Open the selected search engine. Gracefully handles driver errors.
+    """
+    if stop_event and stop_event.is_set():
+        return
+    if not _is_browser_alive_se(driver):
+        raise RuntimeError("Browser not alive before opening search engine")
+    url = engine.get("url")
+    if not url:
+        raise ValueError(f"Search engine missing 'url': {engine}")
+    try:
+        driver.get(url)
+    except Exception as e:
+        if session_logger:
+            session_logger.warning(f"Failed to open search engine {url}: {e}", extra={'action': 'ENGINE_OPEN', 'status': 'FAILED', 'error_message': str(e)})
+        raise
 
 
 def search_keyword(
@@ -153,6 +171,7 @@ def search_keyword(
     keyword: str,
     config: dict,
     stop_event=None,
+    session_logger=None,
 ) -> None:
     """
     Search a keyword by typing it into the search box.
@@ -162,6 +181,8 @@ def search_keyword(
 
     This function is used by the search-engine-first flow.
     """
+    if session_logger:
+        session_logger.info(f"Performing search for keyword: {keyword}", extra={'action': 'KEYWORD_SEARCH', 'status': 'RUNNING'})
 
     if stop_event and stop_event.is_set():
         return
@@ -181,68 +202,99 @@ def search_keyword(
     # Find search box
     # ---------------------------------------------------------
 
-    search_box = wait_for_element(
-        driver,
-        locator,
-        timeout=15,
-    )
-
-    if stop_event and stop_event.is_set():
-        return
-
-    # ---------------------------------------------------------
-    # Make sure the search box is ready
-    # ---------------------------------------------------------
-
     try:
-        search_box.click()
-    except Exception:
-        pass
+        search_box = wait_for_element(
+            driver,
+            locator,
+            timeout=15,
+        )
+    except Exception as e:
+        # Fallback: navigate directly via searchUrl template if search box not found
+        # (e.g. consent / redirect page, or engine homepage not loaded).
+        direct_url = build_search_url(engine, keyword)
+        if direct_url:
+            if session_logger:
+                session_logger.warning(
+                    f"Search box not found ({e}); falling back to direct search URL",
+                    extra={'action': 'KEYWORD_SEARCH', 'status': 'RETRYING'}
+                )
+            print(f"Search box not found ({e}); navigating directly to {direct_url}")
+            driver.get(direct_url)
+            random_sleep(
+                config["timing"]["sleepMin"],
+                config["timing"]["sleepMax"],
+                stop_event,
+            )
+            return
+        raise
 
     if stop_event and stop_event.is_set():
         return
 
     # ---------------------------------------------------------
-    # Type keyword gradually
+    # Make sure the search box is ready + type + submit
+    # Wrap in robust handling - any failure falls back to direct URL
     # ---------------------------------------------------------
+    try:
+        try:
+            search_box.click()
+        except Exception:
+            pass
 
-    human_typing(
-        search_box,
-        keyword,
-        config["timing"]["typingMin"],
-        config["timing"]["typingMax"],
-        stop_event,
-    )
+        if stop_event and stop_event.is_set():
+            return
 
-    if stop_event and stop_event.is_set():
+        human_typing(
+            search_box,
+            keyword,
+            config["timing"]["typingMin"],
+            config["timing"]["typingMax"],
+            stop_event,
+        )
+
+        if stop_event and stop_event.is_set():
+            return
+
+        print(f"Keyword typed : {keyword}")
+
+        press_enter(search_box)
+
+        if stop_event and stop_event.is_set():
+            return
+
+        random_sleep(
+            config["timing"]["sleepMin"],
+            config["timing"]["sleepMax"],
+            stop_event,
+        )
+
+        print(f"Search submitted : {keyword}")
         return
-
-    print(
-        f"Keyword typed : {keyword}"
-    )
-
-    # ---------------------------------------------------------
-    # Submit search
-    # ---------------------------------------------------------
-
-    press_enter(search_box)
-
-    if stop_event and stop_event.is_set():
-        return
-
-    # ---------------------------------------------------------
-    # Wait for search results
-    # ---------------------------------------------------------
-
-    random_sleep(
-        config["timing"]["sleepMin"],
-        config["timing"]["sleepMax"],
-        stop_event,
-    )
-
-    print(
-        f"Search submitted : {keyword}"
-    )
+    except Exception as e:
+        # Typing/click/enter failed - fallback to direct URL if possible
+        direct_url = build_search_url(engine, keyword)
+        if direct_url and _is_browser_alive_se(driver):
+            if session_logger:
+                session_logger.warning(
+                    f"Search typing failed ({e}); falling back to direct URL",
+                    extra={'action': 'KEYWORD_SEARCH', 'status': 'RETRYING', 'error_message': str(e)}
+                )
+            print(f"Search typing failed ({e}); navigating directly to {direct_url}")
+            try:
+                driver.get(direct_url)
+                random_sleep(
+                    config["timing"]["sleepMin"],
+                    config["timing"]["sleepMax"],
+                    stop_event,
+                )
+                return
+            except Exception as e2:
+                if session_logger:
+                    session_logger.error(f"Direct URL fallback also failed: {e2}", extra={'action': 'KEYWORD_SEARCH', 'status': 'FAILED', 'error_message': str(e2)})
+                raise
+        if session_logger:
+            session_logger.error(f"Search failed and no fallback available: {e}", extra={'action': 'KEYWORD_SEARCH', 'status': 'FAILED', 'error_message': str(e)})
+        raise
 
 
 def is_google_verification_page(driver):
@@ -1026,61 +1078,199 @@ def next_page(driver, engine: dict, stop_event=None) -> bool:
 
 
 def find_target_website(
-    driver, engine: dict, target_domain: str, max_pages: int, stop_event=None
+    driver, engine: dict, target_domain: str, max_pages: int, stop_event=None, session_logger=None
 ) -> bool:
     """
-    Find the target website in search results.
-
-    Args:
-        driver: Selenium WebDriver.
-        engine (dict): Search engine configuration.
-        target_domain (str): Website domain.
-        max_pages (int): Maximum pages to scan.
-
-    Returns:
-        bool
+    Find the target website in search results. Robust: any page/link error
+    is isolated, browser death is detected, and next_page failures don't crash.
     """
+    if session_logger:
+        try:
+            session_logger.info(f"Searching for target website '{target_domain}' in search results.", extra={'action': 'WEBSITE_SEARCH', 'status': 'RUNNING'})
+        except Exception:
+            pass
 
-    from selenium.common.exceptions import StaleElementReferenceException
+    from selenium.common.exceptions import StaleElementReferenceException, WebDriverException
 
-    link_locator = engine["resultLinks"]
+    # Validate locator
+    link_locator = engine.get("resultLinks")
+    if not link_locator:
+        if session_logger:
+            try:
+                session_logger.warning(f"Engine missing resultLinks locator", extra={'action': 'WEBSITE_SEARCH', 'status': 'FAILED'})
+            except Exception:
+                pass
+        return False
+
     open_target_mode = engine.get("openTarget", "direct")
+    max_pages = max(1, int(max_pages or 1))
+    last_page = 0
 
     for page in range(max_pages):
+        last_page = page
         if stop_event and stop_event.is_set():
             return False
+        if not _is_browser_alive_se(driver):
+            if session_logger:
+                try:
+                    session_logger.warning("Browser died during website search", extra={'action': 'WEBSITE_SEARCH', 'status': 'FAILED'})
+                except Exception:
+                    pass
+            return False
 
+        # Get result links - tolerate timeout/no results
         try:
-            links = wait_for_elements(driver, link_locator)
-        except Exception:
+            links = wait_for_elements(driver, link_locator, timeout=10)
+        except Exception as e:
+            if session_logger:
+                try:
+                    # Only log at debug for first pages to reduce noise
+                    session_logger.info(f"No result links on page {page+1}: {e}", extra={'action': 'WEBSITE_SEARCH', 'status': 'RUNNING'})
+                except Exception:
+                    pass
             links = []
 
         for link in links:
             if stop_event and stop_event.is_set():
                 return False
-
+            if not _is_browser_alive_se(driver):
+                return False
             try:
-                href = extract_result_url(link.get_attribute("href"))
+                try:
+                    raw_href = link.get_attribute("href")
+                except StaleElementReferenceException:
+                    continue
+                except WebDriverException:
+                    continue
+                href = extract_result_url(raw_href)
             except StaleElementReferenceException:
+                continue
+            except Exception:
                 continue
 
             if href and is_target_url(href, target_domain):
                 print(f"Matched target URL: {href}")
-
-                if open_target_mode == "direct":
-                    driver.get(href)
-                else:
+                if session_logger:
                     try:
-                        scroll_and_click(driver, link, stop_event)
-                    except StaleElementReferenceException:
-                        driver.get(href)
+                        session_logger.info(f"Target matched: {href}", extra={'action': 'WEBSITE_FOUND', 'status': 'SUCCESS', 'url': href})
                     except Exception:
+                        pass
+                # Open target - best effort with safe handling
+                try:
+                    if open_target_mode == "direct":
                         driver.get(href)
-
+                    else:
+                        try:
+                            scroll_and_click(driver, link, stop_event)
+                        except StaleElementReferenceException:
+                            driver.get(href)
+                        except WebDriverException:
+                            # Fallback to direct
+                            try:
+                                driver.get(href)
+                            except Exception as e2:
+                                if session_logger:
+                                    try:
+                                        session_logger.warning(f"Failed to open target {href}: {e2}", extra={'action': 'WEBSITE_OPEN', 'status': 'FAILED', 'error_message': str(e2), 'url': href})
+                                    except Exception:
+                                        pass
+                                return False
+                        except Exception:
+                            driver.get(href)
+                except Exception as e:
+                    if session_logger:
+                        try:
+                            session_logger.warning(f"Failed to open matched URL {href}: {e}", extra={'action': 'WEBSITE_OPEN', 'status': 'FAILED', 'error_message': str(e), 'url': href})
+                        except Exception:
+                            pass
+                    # Still consider found even if open fails? We'll return True to let caller decide
+                    # But to avoid false success when page didn't load, return True and let visit handle
+                    return True
+                # Small wait for navigation
+                try:
+                    time.sleep(1)
+                except Exception:
+                    pass
                 return True
 
-        if not next_page(driver, engine, stop_event):
-
+        # Try next page if not found
+        try:
+            has_next = next_page(driver, engine, stop_event)
+        except Exception as e:
+            if session_logger:
+                try:
+                    session_logger.info(f"next_page error on page {page+1}: {e}", extra={'action': 'WEBSITE_SEARCH', 'status': 'RUNNING'})
+                except Exception:
+                    pass
+            has_next = False
+        if not has_next:
             break
+        # Brief pause between pages
+        try:
+            time.sleep(1)
+        except Exception:
+            pass
 
+    if session_logger:
+        try:
+            session_logger.warning(f"Target website '{target_domain}' not found after checking {last_page + 1} page(s).", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'FAILED'})
+        except Exception:
+            pass
     return False
+
+
+def retry_operation_search(driver, engine, target_domain, max_pages, stop_event, session_logger, retries=3, delay=3):
+    """
+    Retries the find_target_website operation. Isolated: exceptions never crash caller.
+    Returns (found, actual_retry_count)
+    """
+    actual_retry_count = 0
+    for attempt in range(1, retries + 1):
+        if stop_event and stop_event.is_set():
+            return False, actual_retry_count
+        if not _is_browser_alive_se(driver):
+            if session_logger:
+                try:
+                    session_logger.warning("Browser not alive during retry search", extra={'action': 'WEBSITE_SEARCH', 'status': 'FAILED'})
+                except Exception:
+                    pass
+            return False, actual_retry_count
+
+        try:
+            found = find_target_website(driver, engine, target_domain, max_pages, stop_event, session_logger)
+        except Exception as e:
+            found = False
+            if session_logger:
+                try:
+                    session_logger.warning(f"Find target crashed on attempt {attempt}/{retries}: {e}", extra={'action': 'WEBSITE_SEARCH', 'status': 'FAILED', 'error_message': str(e)})
+                except Exception:
+                    pass
+            else:
+                print(f"[SEARCH] find_target_website error: {e}")
+
+        if found:
+            return True, actual_retry_count
+
+        if attempt < retries:
+            actual_retry_count += 1
+            try:
+                if session_logger:
+                    session_logger.warning(
+                        f"Target website not found on attempt {attempt}/{retries}. Retrying in {delay} seconds...",
+                        extra={'action': 'WEBSITE_SEARCH_RETRY', 'status': 'RETRYING'}
+                    )
+                else:
+                    print(f"Target not found attempt {attempt}/{retries}, retrying in {delay}s")
+            except Exception:
+                pass
+            if stop_event and stop_event.is_set():
+                return False, actual_retry_count
+            try:
+                if stop_event:
+                    stop_event.wait(delay)
+                else:
+                    time.sleep(delay)
+            except Exception:
+                pass
+
+    return False, actual_retry_count

@@ -347,6 +347,29 @@ Each browser runs independently in its own thread.
 
 ---
 
+## Prerequisites
+
+- Docker Desktop installed
+
+## Clone
+
+```bash
+git clone https://github.com/<username>/bot_project.git
+cd bot_project
+```
+
+## Build Docker Image
+
+```bash
+docker build -t seo_bot .
+```
+
+## Run
+
+```bash
+docker run --rm seo_bot
+```
+ 
 # Notes
 
 - Do not commit the `.venv/` directory.

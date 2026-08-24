@@ -1,69 +1,17 @@
-# ==========================================
-# Python Byte-Compiled / Optimized / DLL Files
-# ==========================================
-__pycache__/
-*.py[cod]
-*$py.class
-
-# ==========================================
-# Virtual Environments (Local Dependencies)
-# ==========================================
+# Environment variables
 .env
-.venv
-.drivers/
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
 
-# ==========================================
-# Distribution / Packaging / Build Artifacts
-# ==========================================
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+# Python virtual environment
+.venv/
 
-# ==========================================
-# Testing / Coverage / Linting Reports
-# ==========================================
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
+# Python cache
+__pycache__/
+*.pyc
 
-# ==========================================
-# Database & Framework-Specific (Django/Flask)
-# ==========================================
+# Log files
+logs/
 *.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-instance/
-.webassets-cache
+*.json.log
 
 # ==========================================
 # IDE / Editor-Specific Settings
@@ -85,3 +33,7 @@ downloaded_files/
 profiles/
 profiles/brave
 
+# Reports
+dashboard.html
+last_report.html
+downloaded_files/

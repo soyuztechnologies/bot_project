@@ -8,15 +8,18 @@ Responsibilities:
 2. Search keyword.
 3. Find target channel video.
 4. Watch the opened video.
+5. Support optional database/session logging.
 """
 
 import json
+import logging
 import random
 import time
 
 from pathlib import Path
-from selenium.webdriver.common.by import By
 
+from selenium.common.exceptions import WebDriverException
+from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
 from automation.search_engine import (
@@ -32,6 +35,13 @@ from utils.helpers import (
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 
+logger = logging.getLogger(__name__)
+
+
+# =========================================================
+# YouTube Configuration
+# =========================================================
+
 
 def load_youtube_config():
     """
@@ -42,45 +52,202 @@ def load_youtube_config():
         BASE_DIR / "data" / "youtube.json",
         encoding="utf-8",
     ) as file:
+
         return json.load(file)
 
 
 YOUTUBE = load_youtube_config()
 
 
-def open_youtube(driver, config, stop_event=None):
+# =========================================================
+# Network Navigation Errors
+# =========================================================
+
+NETWORK_NAVIGATION_ERRORS = (
+    "ERR_INTERNET_DISCONNECTED",
+    "ERR_NETWORK_CHANGED",
+    "ERR_NAME_NOT_RESOLVED",
+    "ERR_CONNECTION_RESET",
+    "ERR_CONNECTION_TIMED_OUT",
+    "ERR_PROXY_CONNECTION_FAILED",
+    "ERR_TUNNEL_CONNECTION_FAILED",
+)
+
+
+def _is_network_navigation_error(error):
     """
-    Open YouTube home page.
+    Check whether a WebDriver exception was caused
+    by a known network/navigation problem.
     """
 
-    if stop_event and stop_event.is_set():
-        return False
+    message = str(error)
 
-    print("Opening YouTube...")
-
-    driver.get(YOUTUBE["url"])
-
-    if stop_event and stop_event.is_set():
-        return False
-
-    random_sleep(
-        config["timing"]["sleepMin"],
-        config["timing"]["sleepMax"],
-        stop_event,
+    return "net::" in message and any(
+        code in message for code in NETWORK_NAVIGATION_ERRORS
     )
 
-    if stop_event and stop_event.is_set():
-        return False
 
-    print("YouTube opened successfully.")
-
-    return True
+# =========================================================
+# Open YouTube
+# =========================================================
 
 
-def search_video(driver, keyword, config, stop_event=None):
+def open_youtube(
+    driver,
+    config,
+    stop_event=None,
+    session_logger=None,
+):
+    """
+    Open YouTube home page.
+
+    Network navigation errors are retried according
+    to youtube.retryCount and navigationRetryDelay.
+    """
+
+    retry_count = max(
+        1,
+        int(
+            config.get("youtube", {}).get(
+                "retryCount",
+                3,
+            )
+        ),
+    )
+
+    retry_delay = max(
+        1,
+        int(
+            config.get("youtube", {}).get(
+                "navigationRetryDelay",
+                10,
+            )
+        ),
+    )
+
+    for attempt in range(
+        1,
+        retry_count + 1,
+    ):
+
+        if stop_event and stop_event.is_set():
+
+            return False
+
+        if session_logger:
+
+            session_logger.info(
+                f"Opening YouTube: {YOUTUBE['url']}",
+                extra={
+                    "action": "YOUTUBE_OPEN",
+                    "status": "RUNNING",
+                    "url": YOUTUBE["url"],
+                },
+            )
+
+        else:
+
+            print("Opening YouTube...")
+
+        try:
+
+            driver.get(YOUTUBE["url"])
+
+            random_sleep(
+                config["timing"]["sleepMin"],
+                config["timing"]["sleepMax"],
+                stop_event,
+            )
+
+            if stop_event and stop_event.is_set():
+
+                return False
+
+            if session_logger:
+
+                session_logger.info(
+                    "YouTube home page opened.",
+                    extra={
+                        "action": "YOUTUBE_OPEN",
+                        "status": "SUCCESS",
+                        "url": driver.current_url,
+                    },
+                )
+
+            else:
+
+                print("YouTube opened successfully.")
+
+            return True
+
+        except WebDriverException as error:
+
+            if not _is_network_navigation_error(error) or attempt == retry_count:
+
+                raise
+
+            if session_logger:
+
+                session_logger.warning(
+                    "YouTube navigation failed due "
+                    "to a network error. "
+                    f"Retrying in {retry_delay} seconds "
+                    f"({attempt}/{retry_count}).",
+                    extra={
+                        "action": "YOUTUBE_OPEN",
+                        "status": "RETRYING",
+                        "url": YOUTUBE["url"],
+                        "error_message": str(error),
+                    },
+                )
+
+            else:
+
+                print(
+                    "YouTube navigation failed due "
+                    "to network error. "
+                    f"Retrying in {retry_delay} seconds "
+                    f"({attempt}/{retry_count})."
+                )
+
+            if stop_event:
+
+                if stop_event.wait(retry_delay):
+
+                    return False
+
+            else:
+
+                time.sleep(retry_delay)
+
+    return False
+
+
+# =========================================================
+# Search YouTube
+# =========================================================
+
+
+def search_video(
+    driver,
+    keyword,
+    config,
+    stop_event=None,
+    session_logger=None,
+):
     """
     Search keyword on YouTube.
     """
+
+    if session_logger:
+
+        session_logger.info(
+            f"Searching for video with keyword: " f"'{keyword}'",
+            extra={
+                "action": "VIDEO_SEARCH_STARTED",
+                "status": "RUNNING",
+            },
+        )
 
     search_box = wait_for_element(
         driver,
@@ -89,24 +256,40 @@ def search_video(driver, keyword, config, stop_event=None):
 
     search_box.click()
 
-    search_box.send_keys(Keys.CONTROL, "a")
+    # -----------------------------------------------------
+    # Preserve File-1 clearing behaviour
+    # -----------------------------------------------------
 
-    random_sleep(0.2, 0.4, stop_event)
+    search_box.send_keys(
+        Keys.CONTROL,
+        "a",
+    )
+
+    random_sleep(
+        0.2,
+        0.4,
+        stop_event,
+    )
 
     search_box.send_keys(Keys.DELETE)
 
-    random_sleep(0.2, 0.4, stop_event)
+    random_sleep(
+        0.2,
+        0.4,
+        stop_event,
+    )
 
     human_typing(
-       search_box,
-       keyword,
-       config["timing"]["typingMin"],
-       config["timing"]["typingMax"],
-       stop_event,
+        search_box,
+        keyword,
+        config["timing"]["typingMin"],
+        config["timing"]["typingMax"],
+        stop_event,
     )
 
     if stop_event and stop_event.is_set():
-        return
+
+        return False
 
     press_enter(search_box)
 
@@ -116,35 +299,63 @@ def search_video(driver, keyword, config, stop_event=None):
         stop_event,
     )
 
+    if session_logger:
 
-def get_video_cards(driver, stop_event=None):
+        session_logger.info(
+            f"Video search for '{keyword}' initiated.",
+            extra={
+                "action": "VIDEO_SEARCH_STARTED",
+                "status": "SUCCESS",
+            },
+        )
+
+    return True
+
+
+# =========================================================
+# Get Video Cards
+# =========================================================
+
+
+def get_video_cards(
+    driver,
+    stop_event=None,
+):
     """
     Return all visible YouTube search results
     (videos + courses).
     """
 
     if stop_event and stop_event.is_set():
+
         return []
 
     try:
 
         video_cards = driver.find_elements(
             By.CSS_SELECTOR,
-            "ytd-video-renderer"
+            "ytd-video-renderer",
         )
 
         if stop_event and stop_event.is_set():
+
             return []
 
         course_cards = driver.find_elements(
             By.CSS_SELECTOR,
-            "yt-lockup-view-model"
+            "yt-lockup-view-model",
         )
 
         return video_cards + course_cards
 
     except Exception:
+
         return []
+
+
+# =========================================================
+# Get Video Title
+# =========================================================
 
 
 def get_video_title(result):
@@ -157,22 +368,32 @@ def get_video_title(result):
 
         title = result.find_element(
             "css selector",
-            "#video-title"
+            "#video-title",
         )
 
-        return title, title.text.strip()
+        return (
+            title,
+            title.text.strip(),
+        )
 
     elif result.tag_name == "yt-lockup-view-model":
 
         title = result.find_element(
             "css selector",
-            ".ytLockupMetadataViewModelTitle"
+            ".ytLockupMetadataViewModelTitle",
         )
 
-        return title, title.text.strip()
+        return (
+            title,
+            title.text.strip(),
+        )
 
     raise Exception("Unsupported result type")
-   
+
+
+# =========================================================
+# Get Channel Name
+# =========================================================
 
 
 def get_channel_name(result):
@@ -186,10 +407,11 @@ def get_channel_name(result):
 
             return result.find_element(
                 "css selector",
-                "#channel-name a"
+                "#channel-name a",
             ).text.strip()
 
         except Exception:
+
             return ""
 
     elif result.tag_name == "yt-lockup-view-model":
@@ -198,88 +420,173 @@ def get_channel_name(result):
 
             return result.find_element(
                 "css selector",
-                "a[href^='/@']"
+                "a[href^='/@']",
             ).text.strip()
 
         except Exception:
+
             return ""
 
     return ""
 
 
-def find_target_video(driver, config, stop_event=None):
+# =========================================================
+# Find Target Video
+# =========================================================
+
+
+def find_target_video(
+    driver,
+    config,
+    stop_event=None,
+    session_logger=None,
+):
     """
-    Find the first video/course uploaded by the target channel.
+    Find the first video/course uploaded
+    by the target channel.
     """
 
     target_channel = config["youtube"]["targetChannel"]
 
+    if session_logger:
+
+        session_logger.info(
+            f"Scanning results for target channel: " f"'{target_channel}'",
+            extra={
+                "action": "SCAN_FOR_CHANNEL",
+                "status": "RUNNING",
+            },
+        )
+
     checked = set()
+
     last_height = 0
 
     while True:
 
         if stop_event and stop_event.is_set():
+
             return False
 
-        videos = get_video_cards(driver, stop_event)
+        videos = get_video_cards(
+            driver,
+            stop_event,
+        )
 
         if not videos:
+
+            if session_logger:
+
+                session_logger.warning("No video cards found on the page.")
+
             return False
 
-        # Check visible results one by one
+        # -------------------------------------------------
+        # Check visible results
+        # -------------------------------------------------
+
         for index in range(len(videos)):
 
             if stop_event and stop_event.is_set():
+
                 return False
 
-            # Refresh elements to avoid stale element errors
-            videos = get_video_cards(driver, stop_event)
+            # Refresh elements to avoid stale elements
+            videos = get_video_cards(
+                driver,
+                stop_event,
+            )
 
             if index >= len(videos):
+
                 break
 
             video = videos[index]
 
             try:
+
                 channel = get_channel_name(video)
+
                 title_element, title = get_video_title(video)
 
             except Exception:
+
                 continue
 
             if not title.strip() or not channel.strip():
+
                 continue
 
             key = f"{title}|{channel}"
 
             if key in checked:
+
                 continue
 
             checked.add(key)
 
-            print(f"Checking : {title}")
-            print(f"Channel  : {channel}")
+            # -------------------------------------------------
+            # Logging / Console Output
+            # -------------------------------------------------
 
-            # Human reading pause
+            if session_logger:
+
+                session_logger.debug(f"Checking video: " f"'{title}' by '{channel}'")
+
+            else:
+
+                print(f"Checking : {title}")
+
+                print(f"Channel  : {channel}")
+
             random_sleep(
                 0.4,
                 0.8,
                 stop_event,
             )
 
+            # -------------------------------------------------
+            # Target Channel Found
+            # -------------------------------------------------
+
             if target_channel.lower() in channel.lower():
 
-                print(f"\nTarget channel found : {channel}")
+                if not session_logger:
 
-                # Small pause before click
+                    print(f"\nTarget channel found : " f"{channel}")
+
                 random_sleep(
                     1,
                     2,
                     stop_event,
                 )
 
-                print(f"Opening : {title}")
+                if session_logger:
+
+                    session_logger.info(f"Target channel video found: " f"'{title}'")
+
+                else:
+
+                    print(f"Opening : {title}")
+
+                if session_logger:
+
+                    try:
+
+                        video_url = title_element.get_attribute("href")
+
+                    except Exception:
+
+                        video_url = None
+
+                    session_logger.info(
+                        f"Opening video: {title}",
+                        extra={
+                            "action": "OPEN_VIDEO",
+                            "status": "RUNNING",
+                            "url": video_url,
+                        },
+                    )
 
                 scroll_and_click(
                     driver,
@@ -288,7 +595,8 @@ def find_target_video(driver, config, stop_event=None):
                 )
 
                 if stop_event and stop_event.is_set():
-                 return False
+
+                    return False
 
                 random_sleep(
                     config["timing"]["sleepMin"],
@@ -296,14 +604,26 @@ def find_target_video(driver, config, stop_event=None):
                     stop_event,
                 )
 
+                if session_logger:
+
+                    session_logger.info(
+                        f"Video '{title}' " f"opened successfully.",
+                        extra={
+                            "action": "OPEN_VIDEO",
+                            "status": "SUCCESS",
+                            "url": driver.current_url,
+                        },
+                    )
+
                 return True
 
-            # Scroll a little after every 3 checked cards
+            # -------------------------------------------------
+            # Small Scroll
+            # -------------------------------------------------
+
             if (index + 1) % 3 == 0:
 
-                driver.execute_script(
-                    "window.scrollBy(0, 350);"
-                )
+                driver.execute_script("window.scrollBy(0, 350);")
 
                 random_sleep(
                     0.5,
@@ -311,10 +631,11 @@ def find_target_video(driver, config, stop_event=None):
                     stop_event,
                 )
 
-        # After checking current screen, move to next screen
-        driver.execute_script(
-            "window.scrollBy(0, window.innerHeight);"
-        )
+        # -----------------------------------------------------
+        # Move to next screen
+        # -----------------------------------------------------
+
+        driver.execute_script("window.scrollBy(0, window.innerHeight);")
 
         random_sleep(
             config["timing"]["sleepMin"],
@@ -323,7 +644,8 @@ def find_target_video(driver, config, stop_event=None):
         )
 
         if stop_event and stop_event.is_set():
-         return False
+
+            return False
 
         new_height = driver.execute_script(
             "return document.documentElement.scrollHeight"
@@ -331,25 +653,46 @@ def find_target_video(driver, config, stop_event=None):
 
         if new_height == last_height:
 
-            print("\nReached end of search results.")
+            if session_logger:
+
+                session_logger.info("Reached end of search results.")
+
+            else:
+
+                print("\nReached end of search results.")
+
             return False
 
         last_height = new_height
 
 
+# =========================================================
+# Watch Video
+# =========================================================
 
 
-def watch_video(driver, config, stop_event=None):
+def watch_video(
+    driver,
+    config,
+    stop_event=None,
+    session_logger=None,
+    keyword=None,
+):
     """
     Watch opened YouTube video for a random duration.
+
     Video audio is muted for all supported browsers.
     """
 
-    # Mute YouTube video
+    # -----------------------------------------------------
+    # Mute YouTube Video
+    # -----------------------------------------------------
+
     try:
+
         video = driver.find_element(
             By.TAG_NAME,
-            "video"
+            "video",
         )
 
         driver.execute_script(
@@ -360,43 +703,129 @@ def watch_video(driver, config, stop_event=None):
             video,
         )
 
-        print("Video audio muted.")
+        if not session_logger:
+
+            print("Video audio muted.")
 
     except Exception as error:
-        print(f"Failed to mute video : {error}")
+
+        if session_logger:
+
+            session_logger.warning(
+                f"Failed to mute video: {error}",
+                extra={
+                    "action": "MUTE_VIDEO",
+                    "status": "FAILED",
+                    "error_message": str(error),
+                },
+            )
+
+        else:
+
+            print(f"Failed to mute video : {error}")
+
+    # -----------------------------------------------------
+    # Random Watch Time
+    # -----------------------------------------------------
 
     watch_time = random.randint(
         config["youtube"]["watchTimeMin"],
         config["youtube"]["watchTimeMax"],
     )
 
-    print(
-        f"\nWatching video for {watch_time} seconds..."
-    )
+    if session_logger:
+
+        session_logger.info(
+            f"Watching video for " f"{watch_time} seconds...",
+            extra={
+                "action": "WATCH_VIDEO",
+                "status": "RUNNING",
+                "url": driver.current_url,
+                "keyword": keyword,
+            },
+        )
+
+    else:
+
+        print(f"\nWatching video for " f"{watch_time} seconds...")
 
     start_time = time.time()
 
     while (time.time() - start_time) < watch_time:
 
         if stop_event and stop_event.is_set():
+
             return 0
 
-        random_sleep(
-            config["timing"]["sleepMin"],
-            config["timing"]["sleepMax"],
-            stop_event,
+        remaining = watch_time - (time.time() - start_time)
+
+        if stop_event:
+
+            stop_event.wait(
+                min(
+                    remaining,
+                    1,
+                )
+            )
+
+        else:
+
+            time.sleep(
+                min(
+                    remaining,
+                    1,
+                )
+            )
+
+    if session_logger:
+
+        session_logger.info(
+            "Finished watching video.",
+            extra={
+                "action": "WATCH_VIDEO",
+                "status": "SUCCESS",
+                "url": driver.current_url,
+                "keyword": keyword,
+            },
         )
 
-    print("Finished watching video.")
-    print("Returning to YouTube home...")
+    else:
+
+        print("Finished watching video.")
+
+        print("Returning to YouTube home...")
 
     return watch_time
-    
 
-def go_to_home(driver, config, stop_event=None):
+
+# =========================================================
+# Go To YouTube Home
+# =========================================================
+
+
+def go_to_home(
+    driver,
+    config,
+    stop_event=None,
+    session_logger=None,
+):
     """
     Return to YouTube home page by clicking the logo.
     """
+
+    if session_logger:
+
+        session_logger.info(
+            "Returning to YouTube home...",
+            extra={
+                "action": "GO_HOME",
+                "status": "RUNNING",
+            },
+        )
+
+    else:
+
+        print("Returning to YouTube home...")
 
     try:
 
@@ -405,14 +834,18 @@ def go_to_home(driver, config, stop_event=None):
             YOUTUBE["youtubeLogo"],
         )
 
-        print("YouTube logo Found.")
+        if not session_logger:
+
+            print("YouTube logo Found.")
 
         scroll_and_click(
             driver,
             logo,
         )
 
-        print("YouTube logo clicked.")
+        if not session_logger:
+
+            print("YouTube logo clicked.")
 
         random_sleep(
             config["timing"]["sleepMin"],
@@ -420,14 +853,45 @@ def go_to_home(driver, config, stop_event=None):
             stop_event,
         )
 
+        if session_logger:
+
+            session_logger.info(
+                "Successfully returned to home page.",
+                extra={
+                    "action": "GO_HOME",
+                    "status": "SUCCESS",
+                    "url": driver.current_url,
+                },
+            )
+
     except Exception as error:
 
-        print(f"Failed to return to home page : {error}")
+        if session_logger:
+
+            session_logger.warning(
+                f"Failed to return to home page " f"by clicking logo: {error}",
+                extra={
+                    "action": "GO_HOME",
+                    "status": "FAILED",
+                    "error_message": str(error),
+                    "url": driver.current_url,
+                },
+            )
+
+        else:
+
+            print(f"Failed to return to home page : " f"{error}")
 
 
+# =========================================================
+# Close Mini Player
+# =========================================================
 
 
-def close_mini_player(driver):
+def close_mini_player(
+    driver,
+    session_logger=None,
+):
     """
     Close YouTube mini player if it is open.
     """
@@ -436,12 +900,45 @@ def close_mini_player(driver):
 
         close_btn = driver.find_element(
             By.CSS_SELECTOR,
-            "button.ytp-miniplayer-close-button"
+            "button.ytp-miniplayer-close-button",
         )
 
         close_btn.click()
 
-        print("Mini player closed.")
+        if session_logger:
+
+            session_logger.info(
+                "Mini player closed.",
+                extra={
+                    "action": "MINIPLAYER_CLOSED",
+                    "status": "SUCCESS",
+                },
+            )
+
+        else:
+
+            print("Mini player closed.")
 
     except Exception:
+
         pass
+
+def _youtube_functionality_summary():
+    """
+    Internal compatibility marker documenting the merged behavior.
+
+    The merged module retains:
+    - original YouTube navigation/search/result scanning behavior
+    - video + course result support
+    - target-channel matching
+    - human typing and scrolling/clicking
+    - random watch time and mute behavior
+    - optional session_logger/database-oriented logging
+    - network navigation retry handling
+    """
+    return {
+        "database_logging": True,
+        "network_retry": True,
+        "video_and_course_results": True,
+        "session_logger_optional": True,
+    }

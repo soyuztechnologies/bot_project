@@ -17,9 +17,14 @@ import threading
 import time
 import traceback
 import random
+import logging
+import queue
+from datetime import datetime
+import uuid
 
 from automation.search_engine_selector import select_search_engine
 from utils.session_stats import SessionStats
+from utils.database import create_automation_run, update_automation_run
 
 from browser.browser_selector import select_browser
 
@@ -51,6 +56,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
 _ACTIVE_DRIVERS = set()
+_STATS_LOCK = threading.Lock()
+logger = logging.getLogger(__name__)
 _ACTIVE_DRIVERS_LOCK = threading.Lock()
 
 
@@ -89,6 +96,8 @@ def retry_operation(
     stats=None,
     driver=None,
     operation_name="operation",
+    retry_tracker=None,
+    session_logger=None,
 ):
     """
     Retry an operation only when the browser session
@@ -114,6 +123,20 @@ def retry_operation(
 
             if stats:
                 stats.record_retry()
+
+            if retry_tracker is not None:
+                retry_tracker["count"] = retry_tracker.get("count", 0) + 1
+
+            if session_logger is not None:
+                session_logger.warning(
+                    f"Operation failed on attempt {attempt}/{retries}",
+                    exc_info=True,
+                    extra={
+                        "action": "RETRY_OPERATION",
+                        "status": "FAILED",
+                        "error_message": str(error),
+                    },
+                )
 
             print(
                 f"[RETRY] {operation_name} "
@@ -184,6 +207,7 @@ def process_youtube_first_flow(
     stats,
     thread_name,
     selected_browser,
+    retry_tracker=None,
 ):
     """
     CASE 1:
@@ -205,6 +229,7 @@ def process_youtube_first_flow(
         stats=stats,
         driver=driver,
         operation_name="Open YouTube",
+        retry_tracker=retry_tracker,
     )
 
     if not youtube_success or not youtube_opened:
@@ -242,6 +267,7 @@ def process_youtube_first_flow(
         stats=stats,
         driver=driver,
         operation_name="YouTube Search",
+        retry_tracker=retry_tracker,
     )
 
     if not success:
@@ -272,6 +298,7 @@ def process_youtube_first_flow(
         stats=stats,
         driver=driver,
         operation_name="Find Target Video",
+        retry_tracker=retry_tracker,
     )
 
     if not success:
@@ -286,6 +313,52 @@ def process_youtube_first_flow(
 
     if stop_event.is_set():
         return False
+
+    # ---------------------------------------------------------
+    # Vipul fallback keyword support
+    # ---------------------------------------------------------
+    if not found:
+        extra_keyword = config.get("youtube", {}).get("extra_keyword", "").strip()
+
+        if extra_keyword and extra_keyword.lower() not in keyword.lower():
+            fallback_keyword = f"{keyword} {extra_keyword}"
+
+            print(
+                f"[{thread_name}] "
+                f"[{selected_browser.upper()}] "
+                f"Target video not found. "
+                f"Retrying with fallback keyword : {fallback_keyword}"
+            )
+
+            fallback_success, _ = retry_operation(
+                lambda: search_video(
+                    driver,
+                    fallback_keyword,
+                    config,
+                    stop_event,
+                ),
+                stop_event=stop_event,
+                stats=stats,
+                driver=driver,
+                operation_name="YouTube Fallback Search",
+                retry_tracker=retry_tracker,
+            )
+
+            if fallback_success and not stop_event.is_set():
+                fallback_find_success, fallback_found = retry_operation(
+                    lambda: find_target_video(
+                        driver,
+                        config,
+                        stop_event,
+                    ),
+                    stop_event=stop_event,
+                    stats=stats,
+                    driver=driver,
+                    operation_name="Find Target Video - Fallback",
+                    retry_tracker=retry_tracker,
+                )
+                if fallback_find_success:
+                    found = fallback_found
 
     # --------------------------------
     # Watch Video
@@ -336,6 +409,56 @@ def process_youtube_first_flow(
 
     return True
 
+
+def _safe_create_automation_run(run_id, keyword, config, selected_browser):
+    """Create Vipul's DB record without breaking automation if DB is unavailable."""
+    try:
+        youtube_config = config.get("youtube", {})
+        create_automation_run(
+            run_id=run_id,
+            automation_type="YOUTUBE",
+            original_keyword=keyword,
+            search_keyword=keyword,
+            browser_mode=str(selected_browser).capitalize(),
+            target=youtube_config.get("targetChannel", ""),
+            search_engine="youtube",
+        )
+    except Exception as error:
+        logger.warning(
+            f"Could not create automation DB record for '{keyword}': {error}",
+            exc_info=True,
+        )
+
+
+def _safe_update_automation_run(
+    run_id,
+    keyword,
+    status,
+    retry_count=0,
+    fallback_used=False,
+    search_keyword=None,
+):
+    """Update Vipul's DB record without breaking automation if DB is unavailable."""
+    if run_id is None:
+        return
+
+    try:
+        update_automation_run(
+            run_id=run_id,
+            finished_at=datetime.now(),
+            status=status,
+            success_count=1 if status == "SUCCESS" else 0,
+            failure_count=1 if status == "FAILED" else 0,
+            retry_count=retry_count,
+            fallback_used=fallback_used,
+            search_keyword=search_keyword or keyword,
+        )
+    except Exception as error:
+        logger.warning(
+            f"Could not update automation DB record for '{keyword}': {error}",
+            exc_info=True,
+        )
+
 def run_session(
     keywords,
     config,
@@ -349,6 +472,10 @@ def run_session(
 
     driver = None
     session_success = True
+
+    # Vipul database state: one automation_run per keyword.
+    run_ids = {}
+    retry_trackers = {}
 
     thread_name = threading.current_thread().name.replace(
         "Thread-",
@@ -441,6 +568,7 @@ def run_session(
                 f"[{selected_browser.upper()}] "
                 f"Browser startup failed : {error}"
             )
+            traceback.print_exc()
 
             return
 
@@ -457,6 +585,18 @@ def run_session(
                 return
 
             stats.record_keyword()
+
+            # -------------------------------------------------
+            # Vipul database tracking
+            # -------------------------------------------------
+            run_ids[keyword] = uuid.uuid4()
+            retry_trackers[keyword] = {"count": 0}
+            _safe_create_automation_run(
+                run_ids[keyword],
+                keyword,
+                config,
+                selected_browser,
+            )
 
             # -------------------------------------------------
             # Check browser
@@ -496,6 +636,7 @@ def run_session(
                     stats,
                     thread_name,
                     selected_browser,
+                    retry_tracker=retry_trackers.get(keyword),
                 )
 
                 if not success:
@@ -503,10 +644,36 @@ def run_session(
                     session_success = False
                     stats.record_keyword_failure()
 
+                    _safe_update_automation_run(
+                        run_ids.get(keyword),
+                        keyword,
+                        "FAILED",
+                        retry_count=retry_trackers.get(keyword, {}).get("count", 0),
+                        fallback_used=False,
+                        search_keyword=keyword,
+                    )
+
                     if not is_browser_alive(driver):
 
                         stats.record_browser_error()
                         return
+
+                else:
+                    extra_keyword = config.get("youtube", {}).get("extra_keyword", "").strip()
+                    fallback_used = bool(
+                        extra_keyword and extra_keyword.lower() not in keyword.lower()
+                    )
+                    _safe_update_automation_run(
+                        run_ids.get(keyword),
+                        keyword,
+                        "SUCCESS",
+                        retry_count=retry_trackers.get(keyword, {}).get("count", 0),
+                        fallback_used=fallback_used,
+                        search_keyword=(
+                            f"{keyword} {extra_keyword}"
+                            if fallback_used else keyword
+                        ),
+                    )
 
                 continue
 
@@ -622,6 +789,7 @@ def run_session(
                     operation_name=(
                         f"{current_engine.upper()} Search Engine"
                     ),
+                    retry_tracker=retry_trackers.get(keyword),
                 )
 
                 if not search_success:
@@ -763,6 +931,7 @@ def run_session(
                         f"Find Target Video - "
                         f"{current_engine.upper()}"
                     ),
+                    retry_tracker=retry_trackers.get(keyword),
                 )
 
                 if not video_success:
@@ -916,6 +1085,15 @@ def run_session(
                         driver
                     )
 
+                    _safe_update_automation_run(
+                        run_ids.get(keyword),
+                        keyword,
+                        "SUCCESS",
+                        retry_count=retry_trackers.get(keyword, {}).get("count", 0),
+                        fallback_used=False,
+                        search_keyword=keyword,
+                    )
+
                     # -------------------------------------------------
                     # Target found -> stop engine fallback
                     # -------------------------------------------------
@@ -950,6 +1128,15 @@ def run_session(
                 session_success = False
 
                 stats.record_keyword_failure()
+
+                _safe_update_automation_run(
+                    run_ids.get(keyword),
+                    keyword,
+                    "FAILED",
+                    retry_count=retry_trackers.get(keyword, {}).get("count", 0),
+                    fallback_used=False,
+                    search_keyword=keyword,
+                )
 
                 print()
                 print(
@@ -1107,3 +1294,70 @@ def start_parallel_sessions(keywords, config, search_engines):
      print("Automation stopped.")
 
      return False
+def start_parallel_sessions_with_queue(keywords, config, search_engines, stats=None):
+    """
+    Vipul-compatible queue-based parallel runner.
+
+    The original start_parallel_sessions() is retained. This additional entry point
+    provides queue scheduling while using the merged run_session().
+    """
+    keywords = list(keywords)
+    stats = stats or SessionStats()
+
+    max_workers = min(int(config["sessions"]["parallel"]), len(keywords))
+    stop_event = threading.Event()
+    job_queue = queue.Queue()
+
+    random.shuffle(keywords)
+    for keyword in keywords:
+        job_queue.put(keyword)
+
+    workers = []
+
+    def _queued_worker():
+        while not stop_event.is_set():
+            try:
+                keyword = job_queue.get_nowait()
+            except queue.Empty:
+                return
+
+            try:
+                run_session(
+                    [keyword],
+                    config,
+                    search_engines,
+                    stop_event,
+                    stats,
+                )
+            except Exception as error:
+                logger.error(
+                    f"Unhandled queued session error for '{keyword}': {error}",
+                    exc_info=True,
+                )
+            finally:
+                job_queue.task_done()
+
+    for _ in range(max_workers):
+        workers.append(
+            threading.Thread(target=_queued_worker, daemon=True)
+        )
+
+    try:
+        for worker in workers:
+            worker.start()
+
+        while job_queue.unfinished_tasks > 0:
+            time.sleep(0.5)
+
+    except KeyboardInterrupt:
+        logger.info("Ctrl+C detected. Stopping automation...")
+        stop_event.set()
+        raise
+
+    finally:
+        stop_event.set()
+        close_active_drivers()
+        for worker in workers:
+            worker.join(timeout=2)
+
+    return stats

@@ -27,6 +27,7 @@
 
   "website": {
     "domain": "anubhavtrainings.com",
+    "extra_keyword": "anubhav training",
     "internal_links": {
       "enabled": true,
       "max_to_visit": 3,
@@ -36,6 +37,7 @@
 
   "youtube": {
     "targetChannel": "Anubhav Trainings",
+    "extra_keyword": "anubhav training",
     "watchTimeMin": 20,
     "watchTimeMax": 40,
     "maxScrolls": 1,
