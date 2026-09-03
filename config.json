@@ -1,19 +1,29 @@
 {
   "browser": {
     "name": "chrome",
-    "mode": "headed",
+    "mode": "headless",
     "maximize": true,
 
     "browsers": ["chrome"],
 
     "distribution": {
-        "chrome" : 20,  
-        "edge" : 20,
-        "firefox" : 20,
-        "opera" : 20,
-        "brave" : 20     
+        "chrome" : 80,
+        "edge" : 5,
+        "brave" : 5,
+        "firefox" : 5,
+        "opera" : 5    
     }
   },
+
+
+  "database": {
+    "current_db": "public",
+    "db": {
+      "public": "CONNECTION_URL_TEST",
+      "prod": "CONNECTION_URL_PROD"
+    }
+  },
+
 
   "sessions": {
     "parallel": 5,
@@ -21,7 +31,7 @@
   },
 
   "search": {
-    "engines": ["yahoo", "duckduckgo", "google","bing" ],
+    "engines": [ "google","bing","yahoo", "duckduckgo"],
     "maxPages": 20
   },
 

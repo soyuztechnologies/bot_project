@@ -24,27 +24,58 @@ from datetime import datetime
 from selenium.webdriver.common.by import By
 
 from browser.browser import setup_browser, close_browser
+from browser.browser_selector import select_browser
 from automation.search_engine import (
     open_search_engine,
     search_keyword,
     retry_operation_search, # Import the new retry wrapper
+    is_captcha_page,
 )
 from automation.website import visit_website
 from utils.database import create_automation_run, update_automation_run
+from utils.exceptions import (
+    BrowserBinaryNotFoundError,
+    BrowserDiedError,
+    BrowserError,
+    BrowserStartupError,
+    CaptchaDetectedError,
+    ConfigError,
+    EngineConfigError,
+    EngineOpenError,
+    InvalidLocatorError,
+    NavigationError,
+    SearchEngineError,
+    SearchFailedError,
+    SeoBotError,
+    TargetNotFoundError,
+    UnhandledAutomationError,
+    UnsupportedBrowserError,
+    wrap_unexpected,
+)
 
-# Backwards-compatibility fix for LoggerAdapter.
-# In Python < 3.8, LoggerAdapter overwrites the 'extra' dictionary passed to
-# logging calls. This monkey-patch ensures it merges the adapter's context with
-# the call's 'extra' dict, which is the standard behavior in modern Python.
-if sys.version_info < (3, 8):
-    def _process_patched(self, msg, kwargs):
-        """A patched version of LoggerAdapter.process to merge 'extra' dicts."""
-        kwargs.setdefault('extra', {})
-        # This loop adds the adapter's context to the 'extra' dict.
-        for k, v in self.extra.items():
-            kwargs['extra'][k] = v
+# ---------------------------------------------------------
+# Session Logger Adapter
+# ---------------------------------------------------------
+# Keeps session-specific fields such as session_id/run_id
+# while also preserving per-log fields such as action,
+# status, url and error_message.
+# ---------------------------------------------------------
+ 
+class SessionLoggerAdapter(logging.LoggerAdapter):
+ 
+    def process(self, msg, kwargs):
+        adapter_extra = dict(
+            self.extra or {}
+        )
+ 
+        call_extra = kwargs.get("extra") or {}
+ 
+        kwargs["extra"] = {
+            **adapter_extra,
+            **call_extra,
+        }
+ 
         return msg, kwargs
-    logging.LoggerAdapter.process = _process_patched
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +246,77 @@ def _click_internal_links(driver, config, stop_event, session_logger):
             pass
 
 
-def run_session(keyword, config, engine_name, engine, stop_event, stats):
+def _get_fallback_engine_order(config, search_engines, all_engine_names, initial_engine_name, initial_engine):
+    """
+    Build ordered fallback list: start with assigned engine, then remaining engines shuffled.
+    Future-proof: works with any browsers/distribution and any search engines added later.
+    Filters missing engines and case-insensitive matches.
+    """
+    try:
+        # Use provided search_engines dict if available
+        if search_engines is not None:
+            if all_engine_names is None:
+                all_engine_names = list(search_engines.keys())
+            ordered_names = [initial_engine_name] + [n for n in all_engine_names if str(n).lower() != str(initial_engine_name).lower()]
+            if len(ordered_names) > 1:
+                remaining = ordered_names[1:]
+                random.shuffle(remaining)
+                ordered_names = [ordered_names[0]] + remaining
+            fallback = []
+            for n in ordered_names:
+                eng = search_engines.get(n)
+                if eng is None:
+                    # case-insensitive lookup
+                    for k, v in search_engines.items():
+                        if str(k).lower() == str(n).lower():
+                            eng = v
+                            n = k
+                            break
+                if eng is not None:
+                    fallback.append((n, eng))
+            if fallback:
+                return fallback
+        # Fallback: derive from config search.engines list
+        cfg_engines = config.get("search", {}).get("engines", [])
+        if isinstance(cfg_engines, list) and cfg_engines:
+            # Build order with initial first
+            ordered = [initial_engine_name] + [e for e in cfg_engines if str(e).lower() != str(initial_engine_name).lower()]
+            # Deduplicate case-insensitive keep first
+            seen = set()
+            uniq_ordered = []
+            for e in ordered:
+                low = str(e).lower()
+                if low not in seen:
+                    seen.add(low)
+                    uniq_ordered.append(e)
+            # Map to engine dicts if search_engines available else use initial for fallback attempts that will navigate via direct URL
+            fallback = []
+            for n in uniq_ordered:
+                eng = None
+                if search_engines is not None:
+                    eng = search_engines.get(n)
+                    if eng is None:
+                        for k, v in search_engines.items():
+                            if str(k).lower() == str(n).lower():
+                                eng = v
+                                n = k
+                                break
+                if eng is None:
+                    # If no dict, reuse initial engine dict as placeholder (open_search_engine will fail but we still try captcha detection loop)
+                    # Better to skip if no dict
+                    if n == initial_engine_name:
+                        eng = initial_engine
+                    else:
+                        continue
+                fallback.append((n, eng))
+            if fallback:
+                return fallback
+    except Exception:
+        pass
+    return [(initial_engine_name, initial_engine)]
+
+
+def run_session(keyword, config, engine_name, engine, stop_event, stats, search_engines=None, all_engine_names=None):
     driver = None
     run_id = uuid.uuid4()
     thread_id = threading.get_ident()
@@ -228,13 +329,10 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
     fallback_used = False
     status = None
 
-    browser_list = config["browser"].get("browsers") or list(
-        config["browser"].get("distribution", {}).keys()
-    )
-    selected_browser = (browser_list[0] if browser_list else "chrome").lower()
+    selected_browser = select_browser(config).lower()
 
     # Create a LoggerAdapter that will add session-specific context to all logs.
-    session_logger = logging.LoggerAdapter(
+    session_logger = SessionLoggerAdapter(
         logger,
         {
             "keyword": keyword,
@@ -294,17 +392,41 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
             return
 
         # -------------------------------------------------
-        # 2) Open search engine - best effort, fallback to direct URL if fails
+        # 2-5) Engine fallback loop with CAPTCHA handling
+        # Handles: open -> search -> find across all engines (browser-agnostic)
+        # If CAPTCHA on any engine, switch to next engine with same keyword
+        # After all engines exhausted with original keyword, try fallback keyword across all engines
+        # If still CAPTCHA on all, count as FAILED/not found and close browser cleanly
         # -------------------------------------------------
-        try:
-            session_logger.info(f"Opening search engine: {engine_name}", extra={'action': 'ENGINE_OPEN', 'status': 'RUNNING'})
-            open_search_engine(driver, engine, session_logger, stop_event)
-            session_logger.info(f"Search engine opened: {engine_name}", extra={'action': 'ENGINE_OPEN', 'status': 'SUCCESS'})
-        except Exception as e:
-            session_logger.warning(f"Open search engine failed ({engine_name}): {e} - will try direct search fallback", exc_info=False, extra={'action': 'ENGINE_OPEN', 'status': 'FAILED', 'error_message': str(e)})
-            # Don't return - search_keyword has direct URL fallback, so continue
+        fallback_order = _get_fallback_engine_order(config, search_engines, all_engine_names, engine_name, engine)
+        session_logger.info(f"Engine fallback order for '{original_keyword}': {[n for n,_ in fallback_order]} (browser={selected_browser})", extra={'action': 'ENGINE_FALLBACK_ORDER', 'status': 'RUNNING', 'engine': engine_name})
+
+        found = False
+        successful_engine_name = None
+        successful_engine = None
+        captcha_engines = set()
+        engines_tried = []
+
+        # Helper to check captcha with logging
+        def _is_captcha_and_log(curr_engine_name):
+            try:
+                if is_captcha_page(driver, curr_engine_name):
+                    session_logger.warning(f"Captcha detected on {curr_engine_name} for '{current_search_keyword}' (browser={selected_browser})", extra={'action': 'CAPTCHA_DETECTED', 'status': 'FAILED', 'engine': curr_engine_name})
+                    captcha_engines.add(curr_engine_name)
+                    return True
+            except Exception as ce:
+                session_logger.warning(f"Captcha check failed on {curr_engine_name}: {ce}", extra={'action': 'CAPTCHA_CHECK_FAILED', 'status': 'FAILED', 'engine': curr_engine_name})
+            return False
+
+        # -------------------------------------------------
+        # Try original keyword across engines
+        # -------------------------------------------------
+        for idx, (curr_engine_name, curr_engine) in enumerate(fallback_order):
+            if stop_event.is_set():
+                status = "INTERRUPTED"
+                return
             if not _is_browser_alive(driver):
-                session_logger.error("Browser died during engine open", extra={'action': 'ENGINE_OPEN', 'status': 'FAILED'})
+                session_logger.warning("Browser died before engine attempt", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED', 'engine': curr_engine_name})
                 with _STATS_LOCK:
                     if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
@@ -312,105 +434,206 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
                 status = "FAILED"
                 return
 
-        if stop_event.is_set():
-            status = "INTERRUPTED"
-            return
-        if not _is_browser_alive(driver):
-            session_logger.warning("Browser not alive before search", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED'})
-            with _STATS_LOCK:
-                if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
-                    stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
-            failure_count = 1
-            status = "FAILED"
-            return
-
-        # -------------------------------------------------
-        # 3) Search keyword - any failure here is session failure, but handled gracefully
-        # -------------------------------------------------
-        try:
-            search_keyword(driver, engine, current_search_keyword, config, stop_event, session_logger)
-        except Exception as e:
-            session_logger.error(f"Search failed for '{current_search_keyword}' on {engine_name}: {e}", exc_info=True, extra={'action': 'KEYWORD_SEARCH', 'status': 'FAILED', 'error_message': str(e)})
-            with _STATS_LOCK:
-                if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
-                    stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
-            failure_count = 1
-            status = "FAILED"
-            return
-
-        if stop_event.is_set():
-            status = "INTERRUPTED"
-            return
-        if not _is_browser_alive(driver):
-            session_logger.warning("Browser died after search", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED'})
-            with _STATS_LOCK:
-                if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
-                    stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
-            failure_count = 1
-            status = "FAILED"
-            return
-        
-        
-
-        # -------------------------------------------------
-        # 4) Find target website - with retry wrapper, already robust
-        # -------------------------------------------------
-        found = False
-        try:
-            found, retry_count = retry_operation_search(driver, engine, target, 20, stop_event, session_logger)
-        except Exception as e:
-            session_logger.error(f"Find target website crashed: {e}", exc_info=True, extra={'action': 'WEBSITE_SEARCH', 'status': 'FAILED', 'error_message': str(e)})
-            found = False
-
-        # -------------------------------------------------
-        # 5) Fallback keyword if not found
-        # -------------------------------------------------
-        if not found:
+            engines_tried.append(curr_engine_name)
             try:
+                session_logger.extra['engine'] = curr_engine_name
+            except Exception:
+                pass
+            # Update engine_name for logging context but keep original for final stats fallback
+            current_engine_name = curr_engine_name
+            current_engine = curr_engine
+
+            session_logger.info(f"Attempting engine {current_engine_name} ({idx+1}/{len(fallback_order)}) for '{current_search_keyword}'", extra={'action': 'ENGINE_ATTEMPT', 'status': 'RUNNING', 'engine': current_engine_name})
+
+            # Open search engine
+            try:
+                open_search_engine(driver, current_engine, session_logger, stop_event)
+                session_logger.info(f"Search engine opened: {current_engine_name}", extra={'action': 'ENGINE_OPEN', 'status': 'SUCCESS', 'engine': current_engine_name})
+            except Exception as e:
+                session_logger.warning(f"Open search engine failed ({current_engine_name}): {e}", extra={'action': 'ENGINE_OPEN', 'status': 'FAILED', 'engine': current_engine_name, 'error_message': str(e)})
+                if not _is_browser_alive(driver):
+                    session_logger.error("Browser died during engine open", extra={'action': 'ENGINE_OPEN', 'status': 'FAILED', 'engine': current_engine_name})
+                    with _STATS_LOCK:
+                        if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                            stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+                    failure_count = 1
+                    status = "FAILED"
+                    return
+                # Try next engine
+                continue
+
+            if stop_event.is_set():
+                status = "INTERRUPTED"
+                return
+            if not _is_browser_alive(driver):
+                session_logger.warning("Browser not alive before search", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED', 'engine': current_engine_name})
+                with _STATS_LOCK:
+                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+                failure_count = 1
+                status = "FAILED"
+                return
+
+            # CAPTCHA after open
+            if _is_captcha_and_log(current_engine_name):
+                # Small pause before switching engine to avoid rapid hammering
+                try:
+                    time.sleep(random.uniform(1, 2))
+                except Exception:
+                    pass
+                continue
+
+            # Search keyword
+            try:
+                search_keyword(driver, current_engine, current_search_keyword, config, stop_event, session_logger)
+            except Exception as e:
+                session_logger.warning(f"Search failed for '{current_search_keyword}' on {current_engine_name}: {e}", extra={'action': 'KEYWORD_SEARCH', 'status': 'FAILED', 'engine': current_engine_name, 'error_message': str(e)})
+                if not _is_browser_alive(driver):
+                    with _STATS_LOCK:
+                        if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                            stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+                    failure_count = 1
+                    status = "FAILED"
+                    return
+                continue
+
+            if stop_event.is_set():
+                status = "INTERRUPTED"
+                return
+            if not _is_browser_alive(driver):
+                session_logger.warning("Browser died after search", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED', 'engine': current_engine_name})
+                with _STATS_LOCK:
+                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+                failure_count = 1
+                status = "FAILED"
+                return
+
+            # CAPTCHA after search
+            if _is_captcha_and_log(current_engine_name):
+                try:
+                    time.sleep(random.uniform(1, 2))
+                except Exception:
+                    pass
+                continue
+
+            # Find target website
+            found_tmp = False
+            try:
+                found_tmp, tmp_retry = retry_operation_search(driver, current_engine, target, config["search"].get("maxPages", 20), stop_event, session_logger)
+                retry_count += tmp_retry
+            except Exception as e:
+                session_logger.warning(f"Find target crashed on {current_engine_name}: {e}", extra={'action': 'WEBSITE_SEARCH', 'status': 'FAILED', 'engine': current_engine_name, 'error_message': str(e)})
+                found_tmp = False
+
+            # CAPTCHA during/after website search (engine may have switched to captcha during pagination)
+            if not found_tmp and _is_captcha_and_log(current_engine_name):
+                continue
+
+            if found_tmp:
+                found = True
+                successful_engine_name = current_engine_name
+                successful_engine = current_engine
+                engine_name = successful_engine_name
+                engine = successful_engine
+                try:
+                    session_logger.extra['engine'] = engine_name
+                except Exception:
+                    pass
+                session_logger.info(f"Website found on {engine_name} for '{current_search_keyword}'", extra={'action': 'WEBSITE_FOUND', 'status': 'SUCCESS', 'engine': engine_name})
+                break
+            else:
+                # Per-engine fallback: if not found with original keyword, immediately try "Anubhav Training" on SAME engine before switching
                 extra_keyword = config.get("website", {}).get("extra_keyword", "").strip()
                 if extra_keyword and extra_keyword.lower() not in original_keyword.lower():
+                    fallback_keyword = f"{original_keyword} {extra_keyword}"
+                    session_logger.warning(f"Website not found on {current_engine_name} with '{current_search_keyword}'. Immediately retrying fallback keyword '{fallback_keyword}' on SAME engine", extra={'action': 'FALLBACK_SAME_ENGINE', 'status': 'RUNNING', 'engine': current_engine_name})
+                    # Mark fallback as attempted for DB/stats
                     fallback_used = True
-                    current_search_keyword = f"{original_keyword} {extra_keyword}"
+                    # Try fallback on same engine (keep current_search_keyword as original until fallback succeeds)
+                    fallback_found_on_same_engine = False
                     try:
-                        session_logger.extra['search_keyword'] = current_search_keyword
-                    except Exception:
-                        pass
-                    session_logger.warning(f"Website not found. Retrying with fallback keyword: '{current_search_keyword}'", extra={'action': 'FALLBACK_SEARCH_STARTED', 'status': 'RUNNING'})
-                    if not _is_browser_alive(driver):
-                        session_logger.warning("Browser died before fallback search", extra={'action': 'FALLBACK_SEARCH_STARTED', 'status': 'FAILED'})
-                    else:
-                        # Fallback search - isolated
+                        # Re-open engine homepage to get clean search box (fixes duplication like "kw kw anubhav")
                         try:
-                            search_keyword(driver, engine, current_search_keyword, config, stop_event, session_logger)
+                            open_search_engine(driver, current_engine, session_logger, stop_event)
                         except Exception as e:
-                            session_logger.warning(f"Fallback search failed: {e}", extra={'action': 'FALLBACK_SEARCH_STARTED', 'status': 'FAILED', 'error_message': str(e)})
-                            found = False
-                        else:
-                            if stop_event.is_set():
-                                status = "INTERRUPTED"
+                            session_logger.warning(f"Fallback open failed on {current_engine_name}: {e}", extra={'action': 'ENGINE_OPEN', 'status': 'FAILED', 'engine': current_engine_name})
+                            if not _is_browser_alive(driver):
+                                with _STATS_LOCK:
+                                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+                                failure_count = 1
+                                status = "FAILED"
                                 return
-                            try:
-                                found, fallback_retry_count = retry_operation_search(driver, engine, target, config["search"].get("maxPages", 20), stop_event, session_logger)
-                                retry_count += fallback_retry_count
-                            except Exception as e:
-                                session_logger.warning(f"Fallback find failed: {e}", extra={'action': 'WEBSITE_SEARCH', 'status': 'FAILED', 'error_message': str(e)})
-                                found = False
-            except Exception as e:
-                session_logger.warning(f"Fallback flow failed but continuing: {e}", extra={'action': 'FALLBACK_SEARCH_STARTED', 'status': 'FAILED', 'error_message': str(e)})
+                        else:
+                            if _is_captcha_and_log(current_engine_name):
+                                session_logger.warning(f"Captcha on fallback open for {current_engine_name}, skipping fallback on this engine", extra={'action': 'CAPTCHA_DETECTED', 'status': 'FAILED', 'engine': current_engine_name})
+                            else:
+                                try:
+                                    search_keyword(driver, current_engine, fallback_keyword, config, stop_event, session_logger)
+                                except Exception as e:
+                                    session_logger.warning(f"Fallback search failed on {current_engine_name}: {e}", extra={'action': 'FALLBACK_SEARCH_STARTED', 'status': 'FAILED', 'engine': current_engine_name})
+                                else:
+                                    if _is_captcha_and_log(current_engine_name):
+                                        session_logger.warning(f"Captcha after fallback search on {current_engine_name}", extra={'action': 'CAPTCHA_DETECTED', 'status': 'FAILED', 'engine': current_engine_name})
+                                    else:
+                                        try:
+                                            found_fallback_same, tmp_retry_same = retry_operation_search(driver, current_engine, target, config["search"].get("maxPages", 20), stop_event, session_logger)
+                                            retry_count += tmp_retry_same
+                                        except Exception as e:
+                                            session_logger.warning(f"Fallback find failed on {current_engine_name}: {e}", extra={'action': 'WEBSITE_SEARCH', 'status': 'FAILED', 'engine': current_engine_name})
+                                            found_fallback_same = False
+                                        if not found_fallback_same and _is_captcha_and_log(current_engine_name):
+                                            pass
+                                        elif found_fallback_same:
+                                            fallback_found_on_same_engine = True
+                                            fallback_used = True
+                                            current_search_keyword = fallback_keyword
+                                            try:
+                                                session_logger.extra['search_keyword'] = current_search_keyword
+                                            except Exception:
+                                                pass
+                                            found = True
+                                            successful_engine_name = current_engine_name
+                                            successful_engine = current_engine
+                                            engine_name = successful_engine_name
+                                            engine = successful_engine
+                                            try:
+                                                session_logger.extra['engine'] = engine_name
+                                            except Exception:
+                                                pass
+                                            session_logger.info(f"Website found via per-engine fallback on {engine_name} for '{current_search_keyword}'", extra={'action': 'WEBSITE_FOUND', 'status': 'SUCCESS', 'engine': engine_name})
+                                            break
+                    except Exception as e:
+                        session_logger.warning(f"Per-engine fallback flow failed on {current_engine_name}: {e}", extra={'action': 'FALLBACK_SAME_ENGINE', 'status': 'FAILED', 'engine': current_engine_name})
+                    if fallback_found_on_same_engine:
+                        break
+                    # Mark fallback as used even if this engine's fallback failed, to prevent duplicate outer fallback? Keep False to allow fallback on next engine's same logic
+                    # Do not set fallback_used to True on failure — allow next engine to also try same fallback
+                    # Continue to next engine with original keyword (fallback will be retried per-engine)
+                session_logger.info(f"Website not found on {current_engine_name} for '{current_search_keyword}', trying next engine", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'RETRYING', 'engine': current_engine_name})
+                continue
+
+        # Note: Per-engine fallback with "Anubhav Training" already handled inside the engine loop (immediate retry on same engine if not found).
+        # No additional cross-engine fallback needed here to avoid duplicate searches.
 
         if stop_event.is_set():
             status = "INTERRUPTED"
             return
 
         # -------------------------------------------------
-        # 6) Result handling - website found vs not found
+        # 6) Result handling - website found vs not found (including captcha-exhausted)
         # -------------------------------------------------
         if found:
             try:
                 cur_url = driver.current_url if _is_browser_alive(driver) else ""
             except Exception:
                 cur_url = ""
-            session_logger.info(f"Website found for '{current_search_keyword}' on {engine_name}.", extra={'action': 'WEBSITE_FOUND', 'status': 'SUCCESS', 'url': cur_url})
+            # Log which engine succeeded and if captcha was encountered earlier
+            if captcha_engines:
+                session_logger.info(f"Website found for '{current_search_keyword}' on {engine_name} after captcha on {sorted(captcha_engines)}", extra={'action': 'WEBSITE_FOUND', 'status': 'SUCCESS', 'url': cur_url, 'engine': engine_name})
+            else:
+                session_logger.info(f"Website found for '{current_search_keyword}' on {engine_name}.", extra={'action': 'WEBSITE_FOUND', 'status': 'SUCCESS', 'url': cur_url, 'engine': engine_name})
             # Visit website - best effort, must not fail session
             try:
                 visit_website(driver, config, stop_event, session_logger)
@@ -426,15 +649,21 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
             success_count = 1
             status = "SUCCESS"
         else:
-            session_logger.warning(f"Website not found for '{current_search_keyword}' on {engine_name}.", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'FAILED'})
+            # Handle captcha-exhausted vs normal not found vs all engines tried
+            if captcha_engines and len(captcha_engines) >= len(fallback_order):
+                session_logger.warning(f"Captcha on all engines {sorted(captcha_engines)} for '{original_keyword}' (tried {engines_tried}) - counting as not found/FAILED", extra={'action': 'CAPTCHA_ALL_ENGINES', 'status': 'FAILED', 'engine': engine_name})
+            elif captcha_engines:
+                session_logger.warning(f"Website not found for '{current_search_keyword}' on {engine_name} after trying {engines_tried} (captcha on {sorted(captcha_engines)})", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'FAILED', 'engine': engine_name})
+            else:
+                session_logger.warning(f"Website not found for '{current_search_keyword}' after trying {engines_tried} on all engines", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'FAILED', 'engine': engine_name})
             failure_count = 1
             status = "FAILED"
             with _STATS_LOCK:
                 if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
                     stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
 
-    except Exception as error:
-        # Global safety net - any unhandled exception
+    except (BrowserError, SearchEngineError, CaptchaDetectedError, TargetNotFoundError, ConfigError) as error:
+        # Expected business failures — graceful, counted as FAILED, not a bug
         if not stop_event.is_set():
             try:
                 with _STATS_LOCK:
@@ -445,9 +674,45 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
             failure_count = 1
             status = "FAILED"
             try:
-                session_logger.error(f"Session Error ({original_keyword} | {engine_name})", exc_info=True, extra={'action': 'SESSION_ERROR', 'status': 'FAILED', 'error_message': str(error)})
+                # Expected: log as warning with context, keep traceback at info
+                session_logger.warning(f"Session business failure ({original_keyword} | {engine_name}): {error} [{type(error).__name__}]", extra={'action': 'SESSION_BUSINESS_FAILURE', 'status': 'FAILED', 'error_message': str(error)})
             except Exception:
-                logger.error(f"Session Error ({original_keyword} | {engine_name}): {error}", exc_info=True)
+                logger.warning(f"Session business failure ({original_keyword} | {engine_name}): {error} [{type(error).__name__}]")
+        else:
+            status = "INTERRUPTED"
+    except UnhandledAutomationError as error:
+        # Wrapped unexpected — log as error with cause
+        if not stop_event.is_set():
+            try:
+                with _STATS_LOCK:
+                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+            except Exception:
+                pass
+            failure_count = 1
+            status = "FAILED"
+            try:
+                session_logger.error(f"Session unhandled error ({original_keyword} | {engine_name}): {error} cause={error.cause}", exc_info=True, extra={'action': 'SESSION_UNHANDLED', 'status': 'FAILED', 'error_message': str(error)})
+            except Exception:
+                logger.error(f"Session unhandled error ({original_keyword} | {engine_name}): {error} cause={error.cause}", exc_info=True)
+        else:
+            status = "INTERRUPTED"
+    except Exception as error:
+        # Truly unexpected bug — wrap and log as error, still graceful
+        wrapped = wrap_unexpected(error, f"run_session {original_keyword}|{engine_name}")
+        if not stop_event.is_set():
+            try:
+                with _STATS_LOCK:
+                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+            except Exception:
+                pass
+            failure_count = 1
+            status = "FAILED"
+            try:
+                session_logger.error(f"Session unexpected bug ({original_keyword} | {engine_name}): {wrapped}", exc_info=True, extra={'action': 'SESSION_BUG', 'status': 'FAILED', 'error_message': str(wrapped)})
+            except Exception:
+                logger.error(f"Session unexpected bug ({original_keyword} | {engine_name}): {wrapped}", exc_info=True)
         else:
             status = "INTERRUPTED"
     finally:
@@ -474,7 +739,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
         _safe_update_run(run_id, session_end_time, status, success_count, failure_count, retry_count, fallback_used=fallback_used, search_keyword=current_search_keyword)
 
 
-def _session_worker(job_queue, config, stop_event, stats):
+def _session_worker(job_queue, config, stop_event, stats, search_engines=None, all_engine_names=None):
     while not stop_event.is_set():
         job = None
         try:
@@ -484,7 +749,7 @@ def _session_worker(job_queue, config, stop_event, stats):
                 return
             keyword, engine_name, engine = job
             try:
-                run_session(keyword, config, engine_name, engine, stop_event, stats)
+                run_session(keyword, config, engine_name, engine, stop_event, stats, search_engines=search_engines, all_engine_names=all_engine_names)
             except Exception as error:
                 # Isolated - one keyword failure must not kill worker or other jobs
                 logger.error(f"Unhandled error in session worker for '{keyword}' [{engine_name}]: {error}", exc_info=True)
@@ -567,7 +832,7 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
     workers = []
     for i in range(max_workers):
         try:
-            w = threading.Thread(target=_session_worker, args=(job_queue, config, stop_event, stats), daemon=True, name=f"Worker-{i+1}")
+            w = threading.Thread(target=_session_worker, args=(job_queue, config, stop_event, stats, search_engines, engine_names), daemon=True, name=f"Worker-{i+1}")
             workers.append(w)
         except Exception as e:
             logger.error(f"Failed to create worker {i}: {e}")
@@ -578,6 +843,7 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
         except Exception as e:
             logger.error(f"Failed to start worker {w.name}: {e}", exc_info=True)
 
+    interrupted = False
     try:
         # Block until all jobs are processed, checking browser health periodically
         while job_queue.unfinished_tasks > 0:
@@ -585,9 +851,10 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
                 break
             time.sleep(0.5)
     except KeyboardInterrupt:
+        interrupted = True
         logger.info("\nCtrl+C detected. Stopping all browser sessions...", extra={'action': 'SESSION_INTERRUPT', 'status': 'RUNNING'})
         stop_event.set()
-        raise
+        # Do not re-raise — return partial stats so main.py can still print summary (even on Ctrl+C)
     except Exception as e:
         logger.error(f"Unexpected error in parallel runner: {e}", exc_info=True)
         stop_event.set()
@@ -605,10 +872,12 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
                     logger.warning(f"Worker {w.name} did not exit cleanly")
             except Exception as e:
                 logger.warning(f"Worker join failed for {w.name}: {e}")
-        # Final summary log
+        # Final summary log — always, even on Ctrl+C
         try:
             logger.info(f"Parallel run finished: total={stats['total']} success={len(stats['success'])} failed={len(stats['failed'])}", extra={'action': 'SESSION_FINISHED', 'status': 'SUCCESS' if not stats['failed'] else 'COMPLETED'})
         except Exception:
             pass
+        if interrupted:
+            logger.info("Parallel run interrupted by user — partial stats will be returned.", extra={'action': 'SESSION_INTERRUPT', 'status': 'INTERRUPTED'})
 
     return stats

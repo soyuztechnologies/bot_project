@@ -9,6 +9,8 @@ import os
 import psycopg2
 from psycopg2 import pool
 import logging
+import json
+from pathlib import Path
 from contextlib import contextmanager
 from dotenv import load_dotenv
 from psycopg2.extras import Json, register_uuid
@@ -25,11 +27,49 @@ logger = logging.getLogger(__name__)
 
 # It's highly recommended to use environment variables for credentials
 # instead of hardcoding them.
-DB_NAME = os.getenv("DB_NAME", "seo_bot_db")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
+# ---------------------------------------------------------
+# Database Configuration
+# ---------------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+
+with open(
+    BASE_DIR / "config.json",
+    encoding="utf-8",
+) as file:
+    CONFIG = json.load(file)
+
+DATABASE_CONFIG = CONFIG.get("database", {})
+
+CURRENT_DB = DATABASE_CONFIG.get(
+    "current_db",
+    "public",
+)
+
+DB_CONNECTION_ENV = DATABASE_CONFIG.get(
+    "db",
+    {},
+).get(CURRENT_DB)
+
+if not DB_CONNECTION_ENV:
+    raise ValueError(
+        f"Database connection is not configured "
+        f"for '{CURRENT_DB}'"
+    )
+
+DB_CONNECTION_URL = os.getenv(
+    DB_CONNECTION_ENV
+)
+
+if not DB_CONNECTION_URL:
+    raise ValueError(
+        f"Environment variable "
+        f"'{DB_CONNECTION_ENV}' is not set"
+    )
+
+logger.info(
+    f"Database environment selected: {CURRENT_DB}"
+)
 
 _db_available = False  # Assume DB is unavailable until a connection is confirmed
 _connection_pool = None
@@ -41,8 +81,8 @@ def _initialize_pool():
         try:
             _connection_pool = pool.ThreadedConnectionPool(
                 minconn=1,
-                maxconn=10,  # Adjust maxconn based on number of parallel sessions
-                dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST, port=DB_PORT
+                maxconn=10,
+                dsn=DB_CONNECTION_URL,
             )
         except psycopg2.OperationalError as e:
             logger.warning(f"Failed to initialize database connection pool: {e}")
