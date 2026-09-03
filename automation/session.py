@@ -349,6 +349,8 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats):
             failure_count = 1
             status = "FAILED"
             return
+        
+        
 
         # -------------------------------------------------
         # 4) Find target website - with retry wrapper, already robust

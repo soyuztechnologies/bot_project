@@ -4,7 +4,7 @@ youtube_main.py
 Entry point for YouTube Automation.
 
 This merged version keeps the original YouTube main flow and adds
-Vipul's database initialization, application logging, and cleanup.
+ database initialization, application logging, and cleanup.
 """
 
 import json
@@ -62,7 +62,7 @@ def main():
     - Load search engines
     - Start parallel sessions
 
-    Adds Vipul's:
+    Adds :
     - .env loading
     - application logger setup
     - database initialization
@@ -185,7 +185,7 @@ def main():
         # )
         #
         # Therefore we pass search_engines here instead of
-        # Vipul's stats dictionary.
+        #  stats dictionary.
         #
         # Database session records are handled inside
         # youtube_session.py.

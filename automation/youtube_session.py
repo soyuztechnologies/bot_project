@@ -315,7 +315,7 @@ def process_youtube_first_flow(
         return False
 
     # ---------------------------------------------------------
-    # Vipul fallback keyword support
+    #  fallback keyword support
     # ---------------------------------------------------------
     if not found:
         extra_keyword = config.get("youtube", {}).get("extra_keyword", "").strip()
@@ -411,7 +411,7 @@ def process_youtube_first_flow(
 
 
 def _safe_create_automation_run(run_id, keyword, config, selected_browser):
-    """Create Vipul's DB record without breaking automation if DB is unavailable."""
+    """Create DB record without breaking automation if DB is unavailable."""
     try:
         youtube_config = config.get("youtube", {})
         create_automation_run(
@@ -438,7 +438,7 @@ def _safe_update_automation_run(
     fallback_used=False,
     search_keyword=None,
 ):
-    """Update Vipul's DB record without breaking automation if DB is unavailable."""
+    """Update  DB record without breaking automation if DB is unavailable."""
     if run_id is None:
         return
 
@@ -473,7 +473,7 @@ def run_session(
     driver = None
     session_success = True
 
-    # Vipul database state: one automation_run per keyword.
+    # database state: one automation_run per keyword.
     run_ids = {}
     retry_trackers = {}
 
@@ -587,7 +587,7 @@ def run_session(
             stats.record_keyword()
 
             # -------------------------------------------------
-            # Vipul database tracking
+            # database tracking
             # -------------------------------------------------
             run_ids[keyword] = uuid.uuid4()
             retry_trackers[keyword] = {"count": 0}
@@ -1296,7 +1296,7 @@ def start_parallel_sessions(keywords, config, search_engines):
      return False
 def start_parallel_sessions_with_queue(keywords, config, search_engines, stats=None):
     """
-    Vipul-compatible queue-based parallel runner.
+    compatible queue-based parallel runner.
 
     The original start_parallel_sessions() is retained. This additional entry point
     provides queue scheduling while using the merged run_session().

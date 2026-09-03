@@ -7,11 +7,11 @@
     "browsers": ["chrome"],
 
     "distribution": {
-        "chrome" : 20,
+        "chrome" : 20,  
         "edge" : 20,
-        "opera" : 20,
         "firefox" : 20,
-        "brave" : 20          
+        "opera" : 20,
+        "brave" : 20     
     }
   },
 

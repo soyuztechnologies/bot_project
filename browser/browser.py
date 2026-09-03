@@ -1,13 +1,7 @@
 """
 browser.py
 
-Responsible for:
-
-1. Preparing required browser drivers.
-2. Launching supported browsers.
-3. Applying browser-specific options.
-4. Keeping audio muted.
-5. Closing browsers safely.
+Browser setup and lifecycle helpers.
 """
 
 import os
@@ -18,217 +12,128 @@ import threading
 
 from seleniumbase import Driver
 
+
 _BROWSER_START_LOCK = threading.Lock()
 
 
-# ---------------------------------------------------------
-# Brave
-# ---------------------------------------------------------
-
 def get_brave_binary():
     """
-    Find Brave browser executable.
-    Works on Windows and Linux/Docker.
+    Locate Brave browser binary.
     """
 
-    linux_path = shutil.which("brave-browser")
+    candidates = []
 
-    if linux_path:
-        return linux_path
+    if sys.platform.startswith("linux"):
+        candidates.extend(
+            [
+                shutil.which("brave-browser"),
+                shutil.which("brave"),
+            ]
+        )
 
     env_path = os.getenv("BRAVE_BINARY")
+    if env_path:
+        candidates.append(env_path)
 
-    if env_path and os.path.exists(env_path):
-        return env_path
+    if sys.platform.startswith("win"):
+        candidates.extend(
+            [
+                r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+                r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+            ]
+        )
 
-    windows_paths = [
-        r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
-        r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
-    ]
-
-    for path in windows_paths:
-
-        if os.path.exists(path):
+    for path in candidates:
+        if path and os.path.exists(path):
             return path
 
-    raise FileNotFoundError(
-        "Brave browser executable was not found."
-    )
+    return None
 
-
-# ---------------------------------------------------------
-# Driver Preparation
-# ---------------------------------------------------------
 
 def prepare_browser_drivers(config):
     """
-    Prepare all required WebDrivers before worker threads start.
-
-    This prevents multiple worker threads from trying to
-    download/update the same driver simultaneously.
+    Prepare browser drivers required by the configuration.
     """
 
-    browsers = config["browser"].get(
-        "browsers",
-        ["chrome"]
+    browsers = (
+        config.get("browser", {}).get("browsers")
+        or config.get("browser", {}).get("distribution")
+        or []
     )
 
-    distribution = config["browser"].get(
-        "distribution",
-        {}
-    )
-
-    # Use browsers from distribution when available.
-    if distribution:
-        browsers = list(distribution.keys())
-
-    browsers = [
-        browser.lower()
-        for browser in browsers
-    ]
-
-    print("\n" + "=" * 60)
-    print("Preparing Browser Drivers")
-    print("=" * 60)
-
-    required_drivers = set()
+    if isinstance(browsers, str):
+        browsers = [browsers]
 
     for browser in browsers:
-
-        if browser == "chrome":
-
-            # Chrome uses UC mode in this project.
-            required_drivers.add("uc_driver")
-
-        elif browser == "edge":
-
-            required_drivers.add("edgedriver")
-
-        elif browser == "firefox":
-
-            required_drivers.add("geckodriver")
-
-        elif browser == "opera":
-
-            # Opera uses Chromium/WebDriver.
-            required_drivers.add("chromedriver")
-
-        elif browser == "brave":
-
-            # Brave uses Chromium WebDriver in this project.
-            required_drivers.add("chromedriver")
-
-        else:
-
-            raise ValueError(
-                f"Unsupported browser in configuration: {browser}"
-            )
-
-    for driver_name in sorted(required_drivers):
-
-        print(
-            f"\n[DRIVER] Preparing {driver_name}..."
-        )
+        browser = str(browser).lower().strip()
 
         try:
-
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "seleniumbase",
-                    "get",
-                    driver_name,
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            if result.returncode != 0:
-
-                print(result.stdout)
-                print(result.stderr)
-
-                raise RuntimeError(
-                    f"Failed to prepare {driver_name}."
+            if browser == "chrome":
+                subprocess.run(
+                    ["python", "-m", "seleniumbase", "install", "uc_driver"],
+                    check=False,
                 )
 
-            print(
-                f"[DRIVER] {driver_name} ready."
-            )
+            elif browser == "edge":
+                subprocess.run(
+                    ["python", "-m", "seleniumbase", "install", "edgedriver"],
+                    check=False,
+                )
 
-        except Exception as error:
+            elif browser == "firefox":
+                subprocess.run(
+                    ["python", "-m", "seleniumbase", "install", "geckodriver"],
+                    check=False,
+                )
 
-            raise RuntimeError(
-                f"Driver preparation failed for "
-                f"{driver_name}: {error}"
-            ) from error
+            elif browser in ("opera", "brave"):
+                subprocess.run(
+                    ["python", "-m", "seleniumbase", "install", "chromedriver"],
+                    check=False,
+                )
 
-    print("\n" + "=" * 60)
-    print("All Required Browser Drivers Ready")
-    print("=" * 60)
+        except Exception:
+            pass
 
-
-# ---------------------------------------------------------
-# Chromium Arguments
-# ---------------------------------------------------------
 
 def get_chromium_args():
     """
     Common Chromium arguments.
-
-    Keeps audio muted in Chromium-based browsers.
     """
 
-    return ",".join([
+    return [
         "--mute-audio",
         "--disable-notifications",
-    ])
+    ]
 
 
-# ---------------------------------------------------------
-# Browser Setup
-# ---------------------------------------------------------
-
-def setup_browser(config: dict, browser_name: str):
+def setup_browser(config, browser_name):
     """
-    Create and return a browser instance.
+    Start and configure a browser instance.
     """
 
-    headless = (
-        config["browser"].get("mode") == "headless"
+    browser_name = str(browser_name).lower().strip()
+
+    browser_config = config.get("browser", {})
+
+    headless = browser_config.get("headless", False)
+    maximize = browser_config.get("maximize", True)
+
+    thread_id = threading.get_ident()
+
+    profile_root = browser_config.get(
+        "profile_dir",
+        os.path.join(os.getcwd(), "browser_profiles"),
     )
 
-    browser_name = browser_name.lower()
-
-    # -----------------------------------------------------
-    # Persistent browser profile
-    # -----------------------------------------------------
-
-    profile_path = os.path.abspath(
-        os.path.join(
-            "profiles",
-            browser_name,
-            f"thread_{threading.get_ident()}",
-        )
+    profile_path = os.path.join(
+        profile_root,
+        f"{browser_name}_{thread_id}",
     )
 
     os.makedirs(profile_path, exist_ok=True)
 
-    print(
-        f"[{browser_name.upper()}] Profile : {profile_path}"
-    )
-
-    print(
-        f"[{browser_name.upper()}] Launching browser..."
-    )
-
     with _BROWSER_START_LOCK:
-
-        # -----------------------------------------------------
-        # Chrome
-        # -----------------------------------------------------
 
         if browser_name == "chrome":
 
@@ -240,10 +145,6 @@ def setup_browser(config: dict, browser_name: str):
                 chromium_arg=get_chromium_args(),
             )
 
-        # -----------------------------------------------------
-        # Edge
-        # -----------------------------------------------------
-
         elif browser_name == "edge":
 
             driver = Driver(
@@ -251,11 +152,8 @@ def setup_browser(config: dict, browser_name: str):
                 uc=True,
                 user_data_dir=profile_path,
                 headless=False,
+                chromium_arg=get_chromium_args(),
             )
-
-        # -----------------------------------------------------
-        # Firefox
-        # -----------------------------------------------------
 
         elif browser_name == "firefox":
 
@@ -266,10 +164,6 @@ def setup_browser(config: dict, browser_name: str):
                 firefox_pref="media.volume_scale=0.0",
             )
 
-        # -----------------------------------------------------
-        # Opera
-        # -----------------------------------------------------
-
         elif browser_name == "opera":
 
             driver = Driver(
@@ -279,17 +173,28 @@ def setup_browser(config: dict, browser_name: str):
                 chromium_arg=get_chromium_args(),
             )
 
-        # -----------------------------------------------------
-        # Brave
-        # -----------------------------------------------------
+            try:
+                driver.execute_cdp_cmd(
+                    "Browser.setPermission",
+                    {
+                        "permission": {
+                            "name": "geolocation",
+                        },
+                        "setting": "denied",
+                        "origin": "https://www.google.com",
+                    },
+                )
+            except Exception:
+                pass
 
         elif browser_name == "brave":
 
             brave_binary = get_brave_binary()
 
-            print(
-                f"[BRAVE] Using browser: {brave_binary}"
-            )
+            if not brave_binary:
+                raise FileNotFoundError(
+                    "Brave browser binary was not found."
+                )
 
             driver = Driver(
                 browser="chrome",
@@ -297,106 +202,32 @@ def setup_browser(config: dict, browser_name: str):
                 uc=True,
                 user_data_dir=profile_path,
                 headless=False,
+                chromium_arg=get_chromium_args(),
             )
 
         else:
-
             raise ValueError(
                 f"Unsupported browser: {browser_name}"
             )
 
-        print(
-            f"[{browser_name.upper()}] Browser launched."
-        )
-
-    # -----------------------------------------------------
-    # Opera - deny geolocation permission
-    # -----------------------------------------------------
-
-    if browser_name == "opera":
-
-      try:
-        driver.execute_cdp_cmd(
-            "Browser.setPermission",
-            {
-                "permission": {
-                    "name": "geolocation"
-                },
-                "setting": "denied",
-                "origin": "https://www.google.com",
-            },
-        )
-
-        print(
-            "[OPERA] Geolocation permission denied."
-        )
-
-      except Exception as error:
-
-        print(
-            f"[OPERA] Geolocation permission setup failed : {error}"
-        )
-
-    # -----------------------------------------------------
-    # Maximize
-    # -----------------------------------------------------
-
-    if config["browser"].get("maximize", True):
-
+    if maximize:
         try:
-
             driver.maximize_window()
-
-            print(
-                f"[{browser_name.upper()}] "
-                f"Browser maximized."
-            )
-
-        except Exception as error:
-
-            print(
-                f"[{browser_name.upper()}] "
-                f"Maximize failed : {error}"
-            )
+        except Exception:
+            pass
 
     return driver
 
-# ---------------------------------------------------------
-# Close Browser
-# ---------------------------------------------------------
 
 def close_browser(driver):
     """
-    Close browser safely.
+    Safely close browser instance.
     """
 
-    if not driver:
+    if driver is None:
         return
 
-    browser_name = "unknown"
-
     try:
-
-        browser_name = driver.capabilities.get(
-            "browserName",
-            "unknown"
-        )
-
-        print(
-            f"[{browser_name.upper()}] "
-            f"Closing browser..."
-        )
-
         driver.quit()
-
-        print(
-            f"[{browser_name.upper()}] "
-            f"Browser driver quit completed."
-        )
-
-    except Exception as error:
-
-        print(
-            f"[{browser_name.upper()}] "
-            f"Browser close error : {error}"
-        )
+    except Exception:
+        pass

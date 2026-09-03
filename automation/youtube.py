@@ -21,6 +21,8 @@ from pathlib import Path
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 from automation.search_engine import (
     wait_for_element,
@@ -666,6 +668,317 @@ def find_target_video(
         last_height = new_height
 
 
+def _set_video_quality_144p(
+    driver,
+    stop_event=None,
+    session_logger=None,
+):
+    """
+    Try to set YouTube playback quality to 144p.
+
+    Uses the YouTube player API first and falls back to
+    the YouTube Quality menu if required.
+
+    If 144p is unavailable, the video continues normally.
+    """
+
+    try:
+
+        if stop_event and stop_event.is_set():
+            return False
+
+        # -------------------------------------------------
+        # Give YouTube player a moment to initialize
+        # -------------------------------------------------
+
+        WebDriverWait(
+            driver,
+            8,
+        ).until(
+            lambda d: d.execute_script(
+                """
+                const player =
+                    document.getElementById("movie_player");
+
+                return player &&
+                       typeof player.setPlaybackQuality === "function";
+                """
+            )
+        )
+
+        # -------------------------------------------------
+        # Try YouTube internal player API
+        # -------------------------------------------------
+
+        result = driver.execute_script(
+            """
+            const player =
+                document.getElementById("movie_player");
+
+            if (!player) {
+                return {
+                    success: false,
+                    reason: "player_not_found"
+                };
+            }
+
+            if (
+                typeof player.getAvailableQualityLevels ===
+                "function"
+            ) {
+                const levels =
+                    player.getAvailableQualityLevels();
+
+                if (
+                    Array.isArray(levels) &&
+                    levels.length > 0 &&
+                    !levels.includes("tiny")
+                ) {
+                    return {
+                        success: false,
+                        reason: "144p_unavailable",
+                        levels: levels
+                    };
+                }
+            }
+
+            if (
+                typeof player.setPlaybackQualityRange ===
+                "function"
+            ) {
+                try {
+                    player.setPlaybackQualityRange(
+                        "tiny",
+                        "tiny"
+                    );
+                } catch (e) {}
+            }
+
+            if (
+                typeof player.setPlaybackQuality ===
+                "function"
+            ) {
+                player.setPlaybackQuality("tiny");
+            }
+
+            let quality = null;
+
+            if (
+                typeof player.getPlaybackQuality ===
+                "function"
+            ) {
+                quality = player.getPlaybackQuality();
+            }
+
+            return {
+                success: quality === "tiny",
+                quality: quality
+            };
+            """
+        )
+
+        # -------------------------------------------------
+        # Verify API result
+        # -------------------------------------------------
+
+        if result and result.get("success"):
+
+            if session_logger:
+
+                session_logger.info(
+                    "Video quality set to 144p using player API.",
+                    extra={
+                        "action": "SET_VIDEO_QUALITY",
+                        "status": "SUCCESS",
+                    },
+                )
+
+            else:
+
+                print(
+                    "Video quality set to 144p."
+                )
+
+            return True
+
+        # -------------------------------------------------
+        # 144p unavailable
+        # -------------------------------------------------
+
+        if (
+            result
+            and result.get("reason") == "144p_unavailable"
+        ):
+
+            if session_logger:
+
+                session_logger.info(
+                    "144p is not available for this video.",
+                    extra={
+                        "action": "SET_VIDEO_QUALITY",
+                        "status": "UNAVAILABLE",
+                    },
+                )
+
+            else:
+
+                print(
+                    "144p is not available for this video."
+                )
+
+            return False
+
+    except Exception as error:
+
+        if session_logger:
+
+            session_logger.warning(
+                f"Player API quality selection failed: {error}",
+                extra={
+                    "action": "SET_VIDEO_QUALITY",
+                    "status": "API_FAILED",
+                    "error_message": str(error),
+                },
+            )
+
+        else:
+
+            print(
+                f"Player API quality selection failed: {error}"
+            )
+
+    # -----------------------------------------------------
+    # UI fallback
+    # -----------------------------------------------------
+
+    try:
+
+        if stop_event and stop_event.is_set():
+            return False
+
+        settings_button = WebDriverWait(
+            driver,
+            5,
+        ).until(
+            EC.element_to_be_clickable(
+                (
+                    By.CSS_SELECTOR,
+                    ".ytp-settings-button",
+                )
+            )
+        )
+
+        driver.execute_script(
+            "arguments[0].click();",
+            settings_button,
+        )
+
+        time.sleep(0.5)
+
+        # Find Quality menu item
+        quality_item = None
+
+        for item in driver.find_elements(
+            By.CSS_SELECTOR,
+            ".ytp-menuitem",
+        ):
+
+            try:
+
+                text = item.text.strip().lower()
+
+                if text == "quality" or text.startswith(
+                    "quality"
+                ):
+
+                    quality_item = item
+                    break
+
+            except Exception:
+                continue
+
+        if quality_item is None:
+
+            return False
+
+        driver.execute_script(
+            "arguments[0].click();",
+            quality_item,
+        )
+
+        time.sleep(0.5)
+
+        # Find 144p option
+        option_144p = None
+
+        for option in driver.find_elements(
+            By.CSS_SELECTOR,
+            ".ytp-menuitem",
+        ):
+
+            try:
+
+                text = option.text.strip().lower()
+
+                if text.startswith("144p"):
+
+                    option_144p = option
+                    break
+
+            except Exception:
+                continue
+
+        if option_144p is None:
+
+            return False
+
+        driver.execute_script(
+            "arguments[0].click();",
+            option_144p,
+        )
+
+        time.sleep(0.5)
+
+        if session_logger:
+
+            session_logger.info(
+                "Video quality selected as 144p using UI fallback.",
+                extra={
+                    "action": "SET_VIDEO_QUALITY",
+                    "status": "SUCCESS",
+                },
+            )
+
+        else:
+
+            print(
+                "Video quality selected: 144p."
+            )
+
+        return True
+
+    except Exception as error:
+
+        if session_logger:
+
+            session_logger.warning(
+                f"Could not set video quality to 144p: {error}",
+                extra={
+                    "action": "SET_VIDEO_QUALITY",
+                    "status": "FAILED",
+                    "error_message": str(error),
+                },
+            )
+
+        else:
+
+            print(
+                f"Could not set video quality to 144p: {error}"
+            )
+
+        return False
+
+
 # =========================================================
 # Watch Video
 # =========================================================
@@ -723,6 +1036,17 @@ def watch_video(
         else:
 
             print(f"Failed to mute video : {error}")
+
+
+     # -----------------------------------------------------
+    # Set YouTube Video Quality to 144p
+    # -----------------------------------------------------
+
+    _set_video_quality_144p(
+        driver,
+        stop_event,
+        session_logger,
+    )
 
     # -----------------------------------------------------
     # Random Watch Time
