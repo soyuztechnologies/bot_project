@@ -1,0 +1,1482 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>SEO Automation Control Center</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet"
+    >
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='dashboard.css') }}"
+    >
+</head>
+
+<body>
+
+<div class="app-shell">
+
+    <!-- =====================================================
+         SIDEBAR
+    ====================================================== -->
+
+    <aside class="sidebar">
+
+        <div class="brand">
+            <div class="brand-mark">
+                ⚙
+            </div>
+
+            <div>
+                <div class="brand-name">
+                    AUTOMATION CENTER
+                </div>
+            </div>
+        </div>
+
+
+        <nav>
+
+            <div class="nav-label">
+                CONTROL CENTER
+            </div>
+
+            <button
+                class="nav-item active"
+                data-view="overview"
+            >
+                <span>◈</span>
+                Overview
+            </button>
+
+
+            <button
+                class="nav-item"
+                data-view="runs"
+            >
+                <span>◫</span>
+                Automation Runs
+            </button>
+
+
+            <button
+                class="nav-item"
+                data-view="logs"
+            >
+                <span>≡</span>
+                Live Logs
+            </button>
+<div class="nav-label">
+                ANALYTICS
+            </div>
+
+
+            <button
+                class="nav-item"
+                data-view="engines"
+            >
+                <span>◎</span>
+                Search Engines
+            </button>
+
+
+            <button
+                class="nav-item"
+                data-view="performance"
+            >
+                <span>↗</span>
+                Performance
+            </button>
+
+        </nav>
+
+
+        <!-- DATABASE STATUS -->
+
+        <div class="sidebar-bottom">
+
+            <div class="db-pill">
+
+                <span class="pulse"></span>
+
+                <div>
+
+                    <b>
+                        Database
+                    </b>
+
+                    <small id="dbStatus">
+                        Checking...
+                    </small>
+
+                </div>
+
+            </div>
+
+
+            <div class="version">
+                SEO BOT • v1.0
+            </div>
+
+        </div>
+
+    </aside>
+
+
+
+    <!-- =====================================================
+         MAIN CONTENT
+    ====================================================== -->
+
+    <main class="main">
+
+
+        <!-- TOP BAR -->
+
+        <header class="topbar">
+
+            <div>
+
+                <div class="eyebrow">
+                    AUTOMATION CONTROL CENTER
+                </div>
+
+                <h1 id="pageTitle">
+                    Website Automation
+                </h1>
+
+                <p id="pageSubtitle">
+                    Complete visibility into Website Automation.
+                </p>
+
+            </div>
+
+
+            <div class="top-actions">
+
+                
+                <!-- AUTOMATION CONTEXT SWITCH -->
+                <div
+                    class="automation-switch"
+                    role="tablist"
+                    aria-label="Select automation"
+                >
+                    <button
+                        type="button"
+                        class="automation-switch-btn active"
+                        data-automation="SEARCH"
+                        role="tab"
+                        aria-selected="true"
+                    >
+                        <span class="switch-icon">⌕</span>
+                        Website
+                    </button>
+
+                    <button
+                        type="button"
+                        class="automation-switch-btn"
+                        data-automation="YOUTUBE"
+                        role="tab"
+                        aria-selected="false"
+                    >
+                        <span class="switch-icon">▶</span>
+                        YouTube
+                    </button>
+                </div>
+
+                <select id="range">
+
+                    <option value="1">
+                        Today
+                    </option>
+
+                    <option value="7" selected>
+                        Last 7 days
+                    </option>
+
+                    <option value="30">
+                        Last 30 days
+                    </option>
+
+                    <option value="90">
+                        Last 90 days
+                    </option>
+
+                </select>
+
+
+                <button
+                    class="icon-btn"
+                    id="refreshBtn"
+                    title="Refresh"
+                >
+                    ↻
+                </button>
+
+            </div>
+
+        </header>
+
+
+
+        <!-- =====================================================
+             OVERVIEW
+        ====================================================== -->
+
+        <section
+            id="overview"
+            class="view active"
+            data-context="automation"
+        >
+
+            <!-- HERO -->
+
+            <div class="hero-strip">
+
+                <div>
+
+                    <span class="live-dot"></span>
+
+                    SYSTEM MONITORING
+
+                    <h2 id="heroTitle">
+                        Website automation is under control.
+                    </h2>
+
+                    <p id="generated">
+                        Fetching the latest database snapshot...
+                    </p>
+
+                </div>
+
+
+                <div class="hero-stat">
+
+                    <span>
+                        Overall Success Rate
+                    </span>
+
+                    <strong id="heroRate">
+                        —
+                    </strong>
+
+                </div>
+
+            </div>
+
+
+
+            <!-- KPI CARDS -->
+
+            <div class="metric-grid">
+
+
+                <article class="metric">
+
+                    <div class="metric-icon blue">
+                        Σ
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Total Runs
+                        </span>
+
+                        <strong id="totalRuns">
+                            —
+                        </strong>
+
+                        <small>
+                            Database activity
+                        </small>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon green">
+                        ✓
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Successful
+                        </span>
+
+                        <strong id="successRuns">
+                            —
+                        </strong>
+
+                        <small>
+                            Completed successfully
+                        </small>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon red">
+                        !
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Failed
+                        </span>
+
+                        <strong id="failedRuns">
+                            —
+                        </strong>
+
+                        <small>
+                            Needs attention
+                        </small>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon amber">
+                        ↻
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Retries
+                        </span>
+
+                        <strong id="retries">
+                            —
+                        </strong>
+
+                        <small>
+                            Recovery attempts
+                        </small>
+
+                    </div>
+
+                </article>
+                <article class="metric">
+
+                    <div class="metric-icon cyan">
+                        ⌕
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Unique Keywords
+                        </span>
+
+                        <strong id="keywords">
+                            —
+                        </strong>
+
+                        <small>
+                            Tracked keywords
+                        </small>
+
+                    </div>
+
+                </article>
+
+            </div>
+
+
+
+            <!-- CHARTS -->
+
+            <div class="grid-two">
+
+
+                <article class="panel large">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <h3>
+                                Automation Activity
+                            </h3>
+
+                            <span>
+                                Runs, success and failure trend
+                            </span>
+
+                        </div>
+
+                        <span class="tag">
+                            LIVE DATA
+                        </span>
+
+                    </div>
+
+
+                    <div class="chart-wrap">
+
+                        <canvas id="activityChart"></canvas>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <h3>
+                                Run Health
+                            </h3>
+
+                            <span>
+                                Current period distribution
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="donut-wrap">
+
+                        <canvas id="healthChart"></canvas>
+
+
+                        <div class="donut-center">
+
+                            <strong id="donutRate">
+                                —
+                            </strong>
+
+                            <span>
+                                success
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div
+                        class="legend"
+                        id="healthLegend"
+                    ></div>
+
+                </article>
+
+            </div>
+
+
+
+            <!-- ENGINE + AUTOMATION TYPE -->
+
+            <div class="grid-two">
+
+
+                <article class="panel"
+                         id="searchEnginePerformancePanel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <h3>
+                                Search Engine Performance
+                            </h3>
+
+                            <span>
+                                Success by engine
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div
+                        id="engineBars"
+                        class="bars"
+                    ></div>
+
+                </article>
+
+
+
+                
+
+            </div>
+
+
+
+            <!-- RECENT RUNS -->
+
+            <article class="panel">
+
+                <div class="panel-head">
+
+                    <div>
+
+                        <h3>
+                            Recent Automation Runs
+                        </h3>
+
+                        <span>
+                            Latest database records
+                        </span>
+
+                    </div>
+
+
+                    <button
+                        class="text-btn"
+                        data-view-target="runs"
+                    >
+                        View all →
+                    </button>
+
+                </div>
+
+
+                <div class="table-wrap">
+
+                    <table>
+
+                        <thead>
+
+                            <tr>
+
+                                <th>Status</th>
+                                <th>Type</th>
+                                <th>Keyword</th>
+                                <th>Engine</th>
+                                <th>Browser</th>
+                                <th>Started</th>
+                                <th>Duration</th>
+                                <th>Retries</th>
+
+                            </tr>
+
+                        </thead>
+
+
+                        <tbody id="recentTable"></tbody>
+
+                    </table>
+
+                </div>
+
+            </article>
+
+        </section>
+
+
+
+        <!-- =====================================================
+             AUTOMATION RUNS
+        ====================================================== -->
+
+        <section
+            id="runs"
+            class="view"
+        >
+
+            <div class="section-title">
+
+                <div>
+
+                    <div class="eyebrow">
+                        DATABASE
+                    </div>
+
+                    <h2>
+                        Automation Runs
+                    </h2>
+
+                    <p>
+                        Every keyword-level execution tracked by the bot.
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <article class="panel">
+
+                <div class="table-wrap">
+
+                    <table>
+
+                        <thead>
+
+                            <tr>
+
+                                <th>Status</th>
+                                <th>Type</th>
+                                <th>Keyword</th>
+                                <th>Target</th>
+                                <th>Engine</th>
+                                <th>Browser</th>
+                                <th>Started</th>
+                                <th>Duration</th>
+                                <th>Retries</th>
+
+                            </tr>
+
+                        </thead>
+
+
+                        <tbody id="runsTable"></tbody>
+
+                    </table>
+
+                </div>
+
+            </article>
+
+        </section>
+
+
+
+        <!-- =====================================================
+             LIVE LOGS
+        ====================================================== -->
+
+        <section
+            id="logs"
+            class="view"
+        >
+
+            <div class="section-title">
+
+                <div>
+
+                    <div class="eyebrow">
+                        OBSERVABILITY
+                    </div>
+
+                    <h2>
+                        Live Logs
+                    </h2>
+
+                    <p>
+                        Inspect the complete execution timeline of a run.
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <article class="panel">
+
+                <div class="log-toolbar">
+
+                    <select id="runSelect">
+
+                        <option value="">
+                            Select a recent run...
+                        </option>
+
+                    </select>
+
+
+                    <button
+                        class="primary-btn"
+                        id="loadLogs"
+                    >
+                        Load Timeline
+                    </button>
+
+                </div>
+
+
+                <div
+                    id="logTimeline"
+                    class="timeline empty"
+                >
+                    Choose a run to inspect its logs.
+                </div>
+
+            </article>
+
+        </section>
+
+
+
+        <!-- =====================================================
+             WEBSITE AUTOMATION
+        ====================================================== -->
+
+        <section
+            id="website"
+            class="view automation-detail-view"
+        >
+
+            <div class="section-title">
+
+                <div>
+
+                    <div class="eyebrow">
+                        AUTOMATION
+                    </div>
+
+                    <h2>
+                        Website Automation
+                    </h2>
+
+                    <p>
+                        Monitor keyword searches, target website discovery
+                        and website visits.
+                    </p>
+
+                </div>
+
+            </div>
+
+
+
+            <!-- WEBSITE KPI -->
+
+            <div class="metric-grid compact">
+
+
+                <article class="metric">
+
+                    <div class="metric-icon blue">
+                        ⌕
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Website Runs
+                        </span>
+
+                        <strong id="webRuns">
+                            —
+                        </strong>
+
+                        <small>
+                            Search executions
+                        </small>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon green">
+                        ✓
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Successful
+                        </span>
+
+                        <strong id="webSuccess">
+                            —
+                        </strong>
+
+                        <small>
+                            Target found
+                        </small>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon red">
+                        !
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Failed
+                        </span>
+
+                        <strong id="webFailed">
+                            —
+                        </strong>
+
+                        <small>
+                            Unsuccessful runs
+                        </small>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon amber">
+                        ↻
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Retries
+                        </span>
+
+                        <strong id="webRetries">
+                            —
+                        </strong>
+
+                        <small>
+                            Recovery attempts
+                        </small>
+
+                    </div>
+
+                </article>
+
+            </div>
+
+
+
+            <!-- WEBSITE CHART -->
+
+            <div class="grid-two">
+
+
+                <article class="panel large">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <h3>
+                                Website Automation Activity
+                            </h3>
+
+                            <span>
+                                Search → target website discovery trend
+                            </span>
+
+                        </div>
+
+                        <span class="tag">
+                            WEBSITE
+                        </span>
+
+                    </div>
+
+
+                    <div class="chart-wrap">
+
+                        <canvas id="websiteActivityChart"></canvas>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <h3>
+                                Website Success Rate
+                            </h3>
+
+                            <span>
+                                Selected period
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="donut-wrap">
+
+                        <canvas id="websiteHealthChart"></canvas>
+
+
+                        <div class="donut-center">
+
+                            <strong id="websiteRate">
+                                —
+                            </strong>
+
+                            <span>
+                                success
+                            </span>
+
+                        </div>
+
+                    </div>
+
+                </article>
+
+            </div>
+
+
+
+            <!-- WEBSITE ENGINE + TARGET -->
+
+            <div class="grid-two">
+
+
+                <article class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <h3>
+                                Search Engine Performance
+                            </h3>
+
+                            <span>
+                                Website automation only
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div
+                        id="websiteEngineBars"
+                        class="bars"
+                    ></div>
+
+                </article>
+
+
+
+                <article class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <h3>
+                                Target Website
+                            </h3>
+
+                            <span>
+                                Configured destination
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="target-card">
+
+                        <div class="target-icon">
+                            ↗
+                        </div>
+
+
+                        <div>
+
+                            <strong id="websiteTarget">
+                                anubhavtrainings.com
+                            </strong>
+
+                            <p>
+                                Website Automation target domain
+                            </p>
+
+                        </div>
+
+                    </div>
+
+                </article>
+
+            </div>
+
+
+
+            <!-- WEBSITE RUN TABLE -->
+
+            <article class="panel">
+
+                <div class="panel-head">
+
+                    <div>
+
+                        <h3>
+                            Website Automation Runs
+                        </h3>
+
+                        <span>
+                            Keyword-level execution history
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <div class="table-wrap">
+
+                    <table>
+
+                        <thead>
+
+                            <tr>
+
+                                <th>Status</th>
+                                <th>Keyword</th>
+                                <th>Target</th>
+                                <th>Search Engine</th>
+                                <th>Browser</th>
+                                <th>Started</th>
+                                <th>Duration</th>
+                                <th>Retries</th>
+
+                            </tr>
+
+                        </thead>
+
+
+                        <tbody id="websiteTable"></tbody>
+
+                    </table>
+
+                </div>
+
+            </article>
+
+        </section>
+
+
+
+        <!-- =====================================================
+             YOUTUBE AUTOMATION
+        ====================================================== -->
+
+        <section
+            id="youtube"
+            class="view automation-detail-view"
+        >
+
+            <div class="section-title">
+
+                <div>
+
+                    <div class="eyebrow">
+                        AUTOMATION
+                    </div>
+
+                    <h2>
+                        YouTube Automation
+                    </h2>
+
+                    <p>
+                        Monitor YouTube keyword execution and target-channel runs.
+                    </p>
+
+                </div>
+
+            </div>
+
+
+
+            <div class="metric-grid compact">
+
+
+                <article class="metric">
+
+                    <div class="metric-icon violet">
+                        ▶
+                    </div>
+
+                    <div>
+
+                        <span>
+                            YouTube Runs
+                        </span>
+
+                        <strong id="ytRuns2">
+                            —
+                        </strong>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon green">
+                        ✓
+                    </div>
+
+                    <div>
+
+                        <span>
+                            YouTube Success
+                        </span>
+
+                        <strong id="ytSuccess">
+                            —
+                        </strong>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon red">
+                        !
+                    </div>
+
+                    <div>
+
+                        <span>
+                            YouTube Failed
+                        </span>
+
+                        <strong id="ytFailed">
+                            —
+                        </strong>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon cyan">
+                        ▶
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Target Channel
+                        </span>
+
+                        <strong>
+                            Anubhav
+                        </strong>
+
+                    </div>
+
+                </article>
+
+            </div>
+
+
+
+            <article class="panel">
+
+                <div class="panel-head">
+
+                    <div>
+
+                        <h3>
+                            YouTube Automation Runs
+                        </h3>
+
+                        <span>
+                            Keyword and video execution history
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <div class="table-wrap">
+
+                    <table>
+
+                        <thead>
+
+                            <tr>
+
+                                <th>Status</th>
+                                <th>Keyword</th>
+                                <th>Target</th>
+                                <th>Browser</th>
+                                <th>Engine</th>
+                                <th>Duration</th>
+                                <th>Started</th>
+
+                            </tr>
+
+                        </thead>
+
+
+                        <tbody id="youtubeTable"></tbody>
+
+                    </table>
+
+                </div>
+
+            </article>
+
+        </section>
+
+
+
+        <!-- =====================================================
+             SEARCH ENGINE ANALYTICS
+        ====================================================== -->
+
+        <section
+            id="engines"
+            class="view"
+        >
+
+            <div class="section-title">
+
+                <div>
+
+                    <div class="eyebrow">
+                        ANALYTICS
+                    </div>
+
+                    <h2>
+                        Search Engines
+                    </h2>
+
+                    <p>
+                        Compare execution volume and outcomes across search engines.
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <article class="panel">
+
+                <div class="chart-wrap tall">
+
+                    <canvas id="engineChart"></canvas>
+
+                </div>
+
+            </article>
+
+        </section>
+
+
+
+        <!-- =====================================================
+             PERFORMANCE
+        ====================================================== -->
+
+        <section
+            id="performance"
+            class="view"
+        >
+
+            <div class="section-title">
+
+                <div>
+
+                    <div class="eyebrow">
+                        ANALYTICS
+                    </div>
+
+                    <h2>
+                        Performance
+                    </h2>
+
+                    <p>
+                        Operational metrics from the automation database.
+                    </p>
+
+                </div>
+
+            </div>
+
+
+
+            <div class="metric-grid compact">
+
+
+                <article class="metric">
+
+                    <div class="metric-icon blue">
+                        ⏱
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Average Duration
+                        </span>
+
+                        <strong id="avgDuration">
+                            —
+                        </strong>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon amber">
+                        ↻
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Retry Rate
+                        </span>
+
+                        <strong id="retryRate">
+                            —
+                        </strong>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon cyan">
+                        ⚡
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Runs / Day
+                        </span>
+
+                        <strong id="runsPerDay">
+                            —
+                        </strong>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon green">
+                        ✓
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Success Rate
+                        </span>
+
+                        <strong id="perfRate">
+                            —
+                        </strong>
+
+                    </div>
+
+                </article>
+
+            </div>
+
+
+
+            <article class="panel">
+
+                <div class="panel-head">
+
+                    <div>
+
+                        <h3>
+                            Operational Insights
+                        </h3>
+
+                        <span>
+                            Derived from stored run records
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <div
+                    class="insights"
+                    id="insights"
+                ></div>
+
+            </article>
+
+        </section>
+
+    </main>
+
+</div>
+
+
+<!-- Dashboard JavaScript -->
+
+<script
+    src="{{ url_for('static', filename='dashboard.js') }}"
+></script>
+
+</body>
+
+</html>
