@@ -10,18 +10,46 @@ import time
 
 from selenium.webdriver.common.action_chains import ActionChains
 
-def move_to_element(driver, element, stop_event=None):
+def build_fallback_keyword(original: str, extra: str | None) -> str | None:
     """
-    Move mouse to an element like a human.
+    Build a fallback keyword by appending only the missing words of
+    ``extra`` to ``original`` (avoids "anubhav anubhav training" duplication).
+    Returns None when no fallback is needed.
     """
+    if not extra:
+        return None
+    extra = str(extra).strip()
+    if not extra:
+        return None
+    original = str(original or "").strip()
+    if not original:
+        return extra
+    if extra.lower() in original.lower():
+        return None
+    orig_words = set(original.lower().split())
+    missing = [w for w in extra.split() if w.lower() not in orig_words]
+    if not missing:
+        return None
+    fallback = (original + " " + " ".join(missing)).strip()
+    if not fallback or fallback.lower() == original.lower():
+        return None
+    return fallback
 
-    actions = ActionChains(driver)
 
-    actions.move_to_element(element).pause(
-        random.uniform(0.3, 1.2)
-    ).perform()
-
-    random_sleep(0.2, 0.8, stop_event)
+def build_browser_mode(config: dict | None, browser_name: str | None = None) -> str:
+    """
+    Build the browser_mode string for the DB: headed/headless only
+    (e.g. "Headless"). browser_name is accepted for signature compatibility
+    but intentionally not stored.
+    """
+    _ = browser_name
+    try:
+        mode = str((config or {}).get("browser", {}).get("mode", "headed")).strip()
+    except Exception:
+        mode = "headed"
+    if not mode:
+        mode = "headed"
+    return mode.capitalize()
 
 
 def random_sleep(min_seconds: float, max_seconds: float, stop_event=None) -> None:

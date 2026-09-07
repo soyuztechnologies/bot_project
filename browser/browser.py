@@ -71,34 +71,36 @@ def prepare_browser_drivers(config):
     if isinstance(browsers, str):
         browsers = [browsers]
  
+    python_exe = sys.executable or "python"
+
     for browser in browsers:
         browser = str(browser).lower().strip()
- 
+
         try:
             if browser == "chrome":
                 result = subprocess.run(
-                    ["python", "-m", "seleniumbase", "install", "uc_driver"],
+                    [python_exe, "-m", "seleniumbase", "install", "uc_driver"],
                     capture_output=True, text=True, check=False,
                 )
                 if result.returncode != 0:
                     raise BrowserStartupError(f"uc_driver install failed: {result.stderr[:300]}", browser=browser)
             elif browser == "edge":
                 result = subprocess.run(
-                    ["python", "-m", "seleniumbase", "install", "edgedriver"],
+                    [python_exe, "-m", "seleniumbase", "install", "edgedriver"],
                     capture_output=True, text=True, check=False,
                 )
                 if result.returncode != 0:
                     raise BrowserStartupError(f"edgedriver install failed: {result.stderr[:300]}", browser=browser)
             elif browser == "firefox":
                 result = subprocess.run(
-                    ["python", "-m", "seleniumbase", "install", "geckodriver"],
+                    [python_exe, "-m", "seleniumbase", "install", "geckodriver"],
                     capture_output=True, text=True, check=False,
                 )
                 if result.returncode != 0:
                     raise BrowserStartupError(f"geckodriver install failed: {result.stderr[:300]}", browser=browser)
             elif browser in ("opera", "brave"):
                 result = subprocess.run(
-                    ["python", "-m", "seleniumbase", "install", "chromedriver"],
+                    [python_exe, "-m", "seleniumbase", "install", "chromedriver"],
                     capture_output=True, text=True, check=False,
                 )
                 if result.returncode != 0:
@@ -140,6 +142,8 @@ def setup_browser(config, browser_name):
     if headless:
         maximize = False
 
+    import uuid as _uuid
+
     thread_id = threading.get_ident()
 
     profile_root = browser_config.get(
@@ -147,9 +151,10 @@ def setup_browser(config, browser_name):
         os.path.join(os.getcwd(), "browser_profiles"),
     )
 
+    # uuid avoids collisions from recycled OS thread IDs + stale lock files
     profile_path = os.path.join(
         profile_root,
-        f"{browser_name}_{thread_id}",
+        f"{browser_name}_{thread_id}_{_uuid.uuid4().hex[:8]}",
     )
 
     try:

@@ -457,25 +457,14 @@ def is_captcha_page(driver, engine_name=None, stop_event=None):
         except Exception:
             pass
     try:
-        # Avoid driver calls when browser is already dead — prevents NewConnectionError retry spam
-        try:
-            # Quick alive check without triggering urllib3 retries at WARNING
-            _ = driver.current_window_handle  # lighter than current_url but still HTTP; we suppress logs via ERROR level
-        except Exception as e:
-            msg = str(e).lower()
-            if "newconnectionerror" in msg or "connection refused" in msg or "invalid session" in msg or "no such window" in msg:
-                return False
-            # For other errors, still try current_url path
-            pass
         current_url = ""
         page_title = ""
         visible_text = ""
-        page_source = ""
         try:
             current_url = (driver.current_url or "").lower()
         except Exception as e:
             msg = str(e).lower()
-            if "newconnectionerror" in msg or "connection refused" in msg:
+            if "newconnectionerror" in msg or "connection refused" in msg or "invalid session" in msg or "no such window" in msg:
                 return False
             current_url = ""
         try:
@@ -486,20 +475,13 @@ def is_captcha_page(driver, engine_name=None, stop_event=None):
                 return False
             page_title = ""
         try:
-            body_elem = driver.find_element("tag name", "body")
+            body_elem = driver.find_element(By.TAG_NAME, "body")
             visible_text = (body_elem.text or "").lower()
         except Exception as e:
             msg = str(e).lower()
             if "newconnectionerror" in msg or "connection refused" in msg:
                 return False
             visible_text = ""
-        try:
-            page_source = (driver.page_source or "").lower()
-        except Exception as e:
-            msg = str(e).lower()
-            if "newconnectionerror" in msg or "connection refused" in msg:
-                return False
-            page_source = ""
  
         # URL indicators - strong signal
         url_indicators = [
@@ -541,47 +523,31 @@ def is_captcha_page(driver, engine_name=None, stop_event=None):
             if ind in page_title or ind in visible_text:
                 return True
  
-        # Generic captcha term in visible text is strong, but avoid script-only false positives
-        # Check for captcha checkbox/iframe elements visible
-        # Bing: "Verify you are human" checkbox + "One last step" heading
-        try:
-            # Detect Bing specific combination seen in screenshot
-            has_one_last_step = False
-            has_verify_human = False
-            # Quick text check already done, but element presence confirms
-            if "one last step" in visible_text and "verify you are human" in visible_text:
-                return True
-            # Check for captcha iframe/checkbox elements that may be hidden in DOM
-            captcha_selectors = [
-                "//*[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'verify you are human')]",
-                "//*[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'one last step')]",
-                "//input[@type='checkbox' and contains(@aria-label,'human')]",
-                "//iframe[contains(@src,'captcha') or contains(@src,'challenge')]",
-                "//div[contains(@class,'captcha')]",
-            ]
-            for xpath in captcha_selectors:
-                try:
-                    elems = driver.find_elements(By.XPATH, xpath)
-                    if elems:
-                        # Verify at least one is displayed or text matches
+        # Bing combo is a strong signal without extra DOM round-trips
+        if "one last step" in visible_text and "verify you are human" in visible_text:
+            return True
+        # Only do extra XPath probes when visible text already looks suspicious
+        # (avoids 5 extra round-trips on every clean page).
+        if "verify you are human" in visible_text or "one last step" in visible_text or "captcha" in visible_text:
+            try:
+                captcha_selectors = [
+                    "//*[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'verify you are human')]",
+                    "//*[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'one last step')]",
+                ]
+                for xpath in captcha_selectors:
+                    try:
+                        elems = driver.find_elements(By.XPATH, xpath)
                         for e in elems:
                             try:
-                                if e.is_displayed() or e.text:
-                                    # Double check text to avoid false positive
-                                    txt = (e.text or e.get_attribute("innerText") or "").lower()
-                                    if "verify" in txt or "one last step" in txt or e.is_displayed():
-                                        return True
+                                if e.is_displayed():
+                                    return True
                             except Exception:
                                 continue
-                except Exception:
-                    continue
-        except Exception:
-            pass
- 
-        # As last resort, check page_source for captcha challenge markers only if visible_text is non-empty to reduce false positives
-        if visible_text and "captcha" in page_source and "captcha" in visible_text:
-            return True
- 
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
         return False
     except Exception:
         return False
@@ -604,29 +570,24 @@ def open_video_tab(
         return False
  
     video_tab = engine.get("videoTab")
- 
-    print(
-    f"Video tab locator : {video_tab}"
-)
- 
+
     if not video_tab:
         print("Video tab configuration not found.")
         return False
  
     try:
         print("Opening Videos tab...")
- 
+
         # ---------------------------------------------
-        # Google verification / CAPTCHA detection
+        # CAPTCHA / verification detection (all engines)
         # ---------------------------------------------
-        if is_google_verification_page(driver):
-            print(
-                "[SEARCH ENGINE] Verification page detected."
-            )
-            print(
-                "[SEARCH ENGINE] Skipping Videos tab for this attempt."
-            )
-            return False
+        try:
+            if is_captcha_page(driver, stop_event=stop_event):
+                print("[SEARCH ENGINE] Verification page detected.")
+                print("[SEARCH ENGINE] Skipping Videos tab for this attempt.")
+                return False
+        except Exception:
+            pass
  
         # ---------------------------------------------
         # Find Videos tab
@@ -641,16 +602,16 @@ def open_video_tab(
  
         if stop_event and stop_event.is_set():
             return False
- 
+
         # ---------------------------------------------
         # Check again before clicking
         # ---------------------------------------------
-        if is_google_verification_page(driver):
-            print(
-                "[SEARCH ENGINE] Verification page detected "
-                "before Videos tab click."
-            )
-            return False
+        try:
+            if is_captcha_page(driver, stop_event=stop_event):
+                print("[SEARCH ENGINE] Verification page detected before Videos tab click.")
+                return False
+        except Exception:
+            pass
  
         old_windows = driver.window_handles
  
@@ -695,16 +656,16 @@ def open_video_tab(
         return True
  
     except Exception as error:
- 
+
         # ---------------------------------------------
         # Verification may have appeared while waiting
         # ---------------------------------------------
-        if is_google_verification_page(driver):
-            print(
-                "[SEARCH ENGINE] Verification page detected "
-                "while opening Videos tab."
-            )
-            return False
+        try:
+            if is_captcha_page(driver, stop_event=stop_event):
+                print("[SEARCH ENGINE] Verification page detected while opening Videos tab.")
+                return False
+        except Exception:
+            pass
  
         print(
             f"Failed to open Videos tab : {error}"
@@ -828,14 +789,7 @@ def find_target_video_in_video_results(
     from selenium.webdriver.common.by import By
  
     video_locator = engine.get("videoResultLinks")
-    channel_result_locator = engine.get("videoResultChannel")
-   
- 
-    print(
-        f"Video result channel selector configured : "
-        f"{bool(channel_result_locator)}"
-    )
- 
+
     if not video_locator:
         print("Video result configuration not found.")
         return False
@@ -875,51 +829,18 @@ def find_target_video_in_video_results(
             # -----------------------------------------------------
             # Read currently available result links
             # -----------------------------------------------------
- 
-            # try:
- 
-            #     links = wait_for_elements(
-            #         driver,
-            #         video_locator,
-            #         timeout=5,
-            #     )
- 
-            # except Exception:
- 
-            #     links = []
- 
+
             try:
-                print(
-                     f"Video result locator : "
-                     f"{video_locator}"
-                )
- 
                 result_timeout = 15 if engine.get("isDuckDuckGo") else 5
- 
+
                 links = wait_for_elements(
                     driver,
                     video_locator,
                     timeout=result_timeout,
                 )
- 
-                print(
-                    f"wait_for_elements returned : "
-                    f"{len(links)}"
-                )
- 
-            except Exception as error:
- 
-                print(
-                    f"VIDEO RESULT LOCATOR ERROR : "
-                    f"{error}"
-                )
- 
+
+            except Exception:
                 links = []
- 
-                print(
-                     f"Visible video result elements : "
-                     f"{len(links)}"
-                )
  
             # -----------------------------------------------------
             # Inspect current results
@@ -982,17 +903,7 @@ def find_target_video_in_video_results(
                         elif engine.get("isDuckDuckGo"):
                            # DuckDuckGo: the <a> itself contains the complete result card
                            result_card = link
- 
-                           spans = result_card.find_elements(
-                                  By.CSS_SELECTOR,
-                                  "span"
-                                  )
- 
-                           for span in spans:
-                                text = (span.text or "").strip()
-                                if text:
-                                  print(f"DDG SPAN: {text}")
- 
+
                         elif link.get_attribute("data-referenceurl"):
                              # Yahoo: the <a> itself contains the complete video card
                              result_card = link
@@ -1014,18 +925,16 @@ def find_target_video_in_video_results(
                     card_text = ""
  
                     if result_card:
- 
+
                         try:
- 
+
                             card_text = (
                                 result_card.text
                                 or ""
                             ).strip()
- 
-                            print(f"DEBUG CARD TEXT: {card_text}")
- 
+
                         except Exception:
- 
+
                             card_text = ""
  
                     normalized_card_text = " ".join(
@@ -1122,14 +1031,9 @@ def find_target_video_in_video_results(
                         card_normalized = " ".join(
                             normalized_card_text.lower().split()
                         )
- 
-                        print(
-                            f"TARGET CHECK: target='{target}' | "
-                            f"found={target in card_normalized}"
-                        )
- 
+
                         if target in card_normalized:
- 
+
                             channel_match = True
  
                     # -------------------------------------------------
@@ -1211,12 +1115,7 @@ def find_target_video_in_video_results(
             # -----------------------------------------------------
             # Gradual scroll
             # -----------------------------------------------------
- 
-            print(
-                f"Scrolling search results "
-                f"({scroll_attempt + 1}/20)..."
-            )
- 
+
             moved = gradual_scroll_search_results(
                 driver,
                 stop_event,
@@ -1432,9 +1331,12 @@ def find_target_website(
                     # Still consider found even if open fails? We'll return True to let caller decide
                     # But to avoid false success when page didn't load, return True and let visit handle
                     return True
-                # Small wait for navigation
+                # Small wait for navigation (interruptible)
                 try:
-                    time.sleep(1)
+                    if stop_event:
+                        stop_event.wait(1)
+                    else:
+                        time.sleep(1)
                 except Exception:
                     pass
                 return True
@@ -1478,9 +1380,12 @@ def find_target_website(
     return False
  
  
-def retry_operation_search(driver, engine, target_domain, max_pages, stop_event, session_logger, retries=3, delay=3):
+def retry_operation_search(driver, engine, target_domain, max_pages, stop_event, session_logger, retries=1, delay=3):
     """
     Retries the find_target_website operation. Isolated: exceptions never crash caller.
+    Note: find_target_website already paginates through max_pages, so re-scanning
+    the same DOM is low-value; default retries=1 (single scan). Cross-engine
+    fallback in session.py handles retry across engines.
     Returns (found, actual_retry_count)
     """
     actual_retry_count = 0

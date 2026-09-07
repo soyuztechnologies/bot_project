@@ -43,13 +43,11 @@ from utils.exceptions import (
 from browser.browser_selector import select_browser
 
 from browser.browser import setup_browser, close_browser
-from .search_engine import is_google_verification_page
 from automation.search_engine import is_captcha_page
 
 from automation.search_engine import (
     open_search_engine,
     search_keyword,
-    find_target_website,
     open_video_tab,
     find_target_video_in_video_results,
 )
@@ -65,10 +63,9 @@ from automation.youtube import (
 )
 
 from utils.logger import write_log
-from utils.helpers import random_sleep
+from utils.helpers import build_browser_mode, build_fallback_keyword, random_sleep
 
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 
 # ---------------------------------------------------------
 # Session Logger Adapter
@@ -388,6 +385,8 @@ def process_youtube_first_flow(
             },
         )
 
+    # open_youtube() already retries internally (youtube.retryCount),
+    # so do not nest another 3x retry here (would be up to 9 navigations).
     youtube_success, youtube_opened = retry_operation(
         lambda: open_youtube(
             driver,
@@ -395,6 +394,7 @@ def process_youtube_first_flow(
             stop_event,
             session_logger=session_logger,
         ),
+        retries=1,
         stop_event=stop_event,
         stats=stats,
         driver=driver,
@@ -557,11 +557,11 @@ def process_youtube_first_flow(
         if stop_event.is_set():
             return False
         extra_keyword = config.get("youtube", {}).get("extra_keyword", "").strip()
+        fallback_keyword = build_fallback_keyword(keyword, extra_keyword)
 
-        if extra_keyword and extra_keyword.lower() not in keyword.lower():
+        if fallback_keyword:
             if stop_event.is_set():
                 return False
-            fallback_keyword = f"{keyword} {extra_keyword}"
 
             print(
                 f"[{thread_name}] "
@@ -741,7 +741,7 @@ def process_youtube_first_flow(
     return True
 
 
-def _safe_create_automation_run(run_id, keyword, config, selected_browser):
+def _safe_create_automation_run(run_id, keyword, config, selected_browser, search_engine="youtube"):
     """Create DB record without breaking automation if DB is unavailable."""
     try:
         youtube_config = config.get("youtube", {})
@@ -750,9 +750,9 @@ def _safe_create_automation_run(run_id, keyword, config, selected_browser):
             automation_type="YOUTUBE",
             original_keyword=keyword,
             search_keyword=keyword,
-            browser_mode=str(selected_browser).capitalize(),
+            browser_mode=build_browser_mode(config, selected_browser),
             target=youtube_config.get("targetChannel", ""),
-            search_engine="youtube",
+            search_engine=search_engine,
         )
     except Exception as error:
         logger.warning(
@@ -768,8 +768,10 @@ def _safe_update_automation_run(
     retry_count=0,
     fallback_used=False,
     search_keyword=None,
+    search_engine=None,
+    browser_mode=None,
 ):
-    """Update  DB record without breaking automation if DB is unavailable."""
+    """Update DB record without breaking automation if DB is unavailable."""
     if run_id is None:
         return
 
@@ -783,12 +785,21 @@ def _safe_update_automation_run(
             retry_count=retry_count,
             fallback_used=fallback_used,
             search_keyword=search_keyword or keyword,
+            search_engine=search_engine,
+            browser_mode=browser_mode,
         )
     except Exception as error:
         logger.warning(
             f"Could not update automation DB record for '{keyword}': {error}",
             exc_info=True,
         )
+
+
+def _final_browser_mode(config, selected_browser):
+    try:
+        return build_browser_mode(config, selected_browser)
+    except Exception:
+        return None
 
 def run_session(
     keywords,
@@ -808,6 +819,9 @@ def run_session(
     driver = None
     session_success = True
     current_keyword = None
+    # Last engine actually attempted (for accurate interrupted attribution;
+    # falls back to selected_search_engine when nothing attempted yet).
+    last_attempted_engine = None
 
     # database state: one automation_run per keyword.
     run_ids = {}
@@ -818,25 +832,37 @@ def run_session(
         "Browser-"
     )
 
-    selected_browser = select_browser(config)
-    selected_search_engine = select_search_engine(config)
-
-    # ---------------------------------------------------------
-    # TEMPORARY:
-    # We are testing Case 2 first.
-    # Later this will become random flow selection.
-    # ---------------------------------------------------------
+    try:
+        selected_browser = select_browser(config)
+    except Exception:
+        selected_browser = "chrome"
+    try:
+        selected_search_engine = select_search_engine(config)
+    except Exception as sel_err:
+        logger.warning(
+            f"[{thread_name}] Search engine selection failed: {sel_err}",
+            extra={"action": "SESSION_START", "status": "FAILED"},
+        )
+        stats.record_failure()
+        return
 
     flow = random.choice([
             "youtube_first",
             "search_engine_first",
     ])
 
-    # flow = "search_engine_first"
-
     try:
 
-        engine_config = search_engines[selected_search_engine]
+        engine_config = search_engines.get(selected_search_engine)
+        if engine_config is None:
+            # case-insensitive fallback
+            for k, v in (search_engines or {}).items():
+                if str(k).strip().lower() == str(selected_search_engine).strip().lower():
+                    selected_search_engine = k
+                    engine_config = v
+                    break
+        if engine_config is None:
+            raise KeyError(selected_search_engine)
 
     except KeyError:
 
@@ -1026,13 +1052,20 @@ def run_session(
         # PROCESS KEYWORDS
         # =====================================================
 
-        for keyword in keywords:
+        for keyword_index, keyword in enumerate(keywords):
 
             current_keyword = keyword
 
             if stop_event.is_set():
+                # Mark this and all unstarted keywords in this worker's chunk
+                # as interrupted so Summary Total matches keywords assigned.
                 try:
-                    stats.record_keyword_interrupted(keyword, selected_search_engine, thread_id=str(threading.get_ident()))
+                    tid = str(threading.get_ident())
+                    for remaining in keywords[keyword_index:]:
+                        try:
+                            stats.record_keyword_interrupted(remaining, selected_search_engine, thread_id=tid)
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 return
@@ -1040,7 +1073,8 @@ def run_session(
             stats.record_keyword()
 
             # -------------------------------------------------
-            # database tracking
+            # database tracking (store the actual engine for this flow,
+            # like the website flow does — not always "youtube")
             # -------------------------------------------------
             run_ids[keyword] = uuid.uuid4()
             retry_trackers[keyword] = {"count": 0}
@@ -1049,6 +1083,7 @@ def run_session(
                 keyword,
                 config,
                 selected_browser,
+                search_engine=("youtube" if flow == "youtube_first" else selected_search_engine),
             )
 
             # -------------------------------------------------
@@ -1122,6 +1157,7 @@ def run_session(
             # =================================================
 
             if flow == "youtube_first":
+                last_attempted_engine = "youtube"
 
                 print(
                     f"\n[{thread_name}]"
@@ -1180,6 +1216,8 @@ def run_session(
                             retry_count=retry_trackers.get(keyword, {}).get("count", 0),
                             fallback_used=False,
                             search_keyword=keyword,
+                            search_engine="youtube",
+                            browser_mode=_final_browser_mode(config, selected_browser),
                         )
                     else:
                         try:
@@ -1193,6 +1231,8 @@ def run_session(
                             retry_count=retry_trackers.get(keyword, {}).get("count", 0),
                             fallback_used=False,
                             search_keyword=keyword,
+                            search_engine="youtube",
+                            browser_mode=_final_browser_mode(config, selected_browser),
                         )
 
                     if not is_browser_alive(driver, stop_event):
@@ -1218,20 +1258,22 @@ def run_session(
                         return
 
                 else:
-                    extra_keyword = config.get("youtube", {}).get("extra_keyword", "").strip()
-                    fallback_used = bool(
-                        extra_keyword and extra_keyword.lower() not in keyword.lower()
-                    )
+                    # fallback_used only if a fallback search was actually performed
+                    # (process_youtube_first_flow mutates search_keyword on fallback).
+                    try:
+                        actual_search_kw = session_logger.extra.get("search_keyword", keyword)
+                    except Exception:
+                        actual_search_kw = keyword
+                    fallback_used = bool(actual_search_kw and actual_search_kw != keyword)
                     _safe_update_automation_run(
                         run_ids.get(keyword),
                         keyword,
                         "SUCCESS",
                         retry_count=retry_trackers.get(keyword, {}).get("count", 0),
                         fallback_used=fallback_used,
-                        search_keyword=(
-                            f"{keyword} {extra_keyword}"
-                            if fallback_used else keyword
-                        ),
+                        search_keyword=(actual_search_kw or keyword),
+                        search_engine="youtube",
+                        browser_mode=_final_browser_mode(config, selected_browser),
                     )
 
                     session_logger.info(
@@ -1293,6 +1335,7 @@ def run_session(
             # -------------------------------------------------
 
             for current_engine in fallback_engines:
+                last_attempted_engine = current_engine
 
                 if stop_event.is_set():
                     session_logger.info(
@@ -1952,6 +1995,8 @@ def run_session(
                         retry_count=retry_trackers.get(keyword, {}).get("count", 0),
                         fallback_used=False,
                         search_keyword=keyword,
+                        search_engine=current_engine,
+                        browser_mode=_final_browser_mode(config, selected_browser),
                     )
 
                     session_logger.info(
@@ -2027,6 +2072,8 @@ def run_session(
                     retry_count=retry_trackers.get(keyword, {}).get("count", 0),
                     fallback_used=False,
                     search_keyword=keyword,
+                    search_engine=last_engine_tmp,
+                    browser_mode=_final_browser_mode(config, selected_browser),
                 )
 
                 print()
@@ -2119,6 +2166,7 @@ def run_session(
     except (BrowserError, SearchEngineError, CaptchaDetectedError, VideoNotFoundError, YoutubeError, ConfigError) as error:
         # Expected YouTube business failures — graceful
         session_success = False
+        _interrupt_engine = last_attempted_engine or selected_search_engine
         if not stop_event.is_set():
             stats.record_failure()
             try:
@@ -2129,23 +2177,25 @@ def run_session(
             logger.warning(f"YouTube business failure for {thread_name}: {error} [{type(error).__name__}]", exc_info=False, extra={"action": "SESSION_BUSINESS_FAILURE", "status": "FAILED", "error_message": str(error)})
         else:
             try:
-                stats.record_keyword_interrupted(current_keyword or (keywords[0] if keywords else "unknown"), selected_search_engine, thread_id=str(threading.get_ident()))
+                stats.record_keyword_interrupted(current_keyword or (keywords[0] if keywords else "unknown"), _interrupt_engine, thread_id=str(threading.get_ident()))
             except Exception:
                 pass
     except UnhandledAutomationError as error:
         session_success = False
+        _interrupt_engine = last_attempted_engine or selected_search_engine
         if not stop_event.is_set():
             stats.record_failure()
             print(f"[{thread_name}][{selected_browser.upper()}] YouTube unhandled error: {error} cause={error.cause}")
             logger.error(f"YouTube unhandled error for {thread_name}: {error} cause={error.cause}", exc_info=True, extra={"action": "SESSION_UNHANDLED", "status": "FAILED", "error_message": str(error)})
         else:
             try:
-                stats.record_keyword_interrupted(current_keyword or (keywords[0] if keywords else "unknown"), selected_search_engine, thread_id=str(threading.get_ident()))
+                stats.record_keyword_interrupted(current_keyword or (keywords[0] if keywords else "unknown"), _interrupt_engine, thread_id=str(threading.get_ident()))
             except Exception:
                 pass
     except Exception as error:
         wrapped = wrap_unexpected(error, f"YouTube session {thread_name}")
         session_success = False
+        _interrupt_engine = last_attempted_engine or selected_search_engine
         if not stop_event.is_set():
             stats.record_failure()
             print(f"[{thread_name}][{selected_browser.upper()}] YouTube Session Error (bug): {wrapped}")
@@ -2153,7 +2203,7 @@ def run_session(
             traceback.print_exc()
         else:
             try:
-                stats.record_keyword_interrupted(current_keyword or (keywords[0] if keywords else "unknown"), selected_search_engine, thread_id=str(threading.get_ident()))
+                stats.record_keyword_interrupted(current_keyword or (keywords[0] if keywords else "unknown"), _interrupt_engine, thread_id=str(threading.get_ident()))
             except Exception:
                 pass
 
@@ -2162,6 +2212,7 @@ def run_session(
     # =========================================================
 
     finally:
+        _interrupt_engine = last_attempted_engine or selected_search_engine
 
         if stop_event.is_set() and current_keyword:
             try:
@@ -2170,7 +2221,20 @@ def run_session(
                 if not any(str(d.get("keyword"))==str(current_keyword) and str(d.get("thread_id", tid))==tid for d in stats.interrupted):
                     if not any(str(d.get("keyword"))==str(current_keyword) and str(d.get("thread_id", tid))==tid for d in stats.failed):
                         if not any(str(d.get("keyword"))==str(current_keyword) and str(d.get("thread_id", tid))==tid for d in stats.success):
-                            stats.record_keyword_interrupted(current_keyword, selected_search_engine, thread_id=tid)
+                            stats.record_keyword_interrupted(current_keyword, _interrupt_engine, thread_id=tid)
+                # Also account for any unstarted keywords in this worker's chunk
+                # so Summary Total matches keywords assigned on Ctrl+C.
+                try:
+                    accounted = {str(d.get("keyword")) for d in stats.success + stats.failed + stats.interrupted}
+                    for remaining in keywords or []:
+                        if str(remaining) not in accounted:
+                            try:
+                                stats.record_keyword_interrupted(remaining, _interrupt_engine, thread_id=tid)
+                                accounted.add(str(remaining))
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -2201,42 +2265,66 @@ def run_session(
                 _unregister_driver(driver)
 
 
-def _session_worker(keywords, config,search_engines, stop_event, stats,):
+def _session_worker(keywords, config, search_engines, stop_event, stats,):
     """
     Worker thread that runs one browser session.
+    Isolated: a worker crash must not kill other workers.
     """
 
     print(f"Worker Started : {threading.current_thread().name}")
 
-    run_session(
-        keywords,
-        config,
-        search_engines,
-        stop_event,
-        stats,
-    )
+    try:
+        run_session(
+            keywords,
+            config,
+            search_engines,
+            stop_event,
+            stats,
+        )
+    except Exception as error:
+        logger.error(
+            f"Unhandled worker error in {threading.current_thread().name}: {error}",
+            exc_info=True,
+            extra={"action": "SESSION_BUG", "status": "FAILED", "error_message": str(error)},
+        )
 
 def start_parallel_sessions(keywords, config, search_engines):
     """
     Start multiple YouTube sessions in parallel.
     Robust: timeout join loop for Ctrl+C, stats.print_summary in finally.
+    Each keyword is processed exactly once (round-robin split across workers
+    so browsers are still reused). Returns SessionStats.
     """
 
-    max_workers = int(config["sessions"]["parallel"])
+    keywords = list(keywords or [])
+    if not keywords:
+        return SessionStats()
+
+    try:
+        requested = int(config.get("sessions", {}).get("parallel", 1))
+    except Exception:
+        requested = 1
+    max_workers = max(1, min(requested, len(keywords)))
 
     stop_event = threading.Event()
 
     stats = SessionStats()
 
+    # Round-robin split: each keyword goes to exactly one worker.
+    shuffled = list(keywords)
+    random.shuffle(shuffled)
+    chunks = [shuffled[i::max_workers] for i in range(max_workers)]
+    chunks = [c for c in chunks if c]
+
     workers = []
 
-    for i in range(max_workers):
+    for i, chunk in enumerate(chunks):
 
      workers.append(
         threading.Thread(
             target=_session_worker,
             args=(
-                keywords,
+                chunk,
                 config,
                 search_engines,
                 stop_event,
@@ -2385,125 +2473,34 @@ def start_parallel_sessions(keywords, config, search_engines):
         elif unexpected_error is not None:
             logger.info("YouTube automation ended due to unexpected error.", extra={"action": "SESSION_BUG", "status": "FAILED"})
         else:
-            logger.info(f"YouTube automation ended normally (completed={result}).", extra={"action": "SESSION_FINISHED", "status": "SUCCESS"})
-
-    return result
-def start_parallel_sessions_with_queue(keywords, config, search_engines, stats=None):
-    """
-    compatible queue-based parallel runner.
-
-    The original start_parallel_sessions() is retained. This additional entry point
-    provides queue scheduling while using the merged run_session().
-    """
-    keywords = list(keywords)
-    stats = stats or SessionStats()
-
-    max_workers = min(int(config["sessions"]["parallel"]), len(keywords))
-    stop_event = threading.Event()
-    job_queue = queue.Queue()
-
-    random.shuffle(keywords)
-    for keyword in keywords:
-        job_queue.put(keyword)
-
-    workers = []
-
-    def _queued_worker():
-        while not stop_event.is_set():
-            try:
-                keyword = job_queue.get_nowait()
-            except queue.Empty:
-                return
-
-            try:
-                run_session(
-                    [keyword],
-                    config,
-                    search_engines,
-                    stop_event,
-                    stats,
-                )
-            except Exception as error:
-                logger.error(
-                    f"Unhandled queued session error for '{keyword}': {error}",
-                    exc_info=True,
-                    extra={"action": "SESSION_BUG", "status": "FAILED", "keyword": keyword, "error_message": str(error)},
-                )
-            finally:
-                job_queue.task_done()
-
-    for _ in range(max_workers):
-        workers.append(
-            threading.Thread(target=_queued_worker, daemon=True)
-        )
-
-    interrupted = False
-    unexpected_error = None
-    try:
-        for worker in workers:
-            worker.start()
-
-        while job_queue.unfinished_tasks > 0:
-            if stop_event.is_set():
-                break
-            time.sleep(0.5)
-
-    except KeyboardInterrupt:
-        interrupted = True
-        logger.info("Ctrl+C detected. Stopping YouTube queue automation...", extra={"action": "SESSION_INTERRUPT", "status": "INTERRUPTED"})
-        print("\nCtrl+C detected. Stopping YouTube queue automation...")
-        stop_event.set()
-        # Do not re-raise — let finally print summary and return stats
-
-    except Exception as error:
-        unexpected_error = error
-        logger.error(f"Unexpected YouTube queue automation error: {error}", exc_info=True, extra={"action": "SESSION_BUG", "status": "FAILED", "error_message": str(error)})
-        print(f"\nUnexpected Error : {error}")
-        stop_event.set()
-
-    finally:
-        stop_event.set()
-        try:
-            from utils.logger import silence_noisy_loggers
-            silence_noisy_loggers()
-        except Exception:
-            pass
-        # Wait for workers first, then close browsers before summary
-        for worker in workers:
-            try:
-                worker.join(timeout=3)
-                if worker.is_alive():
-                    logger.warning(f"Worker {worker.name} did not exit cleanly", extra={"action": "SESSION_INTERRUPT", "status": "FAILED"})
-            except Exception as e:
-                logger.warning(f"Worker join failed: {e}", extra={"action": "SESSION_INTERRUPT", "status": "FAILED"})
-        try:
-            close_active_drivers(stop_event)
-            import time as _t
-            _t.sleep(0.5)
-            close_active_drivers(stop_event)
-        except Exception as e:
-            msg = str(e).lower()
-            if "newconnectionerror" not in msg and "connection refused" not in msg:
-                try:
-                    logger.warning(f"close_active_drivers failed: {e}", extra={"action": "BROWSER_CLOSE", "status": "FAILED"})
-                except Exception:
-                    pass
-
-        # Always print summary even on Ctrl+C or error — matches main.py (after browsers closed)
-        try:
-            stats.print_summary()
-        except Exception as summary_error:
-            logger.error(f"Failed to print YouTube queue summary: {summary_error}", exc_info=True)
-            try:
-                print(f"\nYouTube Queue Summary (fallback): sessions={stats.total_sessions} success={stats.successful_sessions} failed={stats.failed_sessions} interrupted={len(stats.interrupted)}")
-            except Exception:
-                pass
-
-        if interrupted:
-            logger.info("YouTube queue automation ended due to interruption.", extra={"action": "SESSION_INTERRUPT", "status": "INTERRUPTED"})
-        elif unexpected_error is not None:
-            logger.info("YouTube queue automation ended due to unexpected error.", extra={"action": "SESSION_BUG", "status": "FAILED"})
-        else:
-            logger.info("YouTube queue automation ended normally.", extra={"action": "SESSION_FINISHED", "status": "SUCCESS"})
+            logger.info("YouTube automation ended normally (completed={}).".format(result), extra={"action": "SESSION_FINISHED", "status": "SUCCESS"})
 
     return stats
+
+
+def start_parallel_sessions_with_queue(keywords, config, search_engines, stats=None):
+    """
+    Backward-compatible alias: delegates to start_parallel_sessions()
+    (each keyword processed exactly once). If a caller-supplied stats
+    object is given, its contents are merged into the returned stats.
+    """
+    result_stats = start_parallel_sessions(keywords, config, search_engines)
+    if stats is not None and result_stats is not stats:
+        try:
+            stats.success.extend(result_stats.success)
+            stats.failed.extend(result_stats.failed)
+            stats.interrupted.extend(result_stats.interrupted)
+            stats.keywords_processed += result_stats.keywords_processed
+            stats.keywords_failed += result_stats.keywords_failed
+            stats.videos_found += result_stats.videos_found
+            stats.videos_not_found += result_stats.videos_not_found
+            stats.total_watch_time += result_stats.total_watch_time
+            stats.retry_count += result_stats.retry_count
+            stats.browser_errors += result_stats.browser_errors
+            stats.total_sessions += result_stats.total_sessions
+            stats.successful_sessions += result_stats.successful_sessions
+            stats.failed_sessions += result_stats.failed_sessions
+            return stats
+        except Exception:
+            pass
+    return result_stats

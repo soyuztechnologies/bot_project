@@ -46,13 +46,14 @@ def main():
  
         else:
             print("\nInvalid choice.")
+    except UnhandledAutomationError as e:
+        # Must come before SeoBotError: UnhandledAutomationError subclasses SeoBotError
+        logger.error(f"Launcher unhandled automation error: {e} cause={e.cause}", exc_info=True)
+        print(f"\nLauncher unhandled error: {e}")
     except (ConfigError, DatabaseError, SeoBotError) as e:
         # Expected business failures — graceful, user-friendly
         logger.warning(f"Launcher caught expected failure: {e} [{type(e).__name__}]", exc_info=False)
         print(f"\nLauncher: {type(e).__name__}: {e}")
-    except UnhandledAutomationError as e:
-        logger.error(f"Launcher unhandled automation error: {e} cause={e.cause}", exc_info=True)
-        print(f"\nLauncher unhandled error: {e}")
     except KeyboardInterrupt:
         print("\nLauncher interrupted by user (Ctrl+C).")
         logger.info("Launcher interrupted by user.")

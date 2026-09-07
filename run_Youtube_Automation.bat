@@ -1,7 +1,12 @@
 @echo off
 
-cd /d "C:\Users\Soyuz Technologies\Desktop\SEO-Automation-v\bot_project"
+rem Use the batch file's own directory so it works regardless of install path.
+cd /d "%~dp0"
 
-".venv\Scripts\python.exe" youtube_main.py
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" youtube_main.py
+) else (
+    python youtube_main.py
+)
 
-exit
+exit /b %ERRORLEVEL%

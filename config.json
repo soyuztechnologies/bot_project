@@ -50,17 +50,11 @@
     "extra_keyword": "anubhav training",
     "watchTimeMin": 20,
     "watchTimeMax": 40,
-    "maxScrolls": 1,
+    "maxScrolls": 10,
     "maxSearchPages": 1,
 
-    "browserRestartAfterKeywords": 50,
-    "browserRestartDelay": 10,
-
-    "cycleDelay": 300,
-
-    "healthCheckInterval": 180,
-
-    "retryCount": 3
+    "retryCount": 3,
+    "navigationRetryDelay": 10
   },
 
   "timing": {

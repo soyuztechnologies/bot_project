@@ -36,18 +36,9 @@ from utils.helpers import (
 )
  
 from utils.exceptions import (
-    BrowserDiedError,
     ConfigError,
     ConfigFileNotFoundError,
     ConfigInvalidError,
-    NavigationError,
-    NetworkError,
-    SearchFailedError,
-    TargetNotFoundError,
-    UnhandledAutomationError,
-    VideoCardsEmptyError,
-    VideoNotFoundError,
-    YoutubeError,
     YoutubeNetworkError,
     wrap_unexpected,
 )
@@ -206,15 +197,9 @@ def open_youtube(
             return True
  
         except WebDriverException as error:
- 
+
             if not _is_network_navigation_error(error) or attempt == retry_count:
-                # Wrap as expected YoutubeNetworkError for robust handling
-                try:
-                    from utils.exceptions import YoutubeNetworkError
-                    raise YoutubeNetworkError(f"YouTube navigation failed: {error}", cause=error) from error
-                except YoutubeNetworkError:
-                    raise
-                raise
+                raise YoutubeNetworkError(f"YouTube navigation failed: {error}", cause=error) from error
  
             if session_logger:
  
@@ -393,32 +378,32 @@ def get_video_title(result):
     Return title element and text for both
     videos and courses.
     """
- 
+
     if result.tag_name == "ytd-video-renderer":
- 
+
         title = result.find_element(
-            "css selector",
+            By.CSS_SELECTOR,
             "#video-title",
         )
- 
+
         return (
             title,
-            title.text.strip(),
+            (title.text or "").strip(),
         )
- 
+
     elif result.tag_name == "yt-lockup-view-model":
- 
+
         title = result.find_element(
-            "css selector",
+            By.CSS_SELECTOR,
             ".ytLockupMetadataViewModelTitle",
         )
- 
+
         return (
             title,
-            title.text.strip(),
+            (title.text or "").strip(),
         )
- 
-    raise Exception("Unsupported result type")
+
+    raise ValueError(f"Unsupported result type: {getattr(result, 'tag_name', None)}")
  
  
 # =========================================================
@@ -489,48 +474,50 @@ def find_target_video(
         )
  
     checked = set()
- 
+
     last_height = 0
- 
-    while True:
- 
+
+    try:
+        max_scrolls = int(config.get("youtube", {}).get("maxScrolls", 20))
+    except Exception:
+        max_scrolls = 20
+    max_scrolls = max(1, max_scrolls)
+    scrolls_done = 0
+
+    while scrolls_done < max_scrolls:
+
         if stop_event and stop_event.is_set():
- 
+
             return False
- 
+
         videos = get_video_cards(
             driver,
             stop_event,
         )
- 
+
         if not videos:
- 
+
             if session_logger:
- 
+
                 session_logger.warning("No video cards found on the page.")
- 
+
             return False
- 
+
         # -------------------------------------------------
-        # Check visible results
+        # Check visible results (single snapshot per page to
+        # avoid O(n^2) re-fetching; stale items are skipped)
         # -------------------------------------------------
- 
+
         for index in range(len(videos)):
- 
+
             if stop_event and stop_event.is_set():
- 
+
                 return False
- 
-            # Refresh elements to avoid stale elements
-            videos = get_video_cards(
-                driver,
-                stop_event,
-            )
- 
+
             if index >= len(videos):
- 
+
                 break
- 
+
             video = videos[index]
  
             try:
@@ -540,11 +527,13 @@ def find_target_video(
                 title_element, title = get_video_title(video)
  
             except Exception:
- 
+
                 continue
- 
-            if not title.strip() or not channel.strip():
- 
+
+            try:
+                if not (title or "").strip() or not (channel or "").strip():
+                    continue
+            except Exception:
                 continue
  
             key = f"{title}|{channel}"
@@ -666,34 +655,46 @@ def find_target_video(
         # -----------------------------------------------------
  
         driver.execute_script("window.scrollBy(0, window.innerHeight);")
- 
+
         random_sleep(
             config["timing"]["sleepMin"],
             config["timing"]["sleepMax"],
             stop_event,
         )
- 
+
         if stop_event and stop_event.is_set():
- 
+
             return False
- 
-        new_height = driver.execute_script(
-            "return document.documentElement.scrollHeight"
-        )
- 
+
+        scrolls_done += 1
+
+        try:
+            new_height = driver.execute_script(
+                "return document.documentElement.scrollHeight"
+            )
+        except Exception:
+            return False
+
         if new_height == last_height:
- 
+
             if session_logger:
- 
+
                 session_logger.info("Reached end of search results.")
- 
+
             else:
- 
+
                 print("\nReached end of search results.")
- 
+
             return False
- 
+
         last_height = new_height
+
+    if session_logger:
+        session_logger.info(f"Reached max scrolls ({max_scrolls}), stopping scan.")
+    else:
+        print(f"\nReached max scrolls ({max_scrolls}).")
+
+    return False
  
  
 def _set_video_quality_144p(
@@ -900,9 +901,12 @@ def _set_video_quality_144p(
             "arguments[0].click();",
             settings_button,
         )
- 
-        time.sleep(0.5)
- 
+
+        if stop_event:
+            stop_event.wait(0.5)
+        else:
+            time.sleep(0.5)
+
         # Find Quality menu item
         quality_item = None
  
@@ -933,9 +937,12 @@ def _set_video_quality_144p(
             "arguments[0].click();",
             quality_item,
         )
- 
-        time.sleep(0.5)
- 
+
+        if stop_event:
+            stop_event.wait(0.5)
+        else:
+            time.sleep(0.5)
+
         # Find 144p option
         option_144p = None
  
@@ -964,8 +971,11 @@ def _set_video_quality_144p(
             "arguments[0].click();",
             option_144p,
         )
- 
-        time.sleep(0.5)
+
+        if stop_event:
+            stop_event.wait(0.5)
+        else:
+            time.sleep(0.5)
  
         if session_logger:
  
@@ -1272,25 +1282,5 @@ def close_mini_player(
             print("Mini player closed.")
  
     except Exception:
- 
+
         pass
- 
-def _youtube_functionality_summary():
-    """
-    Internal compatibility marker documenting the merged behavior.
- 
-    The merged module retains:
-    - original YouTube navigation/search/result scanning behavior
-    - video + course result support
-    - target-channel matching
-    - human typing and scrolling/clicking
-    - random watch time and mute behavior
-    - optional session_logger/database-oriented logging
-    - network navigation retry handling
-    """
-    return {
-        "database_logging": True,
-        "network_retry": True,
-        "video_and_course_results": True,
-        "session_logger_optional": True,
-    }

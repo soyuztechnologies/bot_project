@@ -225,11 +225,12 @@ class SessionStats:
     # ==================================
  
     def record_browser_error(self):
- 
+
         self.browser_errors += 1
- 
+
     def record_search_error(self):
- 
+        # Kept for backward compatibility; search errors are currently
+        # counted via keywords_failed / videos_not_found.
         self.search_errors += 1
  
     # ==================================
@@ -310,24 +311,7 @@ class SessionStats:
         print("              AUTOMATION SUMMARY")
         print("=" * 60)
 
-        # --------------------------------
-        # Sessions
-        # --------------------------------
-
-        print(
-            f"Sessions Started     : "
-            f"{self.total_sessions}"
-        )
-
-        print(
-            f"Successful Sessions  : "
-            f"{self.successful_sessions}"
-        )
-
-        print(
-            f"Failed Sessions      : "
-            f"{self.failed_sessions}"
-        )
+       
 
         # Consistency line — ties Session Summary Total to Automation Summary
         try:

@@ -2,11 +2,14 @@ import random
 
 
 def select_search_engine(config):
-    engines = config["search"].get("engines", [])
+    from utils.exceptions import EngineConfigError
+
+    search_cfg = config.get("search", {}) if isinstance(config, dict) else {}
+    engines = search_cfg.get("engines", [])
 
     if not engines:
-        raise ValueError("No search engines configured.")
+        raise EngineConfigError("No search engines configured.")
 
     selected_engine = random.choice(engines)
 
-    return selected_engine.lower()
+    return str(selected_engine).strip().lower()

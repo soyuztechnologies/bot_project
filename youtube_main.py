@@ -17,9 +17,6 @@ from utils.exceptions import (
     ConfigError,
     ConfigFileNotFoundError,
     ConfigInvalidError,
-    DatabaseError,
-    SeoBotError,
-    UnhandledAutomationError,
     ValidationError,
     wrap_unexpected,
 )
@@ -53,10 +50,48 @@ logger = logging.getLogger(__name__)
 def load_json(path):
     """
     Load and return JSON data from the given path.
+    Raises ConfigFileNotFoundError / ConfigInvalidError (expected).
     """
- 
-    with open(path, "r", encoding="utf-8") as file:
-        return json.load(file)
+    path = Path(path)
+    if not path.exists():
+        raise ConfigFileNotFoundError(f"Required file not found: {path}")
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except json.JSONDecodeError as e:
+        raise ConfigInvalidError(f"Invalid JSON in {path}: {e}", cause=e) from e
+    except OSError as e:
+        raise ConfigError(f"Failed to read {path}: {e}", cause=e) from e
+    except Exception as e:
+        raise wrap_unexpected(e, f"load_json {path}") from e
+
+
+def validate_youtube_config(config, keywords, search_engines):
+    """Fail early with clear messages (mirrors main.py validation)."""
+    required = ["browser", "sessions", "search", "youtube", "timing", "files"]
+    missing = [s for s in required if s not in config]
+    if missing:
+        raise ValidationError(f"Missing config section(s): {', '.join(missing)}")
+    if not isinstance(keywords, list) or not keywords:
+        raise ValidationError("data/keywords.json must contain at least one keyword.")
+    if not isinstance(search_engines, dict) or not search_engines:
+        raise ValidationError("data/search_engines.json must contain at least one engine.")
+    yt = config.get("youtube", {})
+    if not yt.get("targetChannel"):
+        raise ValidationError("youtube.targetChannel must be configured.")
+    try:
+        wt_min = int(yt.get("watchTimeMin", 1))
+        wt_max = int(yt.get("watchTimeMax", 1))
+    except (TypeError, ValueError) as e:
+        raise ValidationError(f"youtube watchTime must be integers: {e}", cause=e) from e
+    if wt_min < 1 or wt_max < 1 or wt_max < wt_min:
+        raise ValidationError("youtube watchTimeMin/Max must be >=1 and Max >= Min.")
+    try:
+        parallel = int(config.get("sessions", {}).get("parallel", 1))
+    except (TypeError, ValueError) as e:
+        raise ValidationError(f"sessions.parallel must be integer: {e}", cause=e) from e
+    if parallel < 1:
+        raise ValidationError("sessions.parallel must be 1 or greater.")
  
  
 # ---------------------------------------------------------
@@ -212,23 +247,25 @@ def main():
         search_engines = load_json(
             BASE_DIR / config["files"]["searchEngines"]
         )
- 
+
+        validate_youtube_config(config, keywords, search_engines)
+
         # -----------------------------------------------------
         # Start Message
         # -----------------------------------------------------
- 
+
         print("=" * 60)
         print("YouTube Automation Started")
         print("=" * 60)
- 
+
         print(
             f"Browsers : "
-            f"{', '.join(config['browser'].get('browsers', [])) if config['browser'].get('browsers') else list(config['browser'].get('distribution', {}).keys())}"
+            f"{', '.join(config.get('browser', {}).get('browsers', []) or []) if config.get('browser', {}).get('browsers') else list(config.get('browser', {}).get('distribution', {}).keys())}"
         )
- 
+
         print(
             f"Sessions : "
-            f"{config['sessions']['parallel']}"
+            f"{config.get('sessions', {}).get('parallel', 1)}"
         )
  
         print(
@@ -270,14 +307,28 @@ def main():
             search_engines,
         )
  
-        # Handle both return types: bool (legacy) and SessionStats (queue version)
+        # Handle both return types: bool (legacy) and SessionStats (current)
         if hasattr(result, "print_summary") or hasattr(result, "total_sessions"):
             youtube_stats = result
-            # For SessionStats, success means no failed sessions/keywords
+            # Success means no failures, no interrupts, no missing videos
             try:
-                completed = (youtube_stats.failed_sessions == 0 and youtube_stats.keywords_failed == 0)
+                completed = (
+                    youtube_stats.failed_sessions == 0
+                    and youtube_stats.keywords_failed == 0
+                    and len(getattr(youtube_stats, "failed", [])) == 0
+                    and len(getattr(youtube_stats, "interrupted", [])) == 0
+                    and getattr(youtube_stats, "videos_not_found", 0) == 0
+                )
             except Exception:
-                completed = bool(result)
+                completed = False
+            # start_parallel_sessions swallows Ctrl+C internally and returns
+            # partial stats, so it never propagates here: infer interruption
+            # from non-empty interrupted list to avoid "ended normally" lies.
+            try:
+                if len(getattr(youtube_stats, "interrupted", []) or []) > 0:
+                    interrupted = True
+            except Exception:
+                pass
         else:
             completed = bool(result)
             # For bool version, stats already printed inside youtube_session

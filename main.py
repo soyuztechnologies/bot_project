@@ -217,8 +217,18 @@ def print_summary(stats, config):
     interrupted_count = len(interrupted_sessions)
  
     # Sort for consistent output
-    success_sessions.sort(key=lambda x: x["keyword"])
-    failed_sessions.sort(key=lambda x: x["keyword"])
+    try:
+        success_sessions.sort(key=lambda x: str(x.get("keyword", "")))
+    except Exception:
+        pass
+    try:
+        failed_sessions.sort(key=lambda x: str(x.get("keyword", "")))
+    except Exception:
+        pass
+    try:
+        interrupted_sessions.sort(key=lambda x: str(x.get("keyword", "")))
+    except Exception:
+        pass
  
     # Use print with logger-like timestamp for all summary parts to keep order (even on Ctrl+C/error)
     # This ensures tick/cross appear between header and footer like user's example
@@ -356,14 +366,14 @@ def main():
         unexpected_error = error
         logger.warning(f"Automation business failure at top level: {error} [{type(error).__name__}]", exc_info=False)
         print(f"\nAutomation business failure: {error}")
+    except UnhandledAutomationError as error:
+        # Wrapped unexpected (must come before SeoBotError: it subclasses SeoBotError)
+        unexpected_error = error
+        logger.error(f"Unhandled automation error: {error} cause={error.cause} [{type(error).__name__}]", exc_info=True)
     except SeoBotError as error:
         # Any other expected SeoBotError
         unexpected_error = error
         logger.error(f"Automation expected failure: {error} [{type(error).__name__}]", exc_info=False)
-    except UnhandledAutomationError as error:
-        # Wrapped unexpected
-        unexpected_error = error
-        logger.error(f"Unhandled automation error: {error} cause={error.cause} [{type(error).__name__}]", exc_info=True)
     except Exception as error:
         # Truly unexpected bug — wrap and log with traceback, but don't crash silently
         wrapped = wrap_unexpected(error, "main")
@@ -398,6 +408,14 @@ def main():
                 logger.info("No summary: automation failed before stats were available.")
                 print(f"\n=== No stats available (error: {unexpected_error}) ===")
  
+        # start_parallel_sessions swallows Ctrl+C internally and returns partial
+        # stats, so infer interruption from non-empty interrupted list.
+        try:
+            if not interrupted and isinstance(stats, dict) and len(stats.get("interrupted", []) or []) > 0:
+                interrupted = True
+        except Exception:
+            pass
+
         if interrupted:
             logger.info("Automation ended due to interruption.")
         elif unexpected_error is not None:

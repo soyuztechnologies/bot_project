@@ -111,7 +111,13 @@ def setup_logger():
 
 
 LOG_DIR = Path("logs")
-LOG_DIR.mkdir(exist_ok=True)
+
+
+def _ensure_log_dir():
+    try:
+        LOG_DIR.mkdir(exist_ok=True)
+    except Exception:
+        pass
 
 
 def fallback_log(event_data: dict):
@@ -119,6 +125,7 @@ def fallback_log(event_data: dict):
     Fallback logger that writes event data as a JSON line to a file
     when the database is unavailable.
     """
+    _ensure_log_dir()
     now = datetime.now()
     log_file = LOG_DIR / f"fallback_{now.strftime('%Y-%m-%d')}.json.log"
 
@@ -142,12 +149,16 @@ def fallback_log(event_data: dict):
 
 def write_log(browser_name, message):
 
-    now = datetime.now()
+    try:
+        _ensure_log_dir()
+        now = datetime.now()
 
-    log_file = LOG_DIR / f"{now.strftime('%Y-%m-%d')}.log"
+        log_file = LOG_DIR / f"{now.strftime('%Y-%m-%d')}.log"
 
-    with open(log_file, "a", encoding="utf-8") as file:
+        with open(log_file, "a", encoding="utf-8") as file:
 
-        file.write(
-            f"[{now.strftime('%H:%M:%S')}] [{browser_name}] {message}\n"
-        )
+            file.write(
+                f"[{now.strftime('%H:%M:%S')}] [{browser_name}] {message}\n"
+            )
+    except Exception as e:
+        logging.warning(f"write_log failed: {e}", exc_info=False)

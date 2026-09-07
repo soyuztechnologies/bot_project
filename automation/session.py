@@ -40,6 +40,7 @@ from automation.search_engine import (
     is_captcha_page,
 )
 from automation.website import visit_website
+from utils.helpers import build_browser_mode, build_fallback_keyword
 from utils.database import create_automation_run, update_automation_run
 from utils.exceptions import (
     BrowserBinaryNotFoundError,
@@ -315,10 +316,10 @@ def _click_internal_links(driver, config, stop_event, session_logger):
         if not internal_links_config.get("enabled"):
             return
 
-        if stop_event.is_set():
+        if stop_event is not None and stop_event.is_set():
             return
         if not _is_browser_alive(driver, stop_event):
-            if stop_event.is_set():
+            if stop_event is not None and stop_event.is_set():
                 return
             try:
                 session_logger.warning("Skipping internal links - browser not alive", extra={'action': 'INTERNAL_LINK_SEARCH', 'status': 'SKIPPED'})
@@ -338,14 +339,14 @@ def _click_internal_links(driver, config, stop_event, session_logger):
         # Use a set to avoid duplicate URLs
         link_urls = set()
         for selector in selectors:
-            if stop_event.is_set():
+            if stop_event is not None and stop_event.is_set():
                 return
             if not _is_browser_alive(driver, stop_event):
                 return
             try:
                 elements = driver.find_elements(By.XPATH, selector)
                 for element in elements:
-                    if stop_event.is_set():
+                    if stop_event is not None and stop_event.is_set():
                         return
                     try:
                         href = element.get_attribute("href")
@@ -358,7 +359,7 @@ def _click_internal_links(driver, config, stop_event, session_logger):
                     if href and target_domain in href:
                         link_urls.add(href)
             except Exception as e:
-                if stop_event.is_set():
+                if stop_event is not None and stop_event.is_set():
                     return
                 msg = str(e).lower()
                 if "newconnectionerror" in msg or "connection refused" in msg:
@@ -389,10 +390,10 @@ def _click_internal_links(driver, config, stop_event, session_logger):
         )
 
         for url in links_to_visit:
-            if stop_event.is_set():
+            if stop_event is not None and stop_event.is_set():
                 return
             if not _is_browser_alive(driver, stop_event):
-                if stop_event.is_set():
+                if stop_event is not None and stop_event.is_set():
                     return
                 try:
                     session_logger.warning("Browser died during internal link visits", extra={'action': 'INTERNAL_LINK_VISIT', 'status': 'FAILED'})
@@ -406,11 +407,14 @@ def _click_internal_links(driver, config, stop_event, session_logger):
                 if not ok:
                     session_logger.warning(f"Failed to navigate to internal link: {url}", extra={'action': 'INTERNAL_LINK_VISIT', 'status': 'FAILED', 'url': url})
                     continue
-                # Simulate user reading the page
+                # Simulate user reading the page (interruptible)
                 min_sleep = config.get("timing", {}).get("sleepMin", 2)
                 max_sleep = config.get("timing", {}).get("sleepMax", 4)
                 try:
-                    time.sleep(random.uniform(min_sleep, max_sleep))
+                    if stop_event is not None:
+                        stop_event.wait(random.uniform(min_sleep, max_sleep))
+                    else:
+                        time.sleep(random.uniform(min_sleep, max_sleep))
                 except Exception:
                     pass
                 session_logger.info(f"Successfully visited internal link: {url}", extra={'action': 'INTERNAL_LINK_VISIT', 'status': 'SUCCESS', 'url': url})
@@ -508,16 +512,17 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
     driver = None
     run_id = uuid.uuid4()
     thread_id = threading.get_ident()
-    browser_mode = str(config.get("browser", {}).get("mode", "headed")).capitalize()
     target = config.get("website", {}).get("domain", "")
     automation_type = "SEARCH"
 
     original_keyword = keyword
     current_search_keyword = original_keyword
     fallback_used = False
+    fallback_attempted = False
     status = None
 
     selected_browser = select_browser(config).lower()
+    browser_mode = build_browser_mode(config, selected_browser)
 
     # Create a LoggerAdapter that will add session-specific context to all logs.
     session_logger = SessionLoggerAdapter(
@@ -559,10 +564,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         try:
             driver = setup_browser(config, selected_browser)
             _register_driver(driver)
-            if selected_browser.lower() != original_requested_browser.lower():
-                session_logger.info(f"Browser started: {selected_browser} (fallback from '{original_requested_browser}')", extra={'action': 'BROWSER_STARTED', 'status': 'SUCCESS'})
-            else:
-                session_logger.info(f"Browser started: {selected_browser}", extra={'action': 'BROWSER_STARTED', 'status': 'SUCCESS'})
+            session_logger.info(f"Browser started: {selected_browser}", extra={'action': 'BROWSER_STARTED', 'status': 'SUCCESS'})
         except Exception as e:
             # Fallback to chrome if any browser fails (binary not found, startup error)
             if str(selected_browser).lower() != "chrome":
@@ -596,22 +598,23 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 status = "FAILED"
                 return
 
-        if stop_event.is_set() or not _is_browser_alive(driver, stop_event):
-            status = "INTERRUPTED" if stop_event.is_set() else "FAILED"
-            if not _is_browser_alive(driver, stop_event):
-                if stop_event.is_set():
-                    status = "INTERRUPTED"
-                    return
-                try:
-                    session_logger.warning("Browser died immediately after startup", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED'})
-                except Exception:
-                    pass
-                with _STATS_LOCK:
-                    # avoid duplicate
-                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
-                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
-                failure_count = 1
-                status = "FAILED"
+        if stop_event.is_set():
+            status = "INTERRUPTED"
+            return
+        if not _is_browser_alive(driver, stop_event):
+            if stop_event.is_set():
+                status = "INTERRUPTED"
+                return
+            try:
+                session_logger.warning("Browser died immediately after startup", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED'})
+            except Exception:
+                pass
+            with _STATS_LOCK:
+                # avoid duplicate
+                if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                    stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+            failure_count = 1
+            status = "FAILED"
             return
 
         # -------------------------------------------------
@@ -742,7 +745,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
             if _is_captcha_and_log(current_engine_name):
                 # Small pause before switching engine to avoid rapid hammering
                 try:
-                    time.sleep(random.uniform(1, 2))
+                    stop_event.wait(random.uniform(1, 2))
                 except Exception:
                     pass
                 continue
@@ -793,7 +796,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
             # CAPTCHA after search
             if _is_captcha_and_log(current_engine_name):
                 try:
-                    time.sleep(random.uniform(1, 2))
+                    stop_event.wait(random.uniform(1, 2))
                 except Exception:
                     pass
                 continue
@@ -837,11 +840,11 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                     status = "INTERRUPTED"
                     return
                 extra_keyword = config.get("website", {}).get("extra_keyword", "").strip()
-                if extra_keyword and extra_keyword.lower() not in original_keyword.lower():
+                fallback_keyword = build_fallback_keyword(original_keyword, extra_keyword)
+                if fallback_keyword:
                     if stop_event.is_set():
                         status = "INTERRUPTED"
                         return
-                    fallback_keyword = f"{original_keyword} {extra_keyword}"
                     # Don't log fallback if interrupted
                     if stop_event.is_set():
                         status = "INTERRUPTED"
@@ -850,8 +853,10 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                         session_logger.warning(f"Website not found on {current_engine_name} with '{current_search_keyword}'. Immediately retrying fallback keyword '{fallback_keyword}' on SAME engine", extra={'action': 'FALLBACK_SAME_ENGINE', 'status': 'RUNNING', 'engine': current_engine_name})
                     except Exception:
                         pass
-                    # Mark fallback as attempted for DB/stats
-                    fallback_used = True
+                    # Mark fallback as attempted (fallback_used is decided at the
+                    # end: SUCCESS => current_search_keyword != original,
+                    # FAILED => whether a fallback was ever attempted).
+                    fallback_attempted = True
                     # Try fallback on same engine (keep current_search_keyword as original until fallback succeeds)
                     fallback_found_on_same_engine = False
                     try:
@@ -911,7 +916,6 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                                             pass
                                         elif found_fallback_same:
                                             fallback_found_on_same_engine = True
-                                            fallback_used = True
                                             current_search_keyword = fallback_keyword
                                             try:
                                                 session_logger.extra['search_keyword'] = current_search_keyword
@@ -940,8 +944,8 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                                 pass
                     if fallback_found_on_same_engine:
                         break
-                    # Mark fallback as used even if this engine's fallback failed, to prevent duplicate outer fallback? Keep False to allow fallback on next engine's same logic
-                    # Do not set fallback_used to True on failure — allow next engine to also try same fallback
+                    # Fallback was attempted on this engine but did not succeed;
+                    # next engine retries fallback with the same deduped keyword.
                     # Continue to next engine with original keyword (fallback will be retried per-engine)
                 if stop_event.is_set():
                     status = "INTERRUPTED"
@@ -1163,7 +1167,20 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                         if not any(d.get('keyword') == original_keyword for d in stats["interrupted"]):
                             stats["interrupted"].append({"keyword": original_keyword, "engine": engine_name})
 
-        _safe_update_run(run_id, session_end_time, status, success_count, failure_count, retry_count, fallback_used=fallback_used, search_keyword=current_search_keyword)
+        # fallback_used semantics (matches YouTube flow):
+        # SUCCESS => True only if the winning search actually used the fallback keyword.
+        # FAILED  => True if a fallback was ever attempted.
+        try:
+            success_via_fallback = (current_search_keyword != original_keyword)
+        except Exception:
+            success_via_fallback = fallback_attempted
+        if status == "SUCCESS":
+            fallback_used = bool(success_via_fallback)
+        elif status in ("FAILED", "COMPLETED"):
+            fallback_used = bool(success_via_fallback or fallback_attempted)
+        final_browser_mode = build_browser_mode(config, selected_browser)
+
+        _safe_update_run(run_id, session_end_time, status, success_count, failure_count, retry_count, fallback_used=fallback_used, search_keyword=current_search_keyword, search_engine=engine_name, browser_mode=final_browser_mode)
 
 
 def _session_worker(job_queue, config, stop_event, stats, search_engines=None, all_engine_names=None):
@@ -1196,9 +1213,6 @@ def _session_worker(job_queue, config, stop_event, stats, search_engines=None, a
                     job_queue.task_done()
                 except Exception:
                     pass
-            # Small yield to avoid tight loop when queue empty
-            if job is None:
-                time.sleep(0.1)
 
 
 def _build_jobs(keywords, search_engines, engine_names):
@@ -1221,16 +1235,16 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
     """
     if not keywords:
         logger.warning("No keywords to process", extra={'action': 'SESSION_START', 'status': 'SKIPPED'})
-        return {"total": 0, "success": [], "failed": []}
+        return {"total": 0, "success": [], "failed": [], "interrupted": []}
     if not engine_names:
         logger.error("No search engines configured", extra={'action': 'SESSION_START', 'status': 'FAILED'})
-        return {"total": 0, "success": [], "failed": []}
+        return {"total": 0, "success": [], "failed": [], "interrupted": []}
 
     try:
         jobs = _build_jobs(keywords, search_engines, engine_names)
     except Exception as e:
         logger.error(f"Failed to build jobs: {e}", exc_info=True)
-        return {"total": 0, "success": [], "failed": []}
+        return {"total": 0, "success": [], "failed": [], "interrupted": []}
 
     stats = {
         "total": len(jobs),
@@ -1304,19 +1318,30 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
         logger.error(f"Unexpected error in parallel runner: {e}", exc_info=True)
         stop_event.set()
     finally:
-        # Ensure cleanup happens whether jobs complete or are interrupted
-        stop_event.set()
+        # Ensure cleanup happens whether jobs complete or are interrupted.
+        # Do NOT unconditionally set stop_event: on normal completion workers
+        # already closed their own drivers; forcing a global close first races
+        # with worker cleanup and causes false "browser died".
+        if interrupted:
+            stop_event.set()
+        else:
+            try:
+                if job_queue.unfinished_tasks > 0:
+                    stop_event.set()
+            except Exception:
+                pass
         # Silence again before closing — guarantees no NewConnectionError spam
         try:
             from utils.logger import silence_noisy_loggers
             silence_noisy_loggers()
         except Exception:
             pass
-        # Immediately force close browsers to unblock workers stuck in blocking Selenium calls
-        try:
-            close_active_drivers(stop_event)
-        except Exception:
-            pass
+        # If interrupted, force close first to unblock workers stuck in Selenium calls.
+        if interrupted or (stop_event.is_set() if stop_event else False):
+            try:
+                close_active_drivers(stop_event)
+            except Exception:
+                pass
         # Then wait for workers to notice closure and exit gracefully
         for w in workers:
             try:

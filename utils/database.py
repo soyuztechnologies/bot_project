@@ -264,14 +264,17 @@ def create_automation_run(run_id, automation_type, original_keyword, search_keyw
         logger.error(f"Failed to create automation run record for {run_id}: {e}")
 
 
-def update_automation_run(run_id, finished_at, status, success_count, failure_count, retry_count, fallback_used=False, search_keyword=None):
+def update_automation_run(run_id, finished_at, status, success_count, failure_count, retry_count, fallback_used=False, search_keyword=None, search_engine=None, browser_mode=None):
     """
     Updates an existing automation run record with completion details.
+    search_engine/browser_mode use COALESCE so callers can finalize the
+    actual engine/browser used (e.g. after fallback) without overwriting
+    with NULL when not provided. Backward compatible.
     """
     # Ensure finished_at is a datetime object
     if not isinstance(finished_at, datetime):
         finished_at = datetime.now()
- 
+
     sql = """
     UPDATE automation_runs
     SET finished_at = %s,
@@ -280,13 +283,15 @@ def update_automation_run(run_id, finished_at, status, success_count, failure_co
         failure_count = %s,
         retry_count = %s,
         fallback_used = %s,
-        search_keyword = COALESCE(%s, search_keyword)
+        search_keyword = COALESCE(%s, search_keyword),
+        search_engine = COALESCE(%s, search_engine),
+        browser_mode = COALESCE(%s, browser_mode)
     WHERE run_id = %s;
     """
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(sql, (finished_at, status, success_count, failure_count, retry_count, fallback_used, search_keyword, run_id))
+                cur.execute(sql, (finished_at, status, success_count, failure_count, retry_count, fallback_used, search_keyword, search_engine, browser_mode, run_id))
                 conn.commit()
     except psycopg2.Error as e:
         logger.error(f"Failed to update automation run record for {run_id}: {e}")
