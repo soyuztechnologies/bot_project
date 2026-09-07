@@ -91,6 +91,7 @@ def _print_youtube_summary(stats, config=None, keywords=None):
                     logger.info(f"Total Keywords: {len(keywords) if keywords else stats.keywords_processed}")
                     logger.info(f"Success (videos found): {getattr(stats, 'videos_found', 0)}")
                     logger.info(f"Failed (videos not found): {getattr(stats, 'videos_not_found', 0)}")
+                    logger.info(f"Interrupted: {len(getattr(stats, 'interrupted', []))}")
                 except Exception:
                     pass
             logger.info("=" * 60)
@@ -330,69 +331,52 @@ def main():
         )
  
     finally:
- 
+
         # -----------------------------------------------------
-        # Always print summary even on Ctrl+C or error — like main.py
-        # youtube_session already prints summary in its finally, but we ensure
-        # youtube_main also prints a summary header like main.py
+        # Always ensure summary is visible — but youtube_session already
+        # printed Session Summary + Automation Summary in its finally.
+        # Avoid duplicate full summary; just add a concise final status line
+        # consistent with main.py (seo) flow.
         # -----------------------------------------------------
         try:
-            if youtube_stats is not None:
-                # If session already printed detailed summary (total_sessions>0), avoid duplicate
-                if getattr(youtube_stats, "total_sessions", 0) == 0:
-                    _print_youtube_summary(youtube_stats, config, keywords)
+            if youtube_stats is not None and hasattr(youtube_stats, "print_summary"):
+                # Session already printed detailed summary — only add one-line final status
+                # (no duplicate full summary)
+                if interrupted:
+                    print(f"\nYouTube final status: interrupted (Ctrl+C)")
+                elif youtube_stats.failed_sessions == 0 and youtube_stats.keywords_failed == 0 and len(youtube_stats.interrupted) == 0:
+                    print(f"\nYouTube final status: completed")
                 else:
-                    logger.info("YouTube detailed summary already printed by session (see AUTOMATION SUMMARY above).")
-                    # Ensure main.py-like final header still appears
-                    logger.info("\n" + "=" * 60)
-                    logger.info(" YouTube Automation Finished ".center(60, "="))
-                    logger.info(f"Completed: {youtube_stats.failed_sessions==0 if hasattr(youtube_stats,'failed_sessions') else completed}")
-                    logger.info("=" * 60)
-                    print(f"\nYouTube final status: {'completed' if (youtube_stats.failed_sessions==0 if hasattr(youtube_stats,'failed_sessions') else completed) else 'completed with failures'}")
+                    print(f"\nYouTube final status: completed with failures/interruptions")
+            elif youtube_stats is not None:
+                _print_youtube_summary(youtube_stats, config, keywords)
             elif completed is not None:
-                # Bool version: session already printed summary, but add main.py-like final header
-                logger.info("\n" + "=" * 60)
-                logger.info(" YouTube Automation Finished ".center(60, "="))
-                logger.info(f"Completed: {completed}")
-                if keywords:
-                    logger.info(f"Keywords: {len(keywords)}")
-                logger.info("=" * 60)
-                # Also try to ensure at least fallback print
+                # Bool version already printed summary in session; just final line
                 print(f"\nYouTube final status: {'completed' if completed else 'stopped/failed'}")
             elif interrupted:
-                logger.info("\n" + "=" * 60)
-                logger.info(" YouTube Automation Interrupted ".center(60, "="))
                 print("\n=== YouTube Automation Interrupted (Ctrl+C) ===")
                 if keywords:
                     print(f"Keywords configured: {len(keywords)}")
                 print("No stats yet — automation stopped before sessions started.")
-                print("=" * 60)
             elif unexpected_error is not None:
-                logger.info("\n" + "=" * 60)
-                logger.info(" YouTube Automation Failed ".center(60, "="))
                 print(f"\n=== YouTube Automation Failed: {unexpected_error} ===")
                 if keywords:
                     print(f"Keywords configured: {len(keywords)}")
-                print("=" * 60)
         except Exception as summary_err:
             logger.error(f"Failed to print YouTube final summary: {summary_err}", exc_info=True)
- 
+
         # -----------------------------------------------------
-        # Database Cleanup
+        # Database Cleanup — rely on database.py log, avoid duplicate logger.info
         # -----------------------------------------------------
- 
+
         if db_initialized:
- 
+
             try:
- 
+
                 close_connection_pool()
- 
-                logger.info(
-                    "Database connection pool closed."
-                )
- 
+
             except Exception as db_error:
- 
+
                 logger.error(
                     f"Failed to close database connection pool : "
                     f"{db_error}",

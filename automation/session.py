@@ -23,6 +23,14 @@ import time
 from datetime import datetime
 from selenium.webdriver.common.by import By
 
+def _short_err(e, max_len=250):
+    """Truncate long WebDriver stacktraces to first line for cleaner console (keeps full in DB via error_message)."""
+    try:
+        s = str(e).splitlines()[0][:max_len]
+        return s
+    except Exception:
+        return str(e)[:max_len]
+
 from browser.browser import setup_browser, close_browser
 from browser.browser_selector import select_browser
 from automation.search_engine import (
@@ -84,13 +92,23 @@ _ACTIVE_DRIVERS_LOCK = threading.Lock()
 _STATS_LOCK = threading.Lock()
 
 
-def _is_browser_alive(driver) -> bool:
+def _is_browser_alive(driver, stop_event=None) -> bool:
+    if stop_event is not None:
+        try:
+            if stop_event.is_set():
+                return False
+        except Exception:
+            pass
     if not driver:
         return False
     try:
         _ = driver.current_url
         return True
-    except Exception:
+    except Exception as e:
+        # Suppress NewConnectionError spam on shutdown
+        msg = str(e).lower()
+        if "newconnectionerror" in msg or "connection refused" in msg or "connectionreseterror" in msg:
+            return False
         return False
 
 
@@ -112,9 +130,14 @@ def _safe_driver_get(driver, url, session_logger=None, stop_event=None, timeout=
     """Best-effort driver.get with timeout handling."""
     if stop_event and stop_event.is_set():
         return False
-    if not _is_browser_alive(driver):
+    if not _is_browser_alive(driver, stop_event):
+        if stop_event and stop_event.is_set():
+            return False
         if session_logger:
-            session_logger.warning("Browser not alive before driver.get", extra={'action': 'DRIVER_GET', 'status': 'FAILED'})
+            try:
+                session_logger.warning("Browser not alive before driver.get", extra={'action': 'DRIVER_GET', 'status': 'FAILED'})
+            except Exception:
+                pass
         return False
     try:
         driver.set_page_load_timeout(timeout)
@@ -124,8 +147,16 @@ def _safe_driver_get(driver, url, session_logger=None, stop_event=None, timeout=
         driver.get(url)
         return True
     except Exception as e:
+        if stop_event and stop_event.is_set():
+            return False
+        msg = str(e).lower()
+        if "newconnectionerror" in msg or "connection refused" in msg:
+            return False
         if session_logger:
-            session_logger.warning(f"driver.get failed for {url}: {e}", extra={'action': 'DRIVER_GET', 'status': 'FAILED', 'error_message': str(e), 'url': url})
+            try:
+                session_logger.warning(f"driver.get failed for {url}: {e}", extra={'action': 'DRIVER_GET', 'status': 'FAILED', 'error_message': str(e), 'url': url})
+            except Exception:
+                pass
         return False
 
 
@@ -139,19 +170,146 @@ def _unregister_driver(driver):
         _ACTIVE_DRIVERS.discard(driver)
 
 
-def close_active_drivers():
-    """Close every browser that is currently running."""
+_CLOSED_DRIVER_IDS = set()
+_CLOSED_DRIVER_IDS_LOCK = threading.Lock()
+
+def _kill_orphaned_browser_profiles():
+    """Best-effort sweep for any remaining browser_profiles processes (orphaned msedge/chrome)."""
+    try:
+        import psutil, os
+        # Find browser_profiles root from drivers or cwd
+        roots = set()
+        with _ACTIVE_DRIVERS_LOCK:
+            for d in list(_ACTIVE_DRIVERS):
+                try:
+                    p = getattr(d, "_seo_profile_dir", None)
+                    if p:
+                        roots.add(os.path.normpath(str(p)).replace("\\", "/").lower())
+                except Exception:
+                    pass
+        # Also check filesystem browser_profiles dir if exists
+        try:
+            from pathlib import Path
+            bp = Path.cwd() / "browser_profiles"
+            if bp.exists():
+                # Any chrome/msedge with browser_profiles in cmdline is ours
+                probe = str(bp).replace("\\", "/").lower()
+                if probe not in roots:
+                    roots.add(probe)
+        except Exception:
+            pass
+        if not roots:
+            return
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                cmdline = proc.info.get("cmdline")
+                if not cmdline:
+                    continue
+                try:
+                    cmd_joined = " ".join(cmdline).replace("\\", "/").lower()
+                except Exception:
+                    continue
+                for root in roots:
+                    if root in cmd_joined:
+                        # Check name is chrome/msedge/firefox etc to avoid killing unrelated python
+                        try:
+                            from browser.browser import _kill_process_tree_psutil
+                            _kill_process_tree_psutil(proc.info["pid"])
+                        except Exception:
+                            try:
+                                proc.kill()
+                            except Exception:
+                                pass
+                        break
+            except Exception:
+                continue
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+
+def close_active_drivers(stop_event=None):
+    """Close every browser that is currently running — suppresses NewConnectionError spam and ensures no browser remains after Ctrl+C."""
+    # Silence urllib3 retry warnings before quitting drivers (prevents flood on Ctrl+C)
+    try:
+        from utils.logger import silence_noisy_loggers
+        silence_noisy_loggers()
+    except Exception:
+        pass
+    # Also directly silence at ERROR level as fallback
+    try:
+        import logging as _logging
+        for _name in ("urllib3", "urllib3.connectionpool", "selenium", "selenium.webdriver.remote.remote_connection"):
+            _logging.getLogger(_name).setLevel(_logging.ERROR)
+    except Exception:
+        pass
 
     with _ACTIVE_DRIVERS_LOCK:
         drivers = list(_ACTIVE_DRIVERS)
 
-    for driver in drivers:
-        close_browser(driver)
+    if not drivers:
+        # Still sweep for orphaned profiles (edge may have detached from driver list)
+        try:
+            _kill_orphaned_browser_profiles()
+        except Exception:
+            pass
+        return
+
+    # Deduplicate — retry only if previous close succeeded (failed stays for retry)
+    to_close = []
+    for d in drivers:
+        try:
+            did = id(d)
+            with _CLOSED_DRIVER_IDS_LOCK:
+                if did in _CLOSED_DRIVER_IDS:
+                    continue
+            to_close.append(d)
+        except Exception:
+            to_close.append(d)
+
+    if not to_close:
+        return
+
+    for driver in to_close:
+        try:
+            ok = close_browser(driver, timeout=4.0)
+            if ok:
+                try:
+                    with _CLOSED_DRIVER_IDS_LOCK:
+                        _CLOSED_DRIVER_IDS.add(id(driver))
+                except Exception:
+                    pass
+                try:
+                    with _ACTIVE_DRIVERS_LOCK:
+                        _ACTIVE_DRIVERS.discard(driver)
+                except Exception:
+                    pass
+            else:
+                # Keep in active set for next retry — don't mark as closed
+                # Try extra profile kill as fallback
+                try:
+                    from browser.browser import _kill_browsers_by_profile
+                    profile = getattr(driver, "_seo_profile_dir", None)
+                    if profile:
+                        _kill_browsers_by_profile(str(profile))
+                except Exception:
+                    pass
+        except Exception:
+            # Keep for retry
+            pass
+    # Also sweep orphans
+    try:
+        _kill_orphaned_browser_profiles()
+    except Exception:
+        pass
 
 
 def _click_internal_links(driver, config, stop_event, session_logger):
     """Finds and navigates to internal links on the website. Best-effort, never fails session."""
     try:
+        if stop_event and stop_event.is_set():
+            return
         internal_links_config = config.get("website", {}).get("internal_links", {})
 
         if not internal_links_config.get("enabled"):
@@ -159,8 +317,13 @@ def _click_internal_links(driver, config, stop_event, session_logger):
 
         if stop_event.is_set():
             return
-        if not _is_browser_alive(driver):
-            session_logger.warning("Skipping internal links - browser not alive", extra={'action': 'INTERNAL_LINK_SEARCH', 'status': 'SKIPPED'})
+        if not _is_browser_alive(driver, stop_event):
+            if stop_event.is_set():
+                return
+            try:
+                session_logger.warning("Skipping internal links - browser not alive", extra={'action': 'INTERNAL_LINK_SEARCH', 'status': 'SKIPPED'})
+            except Exception:
+                pass
             return
 
         session_logger.info("Searching for internal links to visit...", extra={'action': 'INTERNAL_LINK_SEARCH', 'status': 'RUNNING'})
@@ -177,23 +340,36 @@ def _click_internal_links(driver, config, stop_event, session_logger):
         for selector in selectors:
             if stop_event.is_set():
                 return
-            if not _is_browser_alive(driver):
+            if not _is_browser_alive(driver, stop_event):
                 return
             try:
                 elements = driver.find_elements(By.XPATH, selector)
                 for element in elements:
+                    if stop_event.is_set():
+                        return
                     try:
                         href = element.get_attribute("href")
-                    except Exception:
+                    except Exception as e:
+                        msg = str(e).lower()
+                        if "newconnectionerror" in msg or "connection refused" in msg:
+                            return
                         continue
                     # Ensure the link is valid and internal
                     if href and target_domain in href:
                         link_urls.add(href)
             except Exception as e:
-                session_logger.warning(
-                    f"Error finding links with selector '{selector}': {e}",
-                    extra={'action': 'INTERNAL_LINK_SEARCH', 'status': 'FAILED'}
-                )
+                if stop_event.is_set():
+                    return
+                msg = str(e).lower()
+                if "newconnectionerror" in msg or "connection refused" in msg:
+                    return
+                try:
+                    session_logger.warning(
+                        f"Error finding links with selector '{selector}': {e}",
+                        extra={'action': 'INTERNAL_LINK_SEARCH', 'status': 'FAILED'}
+                    )
+                except Exception:
+                    pass
                 continue
 
         if not link_urls:
@@ -215,8 +391,13 @@ def _click_internal_links(driver, config, stop_event, session_logger):
         for url in links_to_visit:
             if stop_event.is_set():
                 return
-            if not _is_browser_alive(driver):
-                session_logger.warning("Browser died during internal link visits", extra={'action': 'INTERNAL_LINK_VISIT', 'status': 'FAILED'})
+            if not _is_browser_alive(driver, stop_event):
+                if stop_event.is_set():
+                    return
+                try:
+                    session_logger.warning("Browser died during internal link visits", extra={'action': 'INTERNAL_LINK_VISIT', 'status': 'FAILED'})
+                except Exception:
+                    pass
                 return
             try:
                 session_logger.info(f"Visiting internal link: {url}", extra={'action': 'INTERNAL_LINK_VISIT', 'status': 'RUNNING', 'url': url})
@@ -234,8 +415,15 @@ def _click_internal_links(driver, config, stop_event, session_logger):
                     pass
                 session_logger.info(f"Successfully visited internal link: {url}", extra={'action': 'INTERNAL_LINK_VISIT', 'status': 'SUCCESS', 'url': url})
             except Exception as e:
-                session_logger.warning(f"Error visiting internal link {url}: {e} (continuing)", extra={'action': 'INTERNAL_LINK_VISIT', 'status': 'FAILED', 'url': url, 'error_message': str(e)})
-                if not _is_browser_alive(driver):
+                if stop_event and stop_event.is_set():
+                    return
+                msg = str(e).lower()
+                if "newconnectionerror" not in msg and "connection refused" not in msg:
+                    try:
+                        session_logger.warning(f"Error visiting internal link {url}: {e} (continuing)", extra={'action': 'INTERNAL_LINK_VISIT', 'status': 'FAILED', 'url': url, 'error_message': str(e)})
+                    except Exception:
+                        pass
+                if not _is_browser_alive(driver, stop_event):
                     return
                 continue
     except Exception as e:
@@ -365,24 +553,59 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         )
 
         # -------------------------------------------------
-        # 1) Browser startup - with isolated handling
+        # 1) Browser startup - with chrome fallback if requested browser missing/failed
         # -------------------------------------------------
+        original_requested_browser = selected_browser
         try:
             driver = setup_browser(config, selected_browser)
             _register_driver(driver)
-            session_logger.info(f"Browser started: {selected_browser}", extra={'action': 'BROWSER_STARTED', 'status': 'SUCCESS'})
+            if selected_browser.lower() != original_requested_browser.lower():
+                session_logger.info(f"Browser started: {selected_browser} (fallback from '{original_requested_browser}')", extra={'action': 'BROWSER_STARTED', 'status': 'SUCCESS'})
+            else:
+                session_logger.info(f"Browser started: {selected_browser}", extra={'action': 'BROWSER_STARTED', 'status': 'SUCCESS'})
         except Exception as e:
-            session_logger.error(f"Browser startup failed ({selected_browser}): {e}", exc_info=True, extra={'action': 'BROWSER_START_FAILED', 'status': 'FAILED', 'error_message': str(e)})
-            with _STATS_LOCK:
-                stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
-            failure_count = 1
-            status = "FAILED"
-            return
+            # Fallback to chrome if any browser fails (binary not found, startup error)
+            if str(selected_browser).lower() != "chrome":
+                fallback_browser = "chrome"
+                try:
+                    session_logger.warning(f"Browser '{selected_browser}' not available ({e}), falling back to '{fallback_browser}'", extra={'action': 'BROWSER_FALLBACK', 'status': 'RETRYING', 'error_message': str(e)})
+                except Exception:
+                    pass
+                try:
+                    driver = setup_browser(config, fallback_browser)
+                    _register_driver(driver)
+                    selected_browser = fallback_browser
+                    try:
+                        session_logger.info(f"Browser fallback '{fallback_browser}' started (requested was '{original_requested_browser}')", extra={'action': 'BROWSER_STARTED', 'status': 'SUCCESS', 'browser': fallback_browser})
+                    except Exception:
+                        pass
+                except Exception as fb_e:
+                    session_logger.error(f"Browser startup failed ({original_requested_browser}): {e} | Fallback '{fallback_browser}' also failed: {fb_e}", exc_info=True, extra={'action': 'BROWSER_START_FAILED', 'status': 'FAILED', 'error_message': str(fb_e)})
+                    with _STATS_LOCK:
+                        if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                            stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+                    failure_count = 1
+                    status = "FAILED"
+                    return
+            else:
+                session_logger.error(f"Browser startup failed ({selected_browser}): {e}", exc_info=True, extra={'action': 'BROWSER_START_FAILED', 'status': 'FAILED', 'error_message': str(e)})
+                with _STATS_LOCK:
+                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+                failure_count = 1
+                status = "FAILED"
+                return
 
-        if stop_event.is_set() or not _is_browser_alive(driver):
+        if stop_event.is_set() or not _is_browser_alive(driver, stop_event):
             status = "INTERRUPTED" if stop_event.is_set() else "FAILED"
-            if not _is_browser_alive(driver):
-                session_logger.warning("Browser died immediately after startup", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED'})
+            if not _is_browser_alive(driver, stop_event):
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    return
+                try:
+                    session_logger.warning("Browser died immediately after startup", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED'})
+                except Exception:
+                    pass
                 with _STATS_LOCK:
                     # avoid duplicate
                     if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
@@ -409,13 +632,28 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
 
         # Helper to check captcha with logging
         def _is_captcha_and_log(curr_engine_name):
+            if stop_event.is_set():
+                return False
             try:
-                if is_captcha_page(driver, curr_engine_name):
-                    session_logger.warning(f"Captcha detected on {curr_engine_name} for '{current_search_keyword}' (browser={selected_browser})", extra={'action': 'CAPTCHA_DETECTED', 'status': 'FAILED', 'engine': curr_engine_name})
+                if is_captcha_page(driver, curr_engine_name, stop_event):
+                    if stop_event.is_set():
+                        return False
+                    try:
+                        session_logger.warning(f"Captcha detected on {curr_engine_name} for '{current_search_keyword}' (browser={selected_browser})", extra={'action': 'CAPTCHA_DETECTED', 'status': 'FAILED', 'engine': curr_engine_name})
+                    except Exception:
+                        pass
                     captcha_engines.add(curr_engine_name)
                     return True
             except Exception as ce:
-                session_logger.warning(f"Captcha check failed on {curr_engine_name}: {ce}", extra={'action': 'CAPTCHA_CHECK_FAILED', 'status': 'FAILED', 'engine': curr_engine_name})
+                if stop_event.is_set():
+                    return False
+                msg = str(ce).lower()
+                if "newconnectionerror" in msg or "connection refused" in msg:
+                    return False
+                try:
+                    session_logger.warning(f"Captcha check failed on {curr_engine_name}: {ce}", extra={'action': 'CAPTCHA_CHECK_FAILED', 'status': 'FAILED', 'engine': curr_engine_name})
+                except Exception:
+                    pass
             return False
 
         # -------------------------------------------------
@@ -425,8 +663,14 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
             if stop_event.is_set():
                 status = "INTERRUPTED"
                 return
-            if not _is_browser_alive(driver):
-                session_logger.warning("Browser died before engine attempt", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED', 'engine': curr_engine_name})
+            if not _is_browser_alive(driver, stop_event):
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    return
+                try:
+                    session_logger.warning("Browser died before engine attempt", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED', 'engine': curr_engine_name})
+                except Exception:
+                    pass
                 with _STATS_LOCK:
                     if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
@@ -450,9 +694,23 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 open_search_engine(driver, current_engine, session_logger, stop_event)
                 session_logger.info(f"Search engine opened: {current_engine_name}", extra={'action': 'ENGINE_OPEN', 'status': 'SUCCESS', 'engine': current_engine_name})
             except Exception as e:
-                session_logger.warning(f"Open search engine failed ({current_engine_name}): {e}", extra={'action': 'ENGINE_OPEN', 'status': 'FAILED', 'engine': current_engine_name, 'error_message': str(e)})
-                if not _is_browser_alive(driver):
-                    session_logger.error("Browser died during engine open", extra={'action': 'ENGINE_OPEN', 'status': 'FAILED', 'engine': current_engine_name})
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    return
+                msg = str(e).lower()
+                if "newconnectionerror" not in msg and "connection refused" not in msg:
+                    try:
+                        session_logger.warning(f"Open search engine failed ({current_engine_name}): {_short_err(e)}", extra={'action': 'ENGINE_OPEN', 'status': 'FAILED', 'engine': current_engine_name, 'error_message': str(e)})
+                    except Exception:
+                        pass
+                if not _is_browser_alive(driver, stop_event):
+                    if stop_event.is_set():
+                        status = "INTERRUPTED"
+                        return
+                    try:
+                        session_logger.error("Browser died during engine open", extra={'action': 'ENGINE_OPEN', 'status': 'FAILED', 'engine': current_engine_name})
+                    except Exception:
+                        pass
                     with _STATS_LOCK:
                         if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
                             stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
@@ -465,8 +723,14 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
             if stop_event.is_set():
                 status = "INTERRUPTED"
                 return
-            if not _is_browser_alive(driver):
-                session_logger.warning("Browser not alive before search", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED', 'engine': current_engine_name})
+            if not _is_browser_alive(driver, stop_event):
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    return
+                try:
+                    session_logger.warning("Browser not alive before search", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED', 'engine': current_engine_name})
+                except Exception:
+                    pass
                 with _STATS_LOCK:
                     if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
@@ -487,8 +751,19 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
             try:
                 search_keyword(driver, current_engine, current_search_keyword, config, stop_event, session_logger)
             except Exception as e:
-                session_logger.warning(f"Search failed for '{current_search_keyword}' on {current_engine_name}: {e}", extra={'action': 'KEYWORD_SEARCH', 'status': 'FAILED', 'engine': current_engine_name, 'error_message': str(e)})
-                if not _is_browser_alive(driver):
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    return
+                msg = str(e).lower()
+                if "newconnectionerror" not in msg and "connection refused" not in msg:
+                    try:
+                        session_logger.warning(f"Search failed for '{current_search_keyword}' on {current_engine_name}: {e}", extra={'action': 'KEYWORD_SEARCH', 'status': 'FAILED', 'engine': current_engine_name, 'error_message': str(e)})
+                    except Exception:
+                        pass
+                if not _is_browser_alive(driver, stop_event):
+                    if stop_event.is_set():
+                        status = "INTERRUPTED"
+                        return
                     with _STATS_LOCK:
                         if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
                             stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
@@ -500,8 +775,14 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
             if stop_event.is_set():
                 status = "INTERRUPTED"
                 return
-            if not _is_browser_alive(driver):
-                session_logger.warning("Browser died after search", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED', 'engine': current_engine_name})
+            if not _is_browser_alive(driver, stop_event):
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    return
+                try:
+                    session_logger.warning("Browser died after search", extra={'action': 'BROWSER_HEALTH', 'status': 'FAILED', 'engine': current_engine_name})
+                except Exception:
+                    pass
                 with _STATS_LOCK:
                     if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
@@ -523,7 +804,15 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 found_tmp, tmp_retry = retry_operation_search(driver, current_engine, target, config["search"].get("maxPages", 20), stop_event, session_logger)
                 retry_count += tmp_retry
             except Exception as e:
-                session_logger.warning(f"Find target crashed on {current_engine_name}: {e}", extra={'action': 'WEBSITE_SEARCH', 'status': 'FAILED', 'engine': current_engine_name, 'error_message': str(e)})
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    return
+                msg = str(e).lower()
+                if "newconnectionerror" not in msg and "connection refused" not in msg:
+                    try:
+                        session_logger.warning(f"Find target crashed on {current_engine_name}: {e}", extra={'action': 'WEBSITE_SEARCH', 'status': 'FAILED', 'engine': current_engine_name, 'error_message': str(e)})
+                    except Exception:
+                        pass
                 found_tmp = False
 
             # CAPTCHA during/after website search (engine may have switched to captcha during pagination)
@@ -544,10 +833,23 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 break
             else:
                 # Per-engine fallback: if not found with original keyword, immediately try "Anubhav Training" on SAME engine before switching
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    return
                 extra_keyword = config.get("website", {}).get("extra_keyword", "").strip()
                 if extra_keyword and extra_keyword.lower() not in original_keyword.lower():
+                    if stop_event.is_set():
+                        status = "INTERRUPTED"
+                        return
                     fallback_keyword = f"{original_keyword} {extra_keyword}"
-                    session_logger.warning(f"Website not found on {current_engine_name} with '{current_search_keyword}'. Immediately retrying fallback keyword '{fallback_keyword}' on SAME engine", extra={'action': 'FALLBACK_SAME_ENGINE', 'status': 'RUNNING', 'engine': current_engine_name})
+                    # Don't log fallback if interrupted
+                    if stop_event.is_set():
+                        status = "INTERRUPTED"
+                        return
+                    try:
+                        session_logger.warning(f"Website not found on {current_engine_name} with '{current_search_keyword}'. Immediately retrying fallback keyword '{fallback_keyword}' on SAME engine", extra={'action': 'FALLBACK_SAME_ENGINE', 'status': 'RUNNING', 'engine': current_engine_name})
+                    except Exception:
+                        pass
                     # Mark fallback as attempted for DB/stats
                     fallback_used = True
                     # Try fallback on same engine (keep current_search_keyword as original until fallback succeeds)
@@ -572,16 +874,38 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                                 try:
                                     search_keyword(driver, current_engine, fallback_keyword, config, stop_event, session_logger)
                                 except Exception as e:
-                                    session_logger.warning(f"Fallback search failed on {current_engine_name}: {e}", extra={'action': 'FALLBACK_SEARCH_STARTED', 'status': 'FAILED', 'engine': current_engine_name})
+                                    if stop_event.is_set():
+                                        status = "INTERRUPTED"
+                                        return
+                                    msg = str(e).lower()
+                                    if "newconnectionerror" not in msg and "connection refused" not in msg:
+                                        try:
+                                            session_logger.warning(f"Fallback search failed on {current_engine_name}: {e}", extra={'action': 'FALLBACK_SEARCH_STARTED', 'status': 'FAILED', 'engine': current_engine_name})
+                                        except Exception:
+                                            pass
                                 else:
                                     if _is_captcha_and_log(current_engine_name):
-                                        session_logger.warning(f"Captcha after fallback search on {current_engine_name}", extra={'action': 'CAPTCHA_DETECTED', 'status': 'FAILED', 'engine': current_engine_name})
+                                        if stop_event.is_set():
+                                            status = "INTERRUPTED"
+                                            return
+                                        try:
+                                            session_logger.warning(f"Captcha after fallback search on {current_engine_name}", extra={'action': 'CAPTCHA_DETECTED', 'status': 'FAILED', 'engine': current_engine_name})
+                                        except Exception:
+                                            pass
                                     else:
                                         try:
                                             found_fallback_same, tmp_retry_same = retry_operation_search(driver, current_engine, target, config["search"].get("maxPages", 20), stop_event, session_logger)
                                             retry_count += tmp_retry_same
                                         except Exception as e:
-                                            session_logger.warning(f"Fallback find failed on {current_engine_name}: {e}", extra={'action': 'WEBSITE_SEARCH', 'status': 'FAILED', 'engine': current_engine_name})
+                                            if stop_event.is_set():
+                                                status = "INTERRUPTED"
+                                                return
+                                            msg = str(e).lower()
+                                            if "newconnectionerror" not in msg and "connection refused" not in msg:
+                                                try:
+                                                    session_logger.warning(f"Fallback find failed on {current_engine_name}: {e}", extra={'action': 'WEBSITE_SEARCH', 'status': 'FAILED', 'engine': current_engine_name})
+                                                except Exception:
+                                                    pass
                                             found_fallback_same = False
                                         if not found_fallback_same and _is_captcha_and_log(current_engine_name):
                                             pass
@@ -605,13 +929,27 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                                             session_logger.info(f"Website found via per-engine fallback on {engine_name} for '{current_search_keyword}'", extra={'action': 'WEBSITE_FOUND', 'status': 'SUCCESS', 'engine': engine_name})
                                             break
                     except Exception as e:
-                        session_logger.warning(f"Per-engine fallback flow failed on {current_engine_name}: {e}", extra={'action': 'FALLBACK_SAME_ENGINE', 'status': 'FAILED', 'engine': current_engine_name})
+                        if stop_event.is_set():
+                            status = "INTERRUPTED"
+                            return
+                        msg = str(e).lower()
+                        if "newconnectionerror" not in msg and "connection refused" not in msg:
+                            try:
+                                session_logger.warning(f"Per-engine fallback flow failed on {current_engine_name}: {e}", extra={'action': 'FALLBACK_SAME_ENGINE', 'status': 'FAILED', 'engine': current_engine_name})
+                            except Exception:
+                                pass
                     if fallback_found_on_same_engine:
                         break
                     # Mark fallback as used even if this engine's fallback failed, to prevent duplicate outer fallback? Keep False to allow fallback on next engine's same logic
                     # Do not set fallback_used to True on failure — allow next engine to also try same fallback
                     # Continue to next engine with original keyword (fallback will be retried per-engine)
-                session_logger.info(f"Website not found on {current_engine_name} for '{current_search_keyword}', trying next engine", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'RETRYING', 'engine': current_engine_name})
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    return
+                try:
+                    session_logger.info(f"Website not found on {current_engine_name} for '{current_search_keyword}', trying next engine", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'RETRYING', 'engine': current_engine_name})
+                except Exception:
+                    pass
                 continue
 
         # Note: Per-engine fallback with "Anubhav Training" already handled inside the engine loop (immediate retry on same engine if not found).
@@ -624,9 +962,16 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         # -------------------------------------------------
         # 6) Result handling - website found vs not found (including captcha-exhausted)
         # -------------------------------------------------
+        if stop_event.is_set():
+            status = "INTERRUPTED"
+            return
         if found:
+            # If interrupted while visiting, don't count as success
+            if stop_event.is_set():
+                status = "INTERRUPTED"
+                return
             try:
-                cur_url = driver.current_url if _is_browser_alive(driver) else ""
+                cur_url = driver.current_url if _is_browser_alive(driver, stop_event) else ""
             except Exception:
                 cur_url = ""
             # Log which engine succeeded and if captcha was encountered earlier
@@ -634,33 +979,87 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 session_logger.info(f"Website found for '{current_search_keyword}' on {engine_name} after captcha on {sorted(captcha_engines)}", extra={'action': 'WEBSITE_FOUND', 'status': 'SUCCESS', 'url': cur_url, 'engine': engine_name})
             else:
                 session_logger.info(f"Website found for '{current_search_keyword}' on {engine_name}.", extra={'action': 'WEBSITE_FOUND', 'status': 'SUCCESS', 'url': cur_url, 'engine': engine_name})
-            # Visit website - best effort, must not fail session
+            # Visit website - best effort, must not fail session (check stop before each)
+            if stop_event.is_set():
+                status = "INTERRUPTED"
+                return
             try:
                 visit_website(driver, config, stop_event, session_logger)
             except Exception as e:
-                session_logger.warning(f"visit_website best-effort failed: {e}", extra={'action': 'WEBSITE_VISIT', 'status': 'FAILED', 'error_message': str(e)})
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    return
+                msg = str(e).lower()
+                if "newconnectionerror" not in msg and "connection refused" not in msg:
+                    try:
+                        session_logger.warning(f"visit_website best-effort failed: {e}", extra={'action': 'WEBSITE_VISIT', 'status': 'FAILED', 'error_message': str(e)})
+                    except Exception:
+                        pass
+            if stop_event.is_set():
+                status = "INTERRUPTED"
+                return
             # Internal links - best effort
             try:
                 _click_internal_links(driver, config, stop_event, session_logger)
             except Exception as e:
-                session_logger.warning(f"Internal links best-effort failed: {e}", extra={'action': 'INTERNAL_LINK_SEARCH', 'status': 'FAILED', 'error_message': str(e)})
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    return
+                msg = str(e).lower()
+                if "newconnectionerror" not in msg and "connection refused" not in msg:
+                    try:
+                        session_logger.warning(f"Internal links best-effort failed: {e}", extra={'action': 'INTERNAL_LINK_SEARCH', 'status': 'FAILED', 'error_message': str(e)})
+                    except Exception:
+                        pass
+            if stop_event.is_set():
+                status = "INTERRUPTED"
+                return
             with _STATS_LOCK:
-                stats["success"].append({"keyword": original_keyword, "engine": engine_name})
+                # Don't count as success if interrupted during visit
+                if stop_event.is_set():
+                    if not any(d.get('keyword') == original_keyword for d in stats.get("interrupted", [])):
+                        stats["interrupted"].append({"keyword": original_keyword, "engine": engine_name})
+                else:
+                    stats["success"].append({"keyword": original_keyword, "engine": engine_name})
+                    success_count = 1
+                    status = "SUCCESS"
+                    return
+            # If interrupted, fall through to interrupted handling
+            if stop_event.is_set():
+                status = "INTERRUPTED"
+                return
             success_count = 1
             status = "SUCCESS"
         else:
+            # If interrupted while not found, don't count as failed
+            if stop_event.is_set():
+                status = "INTERRUPTED"
+                return
             # Handle captcha-exhausted vs normal not found vs all engines tried
             if captcha_engines and len(captcha_engines) >= len(fallback_order):
-                session_logger.warning(f"Captcha on all engines {sorted(captcha_engines)} for '{original_keyword}' (tried {engines_tried}) - counting as not found/FAILED", extra={'action': 'CAPTCHA_ALL_ENGINES', 'status': 'FAILED', 'engine': engine_name})
+                try:
+                    session_logger.warning(f"Captcha on all engines {sorted(captcha_engines)} for '{original_keyword}' (tried {engines_tried}) - counting as not found/FAILED", extra={'action': 'CAPTCHA_ALL_ENGINES', 'status': 'FAILED', 'engine': engine_name})
+                except Exception:
+                    pass
             elif captcha_engines:
-                session_logger.warning(f"Website not found for '{current_search_keyword}' on {engine_name} after trying {engines_tried} (captcha on {sorted(captcha_engines)})", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'FAILED', 'engine': engine_name})
+                try:
+                    session_logger.warning(f"Website not found for '{current_search_keyword}' on {engine_name} after trying {engines_tried} (captcha on {sorted(captcha_engines)})", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'FAILED', 'engine': engine_name})
+                except Exception:
+                    pass
             else:
-                session_logger.warning(f"Website not found for '{current_search_keyword}' after trying {engines_tried} on all engines", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'FAILED', 'engine': engine_name})
+                try:
+                    session_logger.warning(f"Website not found for '{current_search_keyword}' after trying {engines_tried} on all engines", extra={'action': 'WEBSITE_NOT_FOUND', 'status': 'FAILED', 'engine': engine_name})
+                except Exception:
+                    pass
             failure_count = 1
             status = "FAILED"
             with _STATS_LOCK:
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    return
                 if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
-                    stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+                    if not any(d.get('keyword') == original_keyword for d in stats.get("interrupted", [])):
+                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
 
     except (BrowserError, SearchEngineError, CaptchaDetectedError, TargetNotFoundError, ConfigError) as error:
         # Expected business failures — graceful, counted as FAILED, not a bug
@@ -716,25 +1115,53 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         else:
             status = "INTERRUPTED"
     finally:
-        # Always cleanup driver
+        # Always cleanup driver — close first then unregister (so global close_active_drivers can retry if needed)
         if driver:
+            closed = False
             try:
-                _unregister_driver(driver)
-            except Exception:
-                pass
-            try:
-                close_browser(driver)
+                closed = close_browser(driver, timeout=4.0)
             except Exception as e:
+                closed = False
                 try:
                     session_logger.warning(f"Browser close failed: {e}", extra={'action': 'BROWSER_CLOSE', 'status': 'FAILED', 'error_message': str(e)})
                 except Exception:
                     logger.warning(f"Browser close failed: {e}")
+            # Ensure driver is removed from active set; mark closed correctly for global dedup
+            try:
+                with _ACTIVE_DRIVERS_LOCK:
+                    _ACTIVE_DRIVERS.discard(driver)
+                with _CLOSED_DRIVER_IDS_LOCK:
+                    if closed:
+                        _CLOSED_DRIVER_IDS.add(id(driver))
+                    else:
+                        # Ensure failed stays retryable
+                        _CLOSED_DRIVER_IDS.discard(id(driver))
+            except Exception:
+                pass
+            # Extra profile-based kill if quit didn't fully close (edge leaves msedge.exe)
+            if not closed:
+                try:
+                    from browser.browser import _kill_browsers_by_profile
+                    profile = getattr(driver, "_seo_profile_dir", None)
+                    if profile:
+                        _kill_browsers_by_profile(str(profile))
+                except Exception:
+                    pass
+                try:
+                    _kill_orphaned_browser_profiles()
+                except Exception:
+                    pass
 
         session_end_time = datetime.now()
         if status is None:
             status = "FAILED" if failure_count > 0 else "COMPLETED"
         if stop_event.is_set():
             status = "INTERRUPTED"
+            with _STATS_LOCK:
+                if not any(d.get('keyword') == original_keyword for d in stats["success"]):
+                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                        if not any(d.get('keyword') == original_keyword for d in stats["interrupted"]):
+                            stats["interrupted"].append({"keyword": original_keyword, "engine": engine_name})
 
         _safe_update_run(run_id, session_end_time, status, success_count, failure_count, retry_count, fallback_used=fallback_used, search_keyword=current_search_keyword)
 
@@ -809,6 +1236,7 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
         "total": len(jobs),
         "success": [],
         "failed": [],
+        "interrupted": [],
     }
 
     # Cap workers to avoid idle threads, but ensure at least 1 if jobs exist
@@ -852,8 +1280,25 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
             time.sleep(0.5)
     except KeyboardInterrupt:
         interrupted = True
+        # Silence noisy retry logs BEFORE anything else to prevent flood
+        try:
+            from utils.logger import silence_noisy_loggers
+            silence_noisy_loggers()
+        except Exception:
+            pass
+        try:
+            import logging as _logging
+            for _n in ("urllib3", "urllib3.connectionpool", "selenium", "selenium.webdriver.remote.remote_connection"):
+                _logging.getLogger(_n).setLevel(_logging.ERROR)
+        except Exception:
+            pass
         logger.info("\nCtrl+C detected. Stopping all browser sessions...", extra={'action': 'SESSION_INTERRUPT', 'status': 'RUNNING'})
         stop_event.set()
+        # Immediately close browsers to unblock workers stuck in driver.get / WebDriverWait
+        try:
+            close_active_drivers(stop_event)
+        except Exception:
+            pass
         # Do not re-raise — return partial stats so main.py can still print summary (even on Ctrl+C)
     except Exception as e:
         logger.error(f"Unexpected error in parallel runner: {e}", exc_info=True)
@@ -861,20 +1306,153 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
     finally:
         # Ensure cleanup happens whether jobs complete or are interrupted
         stop_event.set()
+        # Silence again before closing — guarantees no NewConnectionError spam
         try:
-            close_active_drivers()
-        except Exception as e:
-            logger.warning(f"close_active_drivers failed: {e}")
+            from utils.logger import silence_noisy_loggers
+            silence_noisy_loggers()
+        except Exception:
+            pass
+        # Immediately force close browsers to unblock workers stuck in blocking Selenium calls
+        try:
+            close_active_drivers(stop_event)
+        except Exception:
+            pass
+        # Then wait for workers to notice closure and exit gracefully
         for w in workers:
             try:
-                w.join(timeout=5)
+                w.join(timeout=4)
                 if w.is_alive():
-                    logger.warning(f"Worker {w.name} did not exit cleanly")
+                    if not interrupted:
+                        logger.warning(f"Worker {w.name} did not exit cleanly")
+                    else:
+                        logger.info(f"Worker {w.name} still alive after interrupt — forcing browser close")
             except Exception as e:
-                logger.warning(f"Worker join failed for {w.name}: {e}")
+                msg = str(e).lower()
+                if "newconnectionerror" not in msg and "connection refused" not in msg:
+                    try:
+                        logger.warning(f"Worker join failed for {w.name}: {e}")
+                    except Exception:
+                        pass
+        # Second force close for any drivers that were registered after first close or still alive
+        try:
+            close_active_drivers(stop_event)
+        except Exception as e:
+            msg = str(e).lower()
+            if "newconnectionerror" not in msg and "connection refused" not in msg:
+                try:
+                    logger.warning(f"close_active_drivers failed: {e}")
+                except Exception:
+                    pass
+        # Small pause then final check — looped to ensure edge/msedge is killed
+        try:
+            import time as _t
+            for _ in range(3):
+                _t.sleep(0.5)
+                try:
+                    close_active_drivers(stop_event)
+                except Exception:
+                    pass
+                # Also try direct profile sweep via browser helper (covers drivers removed from set)
+                try:
+                    from browser.browser import _kill_browsers_by_profile
+                    # Already done via _kill_orphaned_browser_profiles inside close_active_drivers,
+                    # but do an extra sweep after workers may have removed entries
+                    _kill_orphaned_browser_profiles()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        for w in workers:
+            try:
+                if w.is_alive():
+                    w.join(timeout=2)
+                    if w.is_alive():
+                        # Force kill any remaining browsers then give workers one more chance
+                        try:
+                            close_active_drivers(stop_event)
+                            _kill_orphaned_browser_profiles()
+                        except Exception:
+                            pass
+                        w.join(timeout=1)
+                        if w.is_alive() and not interrupted:
+                            logger.warning(f"Worker {w.name} did not exit cleanly after forced close")
+                        elif w.is_alive():
+                            logger.info(f"Worker {w.name} still alive after interrupt — done (browsers killed)")
+            except Exception as e:
+                msg = str(e).lower()
+                if "newconnectionerror" not in msg and "connection refused" not in msg:
+                    try:
+                        logger.warning(f"Worker join failed for {w.name}: {e}")
+                    except Exception:
+                        pass
+        # Final OS-level orphan sweep — ensures no msedge/chrome ghost windows remain
+        try:
+            _kill_orphaned_browser_profiles()
+            # Last resort Windows taskkill by profile path via browser helper
+            from browser.browser import _kill_browsers_by_profile
+            import pathlib as _pl
+            bp_root = _pl.Path.cwd() / "browser_profiles"
+            if bp_root.exists():
+                # Kill any chrome/msedge still referencing browser_profiles
+                try:
+                    import psutil as _ps4
+                    root_norm = str(bp_root).replace("\\", "/").lower()
+                    for proc in _ps4.process_iter(["pid", "name", "cmdline"]):
+                        try:
+                            cmd = proc.info.get("cmdline")
+                            if cmd and root_norm in " ".join(cmd).replace("\\", "/").lower():
+                                try:
+                                    proc.kill()
+                                except Exception:
+                                    pass
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # If interrupted, drain remaining queued jobs and mark as interrupted
+        # so Session Summary Total (=success+failed+interrupted) matches Automation total
+        # Also handle jobs that were taken by workers but not yet recorded (in-progress)
+        if interrupted:
+            try:
+                remaining = []
+                while True:
+                    try:
+                        kw, eng_name, _ = job_queue.get_nowait()
+                        remaining.append((kw, eng_name))
+                        try:
+                            job_queue.task_done()
+                        except Exception:
+                            pass
+                    except queue.Empty:
+                        break
+                for kw, eng_name in remaining:
+                    with _STATS_LOCK:
+                        if not any(d.get('keyword') == kw for d in stats.get("success", [])):
+                            if not any(d.get('keyword') == kw for d in stats.get("failed", [])):
+                                if not any(d.get('keyword') == kw for d in stats.get("interrupted", [])):
+                                    stats["interrupted"].append({"keyword": kw, "engine": eng_name})
+                # Also add any job that was taken but worker didn't record before being forced closed
+                # Compare all jobs vs accounted keywords
+                try:
+                    all_jobs_keywords = [(kw, eng) for kw, eng, _ in jobs]
+                    accounted = {d.get('keyword') for d in stats.get("success", []) + stats.get("failed", []) + stats.get("interrupted", [])}
+                    for kw, eng in all_jobs_keywords:
+                        if kw not in accounted:
+                            with _STATS_LOCK:
+                                # Double-check still not accounted (race)
+                                if kw not in {d.get('keyword') for d in stats.get("success", []) + stats.get("failed", []) + stats.get("interrupted", [])}:
+                                    stats["interrupted"].append({"keyword": kw, "engine": eng})
+                                    accounted.add(kw)
+                except Exception:
+                    pass
+            except Exception:
+                pass
         # Final summary log — always, even on Ctrl+C
         try:
-            logger.info(f"Parallel run finished: total={stats['total']} success={len(stats['success'])} failed={len(stats['failed'])}", extra={'action': 'SESSION_FINISHED', 'status': 'SUCCESS' if not stats['failed'] else 'COMPLETED'})
+            total_now = len(stats.get("success", [])) + len(stats.get("failed", [])) + len(stats.get("interrupted", []))
+            logger.info(f"Parallel run finished: total={stats.get('total',0)} success={len(stats.get('success',[]))} failed={len(stats.get('failed',[]))} interrupted={len(stats.get('interrupted',[]))} (session_total={total_now})", extra={'action': 'SESSION_FINISHED', 'status': 'SUCCESS' if not stats.get('failed') else 'COMPLETED'})
         except Exception:
             pass
         if interrupted:

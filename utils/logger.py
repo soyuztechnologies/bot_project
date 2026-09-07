@@ -21,6 +21,51 @@ def _enable_logger_adapter_extra_merge():
 
 
 
+class _NoisyConnectionFilter(logging.Filter):
+    """Drop urllib3 retry / connection-refused spam that floods console on Ctrl+C."""
+    _BLOCKED_SUBSTRINGS = (
+        "NewConnectionError",
+        "ConnectionResetError",
+        "Connection pool is full",
+        "Retrying (Retry",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        # Only filter third-party retry noise — keep our own app warnings
+        if record.name.startswith("urllib3") or record.name.startswith("selenium"):
+            for substr in self._BLOCKED_SUBSTRINGS:
+                if substr in msg:
+                    return False
+        return True
+
+
+_NOISY_FILTER = _NoisyConnectionFilter()
+
+
+def silence_noisy_loggers():
+    """Immediately silence urllib3/selenium retries — call on Ctrl+C before closing browsers."""
+    for name in (
+        "urllib3",
+        "urllib3.connectionpool",
+        "selenium",
+        "selenium.webdriver.remote.remote_connection",
+    ):
+        lg = logging.getLogger(name)
+        lg.setLevel(logging.ERROR)
+        # Ensure filter is attached (idempotent)
+        if _NOISY_FILTER not in lg.filters:
+            lg.addFilter(_NOISY_FILTER)
+    # Also filter root handlers so any propagated retry record is still dropped
+    root = logging.getLogger()
+    for h in root.handlers:
+        if _NOISY_FILTER not in h.filters:
+            h.addFilter(_NOISY_FILTER)
+
+
 def setup_logger():
     """
     Set up the root logger to print to stdout with a consistent format.
@@ -43,13 +88,25 @@ def setup_logger():
         "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
     handler.setFormatter(formatter)
+    # Filter noisy retry messages even before explicit silence
+    handler.addFilter(_NOISY_FILTER)
 
     # Add the handler to the logger
     logger.addHandler(handler)
 
-    # Silence noisy third-party libraries
-    logging.getLogger("selenium").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    # Silence noisy third-party libraries — use ERROR to hide WARNING-level
+    # retry spam (NewConnectionError / ConnectionResetError) that floods
+    # console after Ctrl+C when drivers are quit.
+    for name in (
+        "urllib3",
+        "urllib3.connectionpool",
+        "selenium",
+        "selenium.webdriver.remote.remote_connection",
+    ):
+        lg = logging.getLogger(name)
+        lg.setLevel(logging.ERROR)
+        if _NOISY_FILTER not in lg.filters:
+            lg.addFilter(_NOISY_FILTER)
 
 
 

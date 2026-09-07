@@ -120,21 +120,93 @@ def _unregister_driver(driver):
         _ACTIVE_DRIVERS.discard(driver)
 
 
-def close_active_drivers():
-    """Close every browser that is currently running."""
+_CLOSED_DRIVER_IDS = set()
+
+def close_active_drivers(stop_event=None):
+    """Close every browser that is currently running — suppresses NewConnectionError spam and avoids double-close."""
+    # Silence noisy retry logs before quit
+    try:
+        from utils.logger import silence_noisy_loggers
+        silence_noisy_loggers()
+    except Exception:
+        pass
+    try:
+        import logging as _lg
+        for _n in ("urllib3", "urllib3.connectionpool", "selenium", "selenium.webdriver.remote.remote_connection"):
+            _lg.getLogger(_n).setLevel(_lg.ERROR)
+    except Exception:
+        pass
 
     with _ACTIVE_DRIVERS_LOCK:
         drivers = list(_ACTIVE_DRIVERS)
 
-    print(f"Remaining active drivers : {len(drivers)}")
+    if not drivers:
+        return
 
-    for driver in drivers:
+    # Deduplicate — don't close same driver twice *if previous close succeeded*
+    # Keep failed closes retryable
+    to_close = []
+    for d in drivers:
         try:
-            print("Closing remaining browser...")
-            close_browser(driver)
-            print("Remaining browser closed.")
-        except Exception as error:
-            print(f"Failed to close remaining browser : {error}")
+            did = id(d)
+            if did in _CLOSED_DRIVER_IDS:
+                continue
+            # Don't add yet — add only after successful close below
+            to_close.append(d)
+        except Exception:
+            to_close.append(d)
+
+    if not to_close:
+        return
+
+    # Only print once per shutdown, not per call
+    if not (stop_event and stop_event.is_set()):
+        print(f"Remaining active drivers : {len(to_close)}")
+        for driver in to_close:
+            try:
+                print("Closing remaining browser...")
+                ok = close_browser(driver, timeout=4.0)
+                if ok:
+                    try:
+                        _CLOSED_DRIVER_IDS.add(id(driver))
+                    except Exception:
+                        pass
+                    print("Remaining browser closed.")
+                else:
+                    print("Remaining browser forced closed.")
+                    try:
+                        _CLOSED_DRIVER_IDS.add(id(driver))
+                    except Exception:
+                        pass
+            except Exception as error:
+                msg = str(error).lower()
+                if "newconnectionerror" not in msg and "connection refused" not in msg:
+                    print(f"Failed to close remaining browser : {error}")
+    else:
+        # On Ctrl+C, close silently to avoid console flood
+        for driver in to_close:
+            try:
+                ok = close_browser(driver, timeout=4.0)
+                if ok:
+                    try:
+                        _CLOSED_DRIVER_IDS.add(id(driver))
+                    except Exception:
+                        pass
+                else:
+                    # Force-mark as closed even if forced, to avoid retry loop
+                    try:
+                        _CLOSED_DRIVER_IDS.add(id(driver))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+    # Remove closed drivers from active set
+    try:
+        with _ACTIVE_DRIVERS_LOCK:
+            for d in to_close:
+                _ACTIVE_DRIVERS.discard(d)
+    except Exception:
+        pass
 
 
 def retry_operation(
@@ -198,21 +270,26 @@ def retry_operation(
 
             if driver is not None:
 
-                if not is_browser_alive(driver):
+                if not is_browser_alive(driver, stop_event):
 
+                    if stop_event and stop_event.is_set():
+                        return False, None
                     print(
                         f"[RETRY] {operation_name} : "
                         f"browser session is no longer alive."
                     )
 
                     if session_logger is not None:
-                        session_logger.warning(
-                            f"Browser died during {operation_name}",
-                            extra={
-                                "action": "BROWSER_HEALTH",
-                                "status": "FAILED",
-                            },
-                        )
+                        try:
+                            session_logger.warning(
+                                f"Browser died during {operation_name}",
+                                extra={
+                                    "action": "BROWSER_HEALTH",
+                                    "status": "FAILED",
+                                },
+                            )
+                        except Exception:
+                            pass
 
                     return False, None
 
@@ -234,11 +311,18 @@ def retry_operation(
     return False, None
 
 
-def is_browser_alive(driver):
+def is_browser_alive(driver, stop_event=None):
     """
     Check whether the browser session is still alive.
+    Suppresses print spam on Ctrl+C (NewConnectionError).
     """
 
+    if stop_event is not None:
+        try:
+            if stop_event.is_set():
+                return False
+        except Exception:
+            pass
     if not driver:
         return False
 
@@ -249,11 +333,15 @@ def is_browser_alive(driver):
         return True
 
     except Exception as error:
-
-        print(
-            f"[BROWSER] Health check failed : {error}"
-        )
-
+        msg = str(error).lower()
+        if "newconnectionerror" in msg or "connection refused" in msg or "connectionreseterror" in msg or "max retries" in msg or "invalid session" in msg:
+            # Suppress spam after Ctrl+C / driver quit — already silenced via logger filter, don't print
+            return False
+        # Only print for genuine unexpected health failures, not shutdown noise
+        if stop_event is None or not stop_event.is_set():
+            print(
+                f"[BROWSER] Health check failed : {error}"
+            )
         return False
 
 
@@ -466,9 +554,13 @@ def process_youtube_first_flow(
     #  fallback keyword support
     # ---------------------------------------------------------
     if not found:
+        if stop_event.is_set():
+            return False
         extra_keyword = config.get("youtube", {}).get("extra_keyword", "").strip()
 
         if extra_keyword and extra_keyword.lower() not in keyword.lower():
+            if stop_event.is_set():
+                return False
             fallback_keyword = f"{keyword} {extra_keyword}"
 
             print(
@@ -555,7 +647,7 @@ def process_youtube_first_flow(
         stats.record_video_found()
         # Per-keyword tick/cross for summary like main.py
         try:
-            stats.record_keyword_success(keyword, "youtube")
+            stats.record_keyword_success(keyword, "youtube", thread_id=str(threading.get_ident()))
         except Exception:
             pass
 
@@ -626,7 +718,7 @@ def process_youtube_first_flow(
 
         stats.record_video_not_found()
         try:
-            stats.record_keyword_failed(keyword, "youtube")
+            stats.record_keyword_failed(keyword, "youtube", thread_id=str(threading.get_ident()))
         except Exception:
             pass
 
@@ -715,6 +807,7 @@ def run_session(
 
     driver = None
     session_success = True
+    current_keyword = None
 
     # database state: one automation_run per keyword.
     run_ids = {}
@@ -764,8 +857,7 @@ def run_session(
         stats.record_failure()
         return
 
-    stats.record_browser(selected_browser)
-
+    # Browser selected via distribution — record after successful start to handle fallback
     print(
         f"\n[{thread_name}] Selected Browser : "
         f"{selected_browser}"
@@ -819,49 +911,112 @@ def run_session(
         )
 
         # =====================================================
-        # START BROWSER
+        # START BROWSER — with chrome fallback if requested browser missing/failed
         # =====================================================
 
+        driver = None
+        actual_browser = selected_browser
+        original_requested = selected_browser
         try:
-
             driver = setup_browser(
                 config,
                 selected_browser,
             )
+        except Exception as error:
+            # Fallback to chrome if any browser fails (binary not found, startup error, etc.)
+            if str(selected_browser).lower() != "chrome":
+                fallback_browser = "chrome"
+                print(
+                    f"[{thread_name}] Browser '{selected_browser}' not available ({error}), falling back to '{fallback_browser}'"
+                )
+                logger.warning(
+                    f"[{thread_name}] Browser '{selected_browser}' failed ({error}), falling back to '{fallback_browser}'",
+                    extra={
+                        "action": "BROWSER_FALLBACK",
+                        "status": "RETRYING",
+                        "browser": selected_browser,
+                        "fallback": fallback_browser,
+                    },
+                )
+                try:
+                    driver = setup_browser(config, fallback_browser)
+                    actual_browser = fallback_browser
+                    # Update selected for rest of session (stats, logs, thread name)
+                    selected_browser = fallback_browser
+                    print(f"[{thread_name}] Fallback browser '{fallback_browser}' started successfully (requested was '{original_requested}')")
+                except Exception as fb_error:
+                    session_success = False
+                    stats.record_browser_error()
+                    print(
+                        f"[{thread_name}]"
+                        f"[{selected_browser.upper()}] "
+                        f"Browser startup failed : {error} | Fallback '{fallback_browser}' also failed: {fb_error}"
+                    )
+                    logger.error(
+                        f"[{thread_name}][{selected_browser.upper()}] Browser startup failed: {error} | Fallback failed: {fb_error}",
+                        exc_info=True,
+                        extra={
+                            "action": "BROWSER_START_FAILED",
+                            "status": "FAILED",
+                            "browser": selected_browser,
+                            "error_message": str(error),
+                        },
+                    )
+                    traceback.print_exc()
+                    return
+            else:
+                session_success = False
+                stats.record_browser_error()
+                print(
+                    f"[{thread_name}]"
+                    f"[{selected_browser.upper()}] "
+                    f"Browser startup failed : {error}"
+                )
+                logger.error(
+                    f"[{thread_name}][{selected_browser.upper()}] Browser startup failed: {error}",
+                    exc_info=True,
+                    extra={
+                        "action": "BROWSER_START_FAILED",
+                        "status": "FAILED",
+                        "browser": selected_browser,
+                        "error_message": str(error),
+                    },
+                )
+                traceback.print_exc()
+                return
 
+        # Record actual browser used (after fallback)
+        try:
+            stats.record_browser(actual_browser)
+        except Exception:
+            pass
+
+        if driver is not None:
             _register_driver(driver)
 
-            logger.info(
-                f"[{thread_name}][{selected_browser.upper()}] Browser started: {selected_browser}",
-                extra={
-                    "action": "BROWSER_STARTED",
-                    "status": "SUCCESS",
-                    "browser": selected_browser,
-                },
-            )
-
-        except Exception as error:
-
+            if actual_browser.lower() != original_requested.lower():
+                logger.info(
+                    f"[{thread_name}][{actual_browser.upper()}] Browser started: {actual_browser} (fallback from '{original_requested}')",
+                    extra={
+                        "action": "BROWSER_STARTED",
+                        "status": "SUCCESS",
+                        "browser": actual_browser,
+                        "requested": original_requested,
+                    },
+                )
+            else:
+                logger.info(
+                    f"[{thread_name}][{actual_browser.upper()}] Browser started: {actual_browser}",
+                    extra={
+                        "action": "BROWSER_STARTED",
+                        "status": "SUCCESS",
+                        "browser": actual_browser,
+                    },
+                )
+        else:
             session_success = False
             stats.record_browser_error()
-
-            print(
-                f"[{thread_name}]"
-                f"[{selected_browser.upper()}] "
-                f"Browser startup failed : {error}"
-            )
-            logger.error(
-                f"[{thread_name}][{selected_browser.upper()}] Browser startup failed: {error}",
-                exc_info=True,
-                extra={
-                    "action": "BROWSER_START_FAILED",
-                    "status": "FAILED",
-                    "browser": selected_browser,
-                    "error_message": str(error),
-                },
-            )
-            traceback.print_exc()
-
+            print(f"[{thread_name}] Browser startup failed: no driver")
             return
 
         if stop_event.is_set():
@@ -873,7 +1028,13 @@ def run_session(
 
         for keyword in keywords:
 
+            current_keyword = keyword
+
             if stop_event.is_set():
+                try:
+                    stats.record_keyword_interrupted(keyword, selected_search_engine, thread_id=str(threading.get_ident()))
+                except Exception:
+                    pass
                 return
 
             stats.record_keyword()
@@ -924,8 +1085,15 @@ def run_session(
             # Check browser
             # -------------------------------------------------
 
-            if not is_browser_alive(driver):
+            if not is_browser_alive(driver, stop_event):
 
+                if stop_event.is_set():
+                    # Shutdown — don't count as browser error, count as interrupted
+                    try:
+                        stats.record_keyword_interrupted(keyword, selected_search_engine, thread_id=str(threading.get_ident()))
+                    except Exception:
+                        pass
+                    return
                 session_success = False
                 stats.record_browser_error()
 
@@ -935,14 +1103,17 @@ def run_session(
                     f"Browser session disconnected."
                 )
 
-                session_logger.warning(
-                    f"Browser session disconnected for keyword: {keyword}",
-                    extra={
-                        "action": "BROWSER_HEALTH",
-                        "status": "FAILED",
-                        "keyword": keyword,
-                    },
-                )
+                try:
+                    session_logger.warning(
+                        f"Browser session disconnected for keyword: {keyword}",
+                        extra={
+                            "action": "BROWSER_HEALTH",
+                            "status": "FAILED",
+                            "keyword": keyword,
+                        },
+                    )
+                except Exception:
+                    pass
 
                 return
 
@@ -983,41 +1154,67 @@ def run_session(
                 if not success:
 
                     session_success = False
-                    stats.record_keyword_failure()
-                    try:
-                        stats.record_keyword_failed(keyword, "youtube")
-                    except Exception:
-                        pass
+                    if not stop_event.is_set():
+                        stats.record_keyword_failure()
+                        try:
+                            stats.record_keyword_failed(keyword, "youtube", thread_id=str(threading.get_ident()))
+                        except Exception:
+                            pass
 
-                    session_logger.warning(
-                        f"[YOUTUBE_FIRST] Failed for keyword: {keyword}",
-                        extra={
-                            "action": "YOUTUBE_FIRST_FAILED",
-                            "status": "FAILED",
-                            "keyword": keyword,
-                        },
-                    )
+                        try:
+                            session_logger.warning(
+                                f"[YOUTUBE_FIRST] Failed for keyword: {keyword}",
+                                extra={
+                                    "action": "YOUTUBE_FIRST_FAILED",
+                                    "status": "FAILED",
+                                    "keyword": keyword,
+                                },
+                            )
+                        except Exception:
+                            pass
 
-                    _safe_update_automation_run(
-                        run_ids.get(keyword),
-                        keyword,
-                        "FAILED",
-                        retry_count=retry_trackers.get(keyword, {}).get("count", 0),
-                        fallback_used=False,
-                        search_keyword=keyword,
-                    )
-
-                    if not is_browser_alive(driver):
-
-                        stats.record_browser_error()
-                        session_logger.warning(
-                            f"Browser died after YOUTUBE_FIRST failure for keyword: {keyword}",
-                            extra={
-                                "action": "BROWSER_HEALTH",
-                                "status": "FAILED",
-                                "keyword": keyword,
-                            },
+                        _safe_update_automation_run(
+                            run_ids.get(keyword),
+                            keyword,
+                            "FAILED",
+                            retry_count=retry_trackers.get(keyword, {}).get("count", 0),
+                            fallback_used=False,
+                            search_keyword=keyword,
                         )
+                    else:
+                        try:
+                            stats.record_keyword_interrupted(keyword, "youtube", thread_id=str(threading.get_ident()))
+                        except Exception:
+                            pass
+                        _safe_update_automation_run(
+                            run_ids.get(keyword),
+                            keyword,
+                            "INTERRUPTED",
+                            retry_count=retry_trackers.get(keyword, {}).get("count", 0),
+                            fallback_used=False,
+                            search_keyword=keyword,
+                        )
+
+                    if not is_browser_alive(driver, stop_event):
+
+                        if stop_event.is_set():
+                            try:
+                                stats.record_keyword_interrupted(keyword, "youtube", thread_id=str(threading.get_ident()))
+                            except Exception:
+                                pass
+                            return
+                        stats.record_browser_error()
+                        try:
+                            session_logger.warning(
+                                f"Browser died after YOUTUBE_FIRST failure for keyword: {keyword}",
+                                extra={
+                                    "action": "BROWSER_HEALTH",
+                                    "status": "FAILED",
+                                    "keyword": keyword,
+                                },
+                            )
+                        except Exception:
+                            pass
                         return
 
                 else:
@@ -1281,8 +1478,10 @@ def run_session(
                 # Captcha / verification check (all engines, browser-agnostic)
                 # -------------------------------------------------
 
+                if stop_event.is_set():
+                    return
                 try:
-                    if is_captcha_page(driver, current_engine):
+                    if is_captcha_page(driver, current_engine, stop_event):
                         print()
                         print(f"[SEARCH ENGINE] Captcha/verification detected on {current_engine.upper()}.")
                         print(f"[SEARCH ENGINE] {current_engine.upper()} unavailable for this keyword.")
@@ -1605,7 +1804,7 @@ def run_session(
                     stats.record_video_found()
                     try:
                         # For tick/cross summary like main.py
-                        stats.record_keyword_success(keyword, current_engine)
+                        stats.record_keyword_success(keyword, current_engine, thread_id=str(threading.get_ident()))
                     except Exception:
                         pass
 
@@ -1805,14 +2004,19 @@ def run_session(
 
             if not keyword_completed:
 
+                last_engine_tmp = fallback_engines[-1] if fallback_engines else selected_search_engine
+                if stop_event.is_set():
+                    try:
+                        stats.record_keyword_interrupted(keyword, last_engine_tmp, thread_id=str(threading.get_ident()))
+                    except Exception:
+                        pass
+                    return
                 session_success = False
 
                 stats.record_keyword_failure()
                 stats.record_video_not_found()
                 try:
-                    # Determine last attempted engine for per-keyword summary
-                    last_engine = fallback_engines[-1] if fallback_engines else selected_search_engine
-                    stats.record_keyword_failed(keyword, last_engine)
+                    stats.record_keyword_failed(keyword, last_engine_tmp, thread_id=str(threading.get_ident()))
                 except Exception:
                     pass
 
@@ -1854,18 +2058,27 @@ def run_session(
                     },
                 )
 
-                if not is_browser_alive(driver):
+                if not is_browser_alive(driver, stop_event):
 
+                    if stop_event.is_set():
+                        try:
+                            stats.record_keyword_interrupted(keyword, last_engine_tmp, thread_id=str(threading.get_ident()))
+                        except Exception:
+                            pass
+                        return
                     stats.record_browser_error()
 
-                    session_logger.warning(
-                        f"Browser died after exhausting engines for keyword: {keyword}",
-                        extra={
-                            "action": "BROWSER_HEALTH",
-                            "status": "FAILED",
-                            "keyword": keyword,
-                        },
-                    )
+                    try:
+                        session_logger.warning(
+                            f"Browser died after exhausting engines for keyword: {keyword}",
+                            extra={
+                                "action": "BROWSER_HEALTH",
+                                "status": "FAILED",
+                                "keyword": keyword,
+                            },
+                        )
+                    except Exception:
+                        pass
 
                     return
 
@@ -1909,17 +2122,27 @@ def run_session(
         if not stop_event.is_set():
             stats.record_failure()
             try:
-                stats.record_keyword_failed(keywords[0] if keywords else "unknown", selected_search_engine)
+                stats.record_keyword_failed(current_keyword or (keywords[0] if keywords else "unknown"), selected_search_engine, thread_id=str(threading.get_ident()))
             except Exception:
                 pass
             print(f"[{thread_name}][{selected_browser.upper()}] YouTube business failure: {error} [{type(error).__name__}]")
             logger.warning(f"YouTube business failure for {thread_name}: {error} [{type(error).__name__}]", exc_info=False, extra={"action": "SESSION_BUSINESS_FAILURE", "status": "FAILED", "error_message": str(error)})
+        else:
+            try:
+                stats.record_keyword_interrupted(current_keyword or (keywords[0] if keywords else "unknown"), selected_search_engine, thread_id=str(threading.get_ident()))
+            except Exception:
+                pass
     except UnhandledAutomationError as error:
         session_success = False
         if not stop_event.is_set():
             stats.record_failure()
             print(f"[{thread_name}][{selected_browser.upper()}] YouTube unhandled error: {error} cause={error.cause}")
             logger.error(f"YouTube unhandled error for {thread_name}: {error} cause={error.cause}", exc_info=True, extra={"action": "SESSION_UNHANDLED", "status": "FAILED", "error_message": str(error)})
+        else:
+            try:
+                stats.record_keyword_interrupted(current_keyword or (keywords[0] if keywords else "unknown"), selected_search_engine, thread_id=str(threading.get_ident()))
+            except Exception:
+                pass
     except Exception as error:
         wrapped = wrap_unexpected(error, f"YouTube session {thread_name}")
         session_success = False
@@ -1928,12 +2151,28 @@ def run_session(
             print(f"[{thread_name}][{selected_browser.upper()}] YouTube Session Error (bug): {wrapped}")
             logger.error(f"YouTube Session Error (bug) for {thread_name}: {wrapped}", exc_info=True, extra={"action": "SESSION_BUG", "status": "FAILED", "error_message": str(wrapped)})
             traceback.print_exc()
+        else:
+            try:
+                stats.record_keyword_interrupted(current_keyword or (keywords[0] if keywords else "unknown"), selected_search_engine, thread_id=str(threading.get_ident()))
+            except Exception:
+                pass
 
     # =========================================================
     # CLOSE BROWSER
     # =========================================================
 
     finally:
+
+        if stop_event.is_set() and current_keyword:
+            try:
+                # Dedup by keyword+thread only (engine ignored) — prevents double-count per worker
+                tid = str(threading.get_ident())
+                if not any(str(d.get("keyword"))==str(current_keyword) and str(d.get("thread_id", tid))==tid for d in stats.interrupted):
+                    if not any(str(d.get("keyword"))==str(current_keyword) and str(d.get("thread_id", tid))==tid for d in stats.failed):
+                        if not any(str(d.get("keyword"))==str(current_keyword) and str(d.get("thread_id", tid))==tid for d in stats.success):
+                            stats.record_keyword_interrupted(current_keyword, selected_search_engine, thread_id=tid)
+            except Exception:
+                pass
 
         if driver:
 
@@ -2028,22 +2267,44 @@ def start_parallel_sessions(keywords, config, search_engines):
 
     except KeyboardInterrupt:
         interrupted = True
+        # Silence retry logs immediately to prevent NewConnectionError flood
+        try:
+            from utils.logger import silence_noisy_loggers
+            silence_noisy_loggers()
+        except Exception:
+            pass
+        try:
+            import logging as _lg
+            for _n in ("urllib3","urllib3.connectionpool","selenium","selenium.webdriver.remote.remote_connection"):
+                _lg.getLogger(_n).setLevel(_lg.ERROR)
+        except Exception:
+            pass
         print("\nCtrl+C detected. Stopping automation...")
         logger.info("YouTube automation interrupted by user (Ctrl+C).", extra={"action": "SESSION_INTERRUPT", "status": "INTERRUPTED"})
 
         stop_event.set()
+        # Immediately close browsers to unblock workers stuck in driver.get / wait
+        try:
+            close_active_drivers(stop_event)
+        except Exception:
+            pass
 
         for worker in workers:
             try:
-                worker.join(timeout=5)
+                worker.join(timeout=4)
             except Exception:
                 pass
 
         print("All workers stopped. Closing remaining browsers...")
         try:
-            close_active_drivers()
+            close_active_drivers(stop_event)
         except Exception as e:
-            logger.warning(f"close_active_drivers failed during interrupt: {e}", extra={"action": "BROWSER_CLOSE", "status": "FAILED"})
+            msg = str(e).lower()
+            if "newconnectionerror" not in msg and "connection refused" not in msg:
+                try:
+                    logger.warning(f"close_active_drivers failed during interrupt: {e}", extra={"action": "BROWSER_CLOSE", "status": "FAILED"})
+                except Exception:
+                    pass
 
         print("Automation stopped.")
         result = False
@@ -2061,22 +2322,63 @@ def start_parallel_sessions(keywords, config, search_engines):
         result = False
 
     finally:
-        # Always print summary even on Ctrl+C or error — like main.py
+        # Silence before final cleanup to avoid NewConnectionError spam
+        try:
+            from utils.logger import silence_noisy_loggers
+            silence_noisy_loggers()
+        except Exception:
+            pass
+        # Ensure any remaining browsers are closed BEFORE summary — so summary not shown while browser still open
+        # First give workers a chance to exit and close their own browsers
+        try:
+            for w in workers:
+                try:
+                    w.join(timeout=2)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            close_active_drivers(stop_event)
+            # Small pause then second check for drivers that were registered after first close
+            import time as _t
+            _t.sleep(0.5)
+            close_active_drivers(stop_event)
+            # Final join to let workers notice driver closure
+            for w in workers:
+                try:
+                    if w.is_alive():
+                        w.join(timeout=2)
+                except Exception:
+                    pass
+        except Exception as e:
+            msg = str(e).lower()
+            if "newconnectionerror" not in msg and "connection refused" not in msg:
+                try:
+                    logger.warning(f"close_active_drivers in finally failed: {e}", extra={"action": "BROWSER_CLOSE", "status": "FAILED"})
+                except Exception:
+                    pass
+        # Always print summary even on Ctrl+C or error — like main.py (now after browsers closed)
         try:
             stats.print_summary()
-        except Exception as summary_error:
-            logger.error(f"Failed to print YouTube summary: {summary_error}", exc_info=True)
-            # Fallback console summary
+            # Consistent Browser Mode line like SEO (main.py) for both flows
             try:
-                print(f"\nYouTube Summary (fallback): sessions={stats.total_sessions} success={stats.successful_sessions} failed={stats.failed_sessions}")
+                browser_mode = config.get("browser", {}).get("mode", "unknown") if config else "unknown"
+                import logging as _lg
+                _lg.getLogger(__name__).info(f"Browser Mode: {str(browser_mode).capitalize()}", extra={"action":"SESSION_FINISHED","status":"SUCCESS"})
+                print(f"Browser Mode: {str(browser_mode).capitalize()}")
             except Exception:
                 pass
-
-        # Ensure any remaining browsers are closed
-        try:
-            close_active_drivers()
-        except Exception as e:
-            logger.warning(f"close_active_drivers in finally failed: {e}", extra={"action": "BROWSER_CLOSE", "status": "FAILED"})
+        except Exception as summary_error:
+            try:
+                logger.error(f"Failed to print YouTube summary: {summary_error}", exc_info=True)
+            except Exception:
+                pass
+            # Fallback console summary
+            try:
+                print(f"\nYouTube Summary (fallback): sessions={stats.total_sessions} success={stats.successful_sessions} failed={stats.failed_sessions} interrupted={len(stats.interrupted)}")
+            except Exception:
+                pass
 
         if interrupted:
             logger.info("YouTube automation ended due to interruption.", extra={"action": "SESSION_INTERRUPT", "status": "INTERRUPTED"})
@@ -2162,24 +2464,38 @@ def start_parallel_sessions_with_queue(keywords, config, search_engines, stats=N
     finally:
         stop_event.set()
         try:
-            close_active_drivers()
-        except Exception as e:
-            logger.warning(f"close_active_drivers failed: {e}", extra={"action": "BROWSER_CLOSE", "status": "FAILED"})
+            from utils.logger import silence_noisy_loggers
+            silence_noisy_loggers()
+        except Exception:
+            pass
+        # Wait for workers first, then close browsers before summary
         for worker in workers:
             try:
-                worker.join(timeout=2)
+                worker.join(timeout=3)
                 if worker.is_alive():
                     logger.warning(f"Worker {worker.name} did not exit cleanly", extra={"action": "SESSION_INTERRUPT", "status": "FAILED"})
             except Exception as e:
                 logger.warning(f"Worker join failed: {e}", extra={"action": "SESSION_INTERRUPT", "status": "FAILED"})
+        try:
+            close_active_drivers(stop_event)
+            import time as _t
+            _t.sleep(0.5)
+            close_active_drivers(stop_event)
+        except Exception as e:
+            msg = str(e).lower()
+            if "newconnectionerror" not in msg and "connection refused" not in msg:
+                try:
+                    logger.warning(f"close_active_drivers failed: {e}", extra={"action": "BROWSER_CLOSE", "status": "FAILED"})
+                except Exception:
+                    pass
 
-        # Always print summary even on Ctrl+C or error — matches main.py
+        # Always print summary even on Ctrl+C or error — matches main.py (after browsers closed)
         try:
             stats.print_summary()
         except Exception as summary_error:
             logger.error(f"Failed to print YouTube queue summary: {summary_error}", exc_info=True)
             try:
-                print(f"\nYouTube Queue Summary (fallback): sessions={stats.total_sessions} success={stats.successful_sessions} failed={stats.failed_sessions}")
+                print(f"\nYouTube Queue Summary (fallback): sessions={stats.total_sessions} success={stats.successful_sessions} failed={stats.failed_sessions} interrupted={len(stats.interrupted)}")
             except Exception:
                 pass
 

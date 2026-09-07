@@ -210,9 +210,11 @@ def print_summary(stats, config):
     """Prints a formatted summary of the automation results."""
     success_sessions = stats.get("success", [])
     failed_sessions = stats.get("failed", [])
-    total_sessions = stats.get("total", len(success_sessions) + len(failed_sessions))
+    interrupted_sessions = stats.get("interrupted", [])
+    total_sessions = stats.get("total", len(success_sessions) + len(failed_sessions) + len(interrupted_sessions))
     success_count = len(success_sessions)
     failed_count = len(failed_sessions)
+    interrupted_count = len(interrupted_sessions)
  
     # Sort for consistent output
     success_sessions.sort(key=lambda x: x["keyword"])
@@ -254,11 +256,29 @@ def print_summary(stats, config):
             except Exception:
                 pass
  
+    if failed_sessions and interrupted_sessions:
+        print(flush=True)
+
+    for session in interrupted_sessions:
+        try:
+            print(f"⏹ {session['keyword']:<30} [{session['engine']}]", flush=True)
+        except UnicodeEncodeError:
+            print(f"[INT] {session['keyword']:<30} [{session['engine']}]", flush=True)
+        except Exception:
+            try:
+                print(str(session), flush=True)
+            except Exception:
+                pass
+
+    if interrupted_sessions and (success_sessions or failed_sessions):
+        print(flush=True)
+
     print(f"{ts} - INFO - " + "-" * 50, flush=True)
     print(f"{ts} - INFO - Browser Mode: {config['browser']['mode'].capitalize()}", flush=True)
     print(f"{ts} - INFO - Total   : {total_sessions}", flush=True)
     print(f"{ts} - INFO - Success : {success_count}", flush=True)
     print(f"{ts} - INFO - Failed  : {failed_count}", flush=True)
+    print(f"{ts} - INFO - Interrupted : {interrupted_count}", flush=True)
     print(f"{ts} - INFO - " + "=" * 50, flush=True)
  
  
@@ -308,6 +328,18 @@ def main():
  
     except KeyboardInterrupt:
         interrupted = True
+        # Silence retry spam immediately on Ctrl+C before any driver cleanup
+        try:
+            from utils.logger import silence_noisy_loggers
+            silence_noisy_loggers()
+        except Exception:
+            pass
+        try:
+            import logging as _logging
+            for _n in ("urllib3", "urllib3.connectionpool", "selenium", "selenium.webdriver.remote.remote_connection"):
+                _logging.getLogger(_n).setLevel(_logging.ERROR)
+        except Exception:
+            pass
         logger.info("\nAutomation stopped by user (Ctrl+C).")
     except (ConfigError, ValidationError) as error:
         # Expected config errors — graceful, user-friendly
