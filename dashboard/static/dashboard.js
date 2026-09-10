@@ -164,6 +164,11 @@ function updateHeader() {
         "automationTitle",
         name
     );
+
+    setText(
+        "heroTitle",
+        `${name} automation is under control.`
+    );
 }
 
 
@@ -204,6 +209,62 @@ function updateSidebar() {
             button.classList.toggle(
                 "active-automation",
                 active
+            );
+        });
+}
+
+/* =========================================================
+   AUTOMATION LOADER
+   ========================================================= */
+
+function showAutomationLoader() {
+
+    const loader =
+        $("automationLoader");
+
+    if (loader) {
+        loader.hidden = false;
+        loader.classList.add("is-visible");
+    }
+
+    document
+        .querySelectorAll(
+            ".automation-switch-btn"
+        )
+        .forEach(button => {
+
+            button.disabled = true;
+
+            button.classList.add(
+                "is-loading"
+            );
+        });
+}
+
+
+function hideAutomationLoader() {
+
+    const loader =
+        $("automationLoader");
+
+    if (loader) {
+        loader.classList.remove(
+            "is-visible"
+        );
+
+        loader.hidden = true;
+    }
+
+    document
+        .querySelectorAll(
+            ".automation-switch-btn"
+        )
+        .forEach(button => {
+
+            button.disabled = false;
+
+            button.classList.remove(
+                "is-loading"
             );
         });
 }
@@ -252,7 +313,14 @@ async function setAutomation(mode, view = null) {
     updateSidebar();
     updateHeader();
 
-    await loadAutomationData(normalized);
+    showAutomationLoader();
+
+    try {
+        await loadAutomationData(normalized);
+    }
+    finally {
+        hideAutomationLoader();
+    }
 
     // renderDashboardView();
 }
@@ -434,41 +502,35 @@ function nav() {
 
 async function health() {
     try {
+        const response = await fetch(
+            "/api/health",
+            {
+                cache: "no-store"
+            }
+        );
 
-        const response =
-            await fetch(
-                "/api/health",
-                {
-                    cache: "no-store"
-                }
-            );
+        let data = {};
 
-        if (!response.ok) {
-            throw new Error(
-                `Health API: ${response.status}`
-            );
+        try {
+            data = await response.json();
+        } catch (jsonError) {
+            data = {};
         }
 
-        const data =
-            await response.json();
+        if (data.status === "connected") {
+            setText("dbStatus", "Connected");
+            return;
+        }
 
-        const connected =
-            data.status === "connected";
+        if (data.status === "disconnected") {
+            setText("dbStatus", "Disconnected");
+            return;
+        }
 
-        setText(
-            "dbStatus",
-            connected
-                ? "Connected"
-                : "Disconnected"
-        );
+        setText("dbStatus", "Unavailable");
 
-    }
-    catch (error) {
-
-        setText(
-            "dbStatus",
-            "Unavailable"
-        );
+    } catch (error) {
+        setText("dbStatus", "Unavailable");
 
         console.error(
             "Database health error:",
@@ -1214,18 +1276,24 @@ function renderActivity(
         {
             label: "Total",
             data: totals,
+            borderColor: "#5b8cff",
+            backgroundColor: "#5b8cff",
             tension: 0.35,
             fill: false
         },
         {
             label: "Successful",
             data: successful,
+            borderColor: "#35d39a",
+            backgroundColor: "#35d39a",
             tension: 0.35,
             fill: false
         },
         {
             label: "Failed",
             data: failed,
+            borderColor: "#ff6577",
+            backgroundColor: "#ff6577",
             tension: 0.35,
             fill: false
         }
@@ -1401,7 +1469,13 @@ function renderHealth(
                     labels,
                     datasets: [
                         {
-                            data: values
+                            data: values,
+                            backgroundColor: [
+                                "#35d39a", // Successful - GREEN
+                                "#ff6577", // Failed - RED
+                                "#f4bd54", // Running - AMBER
+                                "#ffd45c"  // Interrupted - YELLOW
+                            ]
                         }
                     ]
                 },
@@ -1446,132 +1520,49 @@ function updateEngineVisibility() {
 
 
 /* =========================================================
-   SEARCH ENGINES
+   SEARCH ENGINE PERFORMANCE
    ========================================================= */
 
 function renderEngines(engines = []) {
-    
 
-    
+    const filteredEngines =
+        engines.filter(engine => {
 
-    const container = $("engineBars");
+            const name =
+                String(
+                    engine.engine ??
+                    engine.search_engine ??
+                    engine.name ??
+                    ""
+                )
+                    .trim()
+                    .toUpperCase();
 
-    if (container) {
-
-        if (
-            !Array.isArray(engines) ||
-            engines.length === 0
-        ) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    No search-engine data available.
-                </div>
-            `;
-        } else {
-
-            const rows = engines
-                .map(engine => {
-
-                    const total = toNumber(
-                        engine.total ??
-                        engine.total_runs ??
-                        engine.runs ??
-                        engine.count ??
-                        0
-                    );
-
-                    const successful = toNumber(
-                        engine.success ??
-                        engine.successful_runs ??
-                        engine.successful ??
-                        0
-                    );
-
-                    const failed = toNumber(
-                        engine.failed ??
-                        engine.failed_runs ??
-                        0
-                    );
-
-                    const rate =
-                        engine.success_rate !== undefined
-                            ? toNumber(engine.success_rate)
-                            : total
-                                ? (successful / total) * 100
-                                : 0;
-
-                    return {
-                        name:
-                            engine.engine ??
-                            engine.search_engine ??
-                            engine.name ??
-                            "Unknown",
-
-                        total,
-                        successful,
-                        failed,
-                        rate
-                    };
-
-                })
-                .sort(
-                    (a, b) =>
-                        b.total - a.total
-                );
-
-            const max = Math.max(
-                ...rows.map(row => row.total),
-                1
+            /*
+             * YouTube is NOT a search engine.
+             * Hide it from Search Engine Performance.
+             */
+            return !(
+                state.automation === "YOUTUBE" &&
+                name === "YOUTUBE"
             );
+        });
 
-            container.innerHTML =
-                rows
-                    .map(row => `
-                        <div class="bar-row">
-
-                            <div class="bar-label">
-                                <span>
-                                    ${escapeHtml(row.name)}
-                                </span>
-
-                                <strong>
-                                    ${formatNumber(row.total)}
-                                </strong>
-                            </div>
-
-                            <div class="bar-track">
-                                <div
-                                    class="bar-fill"
-                                    style="
-                                        width:${(
-                                            row.total / max * 100
-                                        ).toFixed(1)}%;
-                                    "
-                                ></div>
-                            </div>
-
-                            <div class="bar-meta">
-                                ${formatNumber(row.successful)}
-                                successful
-                                ·
-                                ${formatNumber(row.failed)}
-                                failed
-                                ·
-                                ${formatPercent(row.rate)}
-                            </div>
-
-                        </div>
-                    `)
-                    .join("");
-        }
-    }
+    engines = filteredEngines;
 
 
     /*
-     * Legacy chart support
+     * SEARCH ENGINE PERFORMANCE CHART
+     *
+     * Only TOTAL RUNS are shown here.
+     *
+     * Successful / Failed are intentionally
+     * NOT included because they are shown
+     * in the detailed Search Engines page.
      */
 
-    const canvas = $("engineChart");
+    const canvas =
+        $("searchEnginePerformanceChart");
 
     if (
         !canvas ||
@@ -1580,62 +1571,383 @@ function renderEngines(engines = []) {
         return;
     }
 
-    // canvas.style.display = "";
 
-    destroyChart("engines");
+    /*
+     * No data
+     */
 
-    const labels = engines.map(
-        item =>
-            item.engine ??
-            item.search_engine ??
-            item.name ??
-            "Unknown"
+    if (
+        !Array.isArray(engines) ||
+        engines.length === 0
+    ) {
+
+        destroyChart(
+            "searchEnginePerformance"
+        );
+
+        return;
+    }
+
+
+    /*
+     * Labels
+     */
+
+    const labels =
+        engines.map(
+            item =>
+                item.engine ??
+                item.search_engine ??
+                item.name ??
+                "Unknown"
+        );
+
+
+    /*
+     * Total runs only
+     */
+
+    const totals =
+        engines.map(
+            item =>
+                toNumber(
+                    item.total ??
+                    item.total_runs ??
+                    item.runs ??
+                    item.count ??
+                    0
+                )
+        );
+
+
+    /*
+     * Destroy previous chart
+     */
+
+    destroyChart(
+        "searchEnginePerformance"
     );
 
-    const values = engines.map(
-        item =>
-            Number(
-                item.total ??
-                item.total_runs ??
-                item.runs ??
-                item.count ??
-                0
-            )
-    );
 
-    state.charts.engines =
+    /*
+     * Vertical bar chart
+     */
+
+    state.charts.searchEnginePerformance =
         new Chart(
             canvas,
             {
                 type: "bar",
 
                 data: {
+
                     labels,
 
                     datasets: [
                         {
-                            label: "Runs",
-                            data: values
+                            label: "Total Runs",
+
+                            data: totals,
+
+                            backgroundColor:
+                                "#5b8cff",
+
+                            borderColor:
+                                "#5b8cff",
+
+                            borderWidth: 0,
+
+                            borderRadius: 6,
+
+                            barPercentage: 0.55,
+
+                            categoryPercentage: 0.65
                         }
                     ]
                 },
 
+
                 options: {
+
                     responsive: true,
+
                     maintainAspectRatio: false,
 
+
+                    plugins: {
+
+                        legend: {
+                            display: false
+                        },
+
+                        tooltip: {
+
+                            enabled: true,
+
+                            backgroundColor:
+                                "#101827",
+
+                            borderColor:
+                                "#243249",
+
+                            borderWidth: 1,
+
+                            titleColor:
+                                "#ffffff",
+
+                            bodyColor:
+                                "#aebbd0",
+
+                            padding: 12,
+
+                            displayColors: false,
+
+                            callbacks: {
+
+                                label: context =>
+                                    ` ${formatNumber(
+                                        context.raw
+                                    )} runs`
+                            }
+                        }
+                    },
+
+
                     scales: {
-                        y: {
-                            beginAtZero: true,
+
+                        x: {
+
+                            grid: {
+                                display: false
+                            },
 
                             ticks: {
-                                precision: 0
+
+                                color:
+                                    "#8b98aa",
+
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        },
+
+
+                        y: {
+
+                            beginAtZero: true,
+
+                            grid: {
+
+                                color:
+                                    "rgba(139,152,170,0.08)"
+                            },
+
+                            ticks: {
+
+                                color:
+                                    "#707d91",
+
+                                precision: 0,
+
+                                font: {
+                                    size: 10
+                                }
                             }
                         }
                     }
                 }
             }
         );
+}
+
+
+    /* =========================================================
+    YOUTUBE PERFORMANCE
+    ========================================================= */
+
+    function renderYoutubePerformance(
+    youtube = null
+) {
+    const section =
+        $("youtubePerformanceSection");
+
+    const container =
+        $("youtubePerformanceBars");
+
+    if (!section || !container) {
+        return;
+    }
+
+    /*
+     * Show this panel only for YouTube automation.
+     */
+    if (state.automation !== "YOUTUBE") {
+        section.hidden = true;
+        container.innerHTML = "";
+        return;
+    }
+
+    section.hidden = false;
+
+    /*
+     * YouTube performance data comes
+     * directly from state.data.youtube
+     */
+    const youtubeData =
+        youtube || {
+            total: 0,
+            success: 0,
+            failed: 0,
+            success_rate: 0
+        };
+
+    const total =
+        toNumber(
+            youtubeData.total ??
+            youtubeData.total_runs ??
+            youtubeData.runs ??
+            youtubeData.count ??
+            0
+        );
+
+    const successful =
+        toNumber(
+            youtubeData.success ??
+            youtubeData.successful_runs ??
+            youtubeData.successful ??
+            0
+        );
+
+    const failed =
+        toNumber(
+            youtubeData.failed ??
+            youtubeData.failed_runs ??
+            0
+        );
+
+    const rate =
+        youtubeData.success_rate !== undefined
+            ? toNumber(
+                youtubeData.success_rate
+            )
+            : total
+                ? (
+                    successful /
+                    total
+                ) * 100
+                : 0;
+
+    container.innerHTML = `
+        <div class="bar-row">
+
+            <div class="bar-label">
+                <span>
+                    Total
+                </span>
+
+                <strong>
+                    ${formatNumber(total)}
+                </strong>
+            </div>
+
+            <div class="bar-track">
+                <div
+                    class="bar-fill youtube-total"
+                    style="width:100%"
+                ></div>
+            </div>
+
+        </div>
+
+
+        <div class="bar-row">
+
+            <div class="bar-label">
+                <span>
+                    Successful
+                </span>
+
+                <strong>
+                    ${formatNumber(successful)}
+                </strong>
+            </div>
+
+            <div class="bar-track">
+                <div
+                    class="bar-fill youtube-success"
+                    style="
+                        width:${
+                            total
+                                ? (
+                                    successful /
+                                    total *
+                                    100
+                                ).toFixed(1)
+                                : 0
+                        }%
+                    "
+                ></div>
+            </div>
+
+        </div>
+
+
+        <div class="bar-row">
+
+            <div class="bar-label">
+                <span>
+                    Failed
+                </span>
+
+                <strong>
+                    ${formatNumber(failed)}
+                </strong>
+            </div>
+
+            <div class="bar-track">
+                <div
+                    class="bar-fill youtube-failed"
+                    style="
+                        width:${
+                            total
+                                ? (
+                                    failed /
+                                    total *
+                                    100
+                                ).toFixed(1)
+                                : 0
+                        }%
+                    "
+                ></div>
+            </div>
+
+        </div>
+
+
+        <div class="bar-row">
+
+            <div class="bar-label">
+                <span>
+                    Success Rate
+                </span>
+
+                <strong>
+                    ${formatPercent(rate)}
+                </strong>
+            </div>
+
+            <div class="bar-track">
+                <div
+                    class="bar-fill youtube-rate"
+                    style="
+                        width:${rate.toFixed(1)}%
+                    "
+                ></div>
+            </div>
+
+        </div>
+    `;
 }
 
 
@@ -1648,8 +1960,16 @@ function renderCurrentMode() {
 
     switch (state.activeView) {
         case "overview":
-           renderOverview();
-           renderEngines(state.data?.engines || []);
+            renderOverview();
+
+            renderEngines(
+                state.data?.engines || []
+            );
+
+            renderYoutubePerformance(
+                state.data?.youtube || null
+            );
+
             break;
 
         case "runs":
@@ -1674,6 +1994,9 @@ function renderCurrentMode() {
         default:
             renderOverview();
             renderEngines(state.data?.engines || []);
+            renderYoutubePerformance(
+                state.data?.youtube || null
+            );
             break;
     }
 }
@@ -1748,7 +2071,217 @@ function renderEnginesView() {
 
     canvas.style.display = "";
 
-    renderEngines(state.data?.engines || []);
+    renderSearchEnginesPage(
+        state.data?.engines || []
+    );
+}
+
+function renderSearchEnginesPage(engines = []) {
+
+    const canvas = $("engineChart");
+
+    if (
+        !canvas ||
+        typeof Chart === "undefined"
+    ) {
+        return;
+    }
+
+    /*
+     * Search Engines page should show
+     * actual search-engine performance.
+     *
+     * YouTube is NOT a search engine.
+     */
+    const filteredEngines =
+        (Array.isArray(engines) ? engines : [])
+            .filter(engine => {
+
+                const name =
+                    String(
+                        engine.engine ??
+                        engine.search_engine ??
+                        engine.name ??
+                        ""
+                    )
+                        .trim()
+                        .toUpperCase();
+
+                return name !== "YOUTUBE";
+            });
+
+    destroyChart("enginePerformance");
+
+    if (filteredEngines.length === 0) {
+        return;
+    }
+
+    const labels =
+        filteredEngines.map(
+            engine =>
+                engine.engine ??
+                engine.search_engine ??
+                engine.name ??
+                "Unknown"
+        );
+
+    const total =
+        filteredEngines.map(
+            engine =>
+                toNumber(
+                    engine.total ??
+                    engine.total_runs ??
+                    engine.runs ??
+                    engine.count ??
+                    0
+                )
+        );
+
+    const successful =
+        filteredEngines.map(
+            engine =>
+                toNumber(
+                    engine.success ??
+                    engine.successful_runs ??
+                    engine.successful ??
+                    0
+                )
+        );
+
+    const failed =
+        filteredEngines.map(
+            engine =>
+                toNumber(
+                    engine.failed ??
+                    engine.failed_runs ??
+                    0
+                )
+        );
+
+    state.charts.enginePerformance =
+        new Chart(
+            canvas,
+            {
+                type: "bar",
+
+                data: {
+                    labels,
+
+                    datasets: [
+                        {
+                            label: "Total Runs",
+                            data: total,
+
+                            backgroundColor:
+                                "#5b8cff",
+
+                            borderWidth: 0,
+
+                            borderRadius: 6,
+
+                            barPercentage: 0.7,
+
+                            categoryPercentage: 0.7
+                        },
+
+                        {
+                            label: "Successful",
+                            data: successful,
+
+                            backgroundColor:
+                                "#35d39a",
+
+                            borderWidth: 0,
+
+                            borderRadius: 6,
+
+                            barPercentage: 0.7,
+
+                            categoryPercentage: 0.7
+                        },
+
+                        {
+                            label: "Failed",
+                            data: failed,
+
+                            backgroundColor:
+                                "#ff6577",
+
+                            borderWidth: 0,
+
+                            borderRadius: 6,
+
+                            barPercentage: 0.7,
+
+                            categoryPercentage: 0.7
+                        }
+                    ]
+                },
+
+                options: {
+                    responsive: true,
+
+                    maintainAspectRatio: false,
+
+                    interaction: {
+                        intersect: false,
+                        mode: "index"
+                    },
+
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: "top"
+                        },
+
+                        tooltip: {
+                            enabled: true,
+
+                            callbacks: {
+                                label: context => {
+                                    return ` ${
+                                        context.dataset.label
+                                    }: ${
+                                        formatNumber(
+                                            context.raw
+                                        )
+                                    } runs`;
+                                }
+                            }
+                        }
+                    },
+
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false
+                            },
+
+                            ticks: {
+                                color: "#8b98aa",
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        },
+
+                        y: {
+                            beginAtZero: true,
+
+                            ticks: {
+                                precision: 0,
+                                color: "#707d91"
+                            },
+
+                            grid: {
+                                color:
+                                    "rgba(139,152,170,0.08)"
+                            }
+                        }
+                    }
+                }
+            }
+        );
 }
 
 
@@ -5040,6 +5573,14 @@ function renderSelectedOverview() {
      */
     renderOverview();
 
+    renderEngines(
+        state.data?.engines || []
+    );
+
+    renderYoutubePerformance(
+        state.data?.youtube || null
+    );
+
     renderOverviewEmptyState();
 
     animateDashboardKPIs();
@@ -5681,6 +6222,12 @@ async function finalDashboardStartup() {
     updateDashboardContext();
 
     /*
+    * Check database health independently
+    * from dashboard data loading.
+    */
+    await health();
+
+    /*
      * Load ONLY selected automation.
      */
     await loadAutomationData(
@@ -5766,7 +6313,6 @@ if (
 
     }
 }
-
 
 /* =========================================================
    END OF DASHBOARD.JS

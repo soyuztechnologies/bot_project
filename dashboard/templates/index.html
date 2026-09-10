@@ -21,9 +21,74 @@
         rel="stylesheet"
         href="{{ url_for('static', filename='dashboard.css') }}"
     >
+
+<style>
+    .automation-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(7, 11, 18, 0.46);
+        backdrop-filter: blur(2px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 180ms ease;
+    }
+
+    .automation-loader.is-visible {
+        opacity: 1;
+        pointer-events: all;
+    }
+
+    .automation-loader-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 13px 17px;
+        border: 1px solid #243249;
+        border-radius: 12px;
+        background: #101827;
+        box-shadow: 0 16px 45px rgba(0, 0, 0, 0.35);
+        color: #aebbd0;
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .automation-loader-spinner {
+        width: 18px;
+        height: 18px;
+        border: 2px solid #26364f;
+        border-top-color: #5b8cff;
+        border-radius: 50%;
+        animation: automationLoaderSpin 700ms linear infinite;
+    }
+
+    @keyframes automationLoaderSpin {
+        to { transform: rotate(360deg); }
+    }
+
+    .automation-switch-btn.is-loading {
+        opacity: 0.68;
+        cursor: wait;
+    }
+
+    .youtube-performance-chart-wrap {
+        height: 280px;
+    }
+</style>
+
 </head>
 
 <body>
+<div id="automationLoader" class="automation-loader" hidden aria-live="polite" aria-label="Loading automation data">
+    <div class="automation-loader-card">
+        <span class="automation-loader-spinner" aria-hidden="true"></span>
+        <span>Loading automation data…</span>
+    </div>
+</div>
+
 
 <div class="app-shell">
 
@@ -503,45 +568,35 @@
 
             <div class="grid-two">
 
-
-                <article class="panel"
-                         id="searchEnginePerformancePanel">
-
+                <!-- SEARCH ENGINE PERFORMANCE -->
+                <article
+                    class="panel"
+                    id="searchEnginePerformancePanel"
+                    style="grid-column: 1 / -1;"
+                >
                     <div class="panel-head">
-
                         <div>
-
-                            <h3>
-                                Search Engine Performance
-                            </h3>
-
-                            <span>
-                                Success by engine
-                            </span>
-
+                            <h3>Search Engine Performance</h3>
+                            <span>Total runs by engine</span>
                         </div>
-
                     </div>
 
-
-                    <div
-                        id="engineBars"
-                        class="bars"
-                    ></div>
-
+                    <div class="chart-wrap performance-chart-wrap">
+                        <canvas id="searchEnginePerformanceChart"></canvas>
+                    </div>
                 </article>
-
 
 
                 
 
-            </div>
+            
 
 
 
             <!-- RECENT RUNS -->
 
-            <article class="panel">
+            <article class="panel"
+                    style="grid-column: 1 / -1;">
 
                 <div class="panel-head">
 
