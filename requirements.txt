@@ -1,4 +1,5 @@
 seleniumbase
-psycopg2-binary
+pymongo[srv]
+certifi
 python-dotenv
 psutil

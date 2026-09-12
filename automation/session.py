@@ -20,7 +20,7 @@ import uuid
 import random
 import time
 
-from datetime import datetime
+from datetime import datetime, timezone
 from selenium.webdriver.common.by import By
 
 def _short_err(e, max_len=250):
@@ -1156,7 +1156,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 except Exception:
                     pass
 
-        session_end_time = datetime.now()
+        session_end_time = datetime.now(timezone.utc)
         if status is None:
             status = "FAILED" if failure_count > 0 else "COMPLETED"
         if stop_event.is_set():

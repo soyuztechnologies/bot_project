@@ -20,7 +20,7 @@ import random
 import logging
 import queue
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from automation.search_engine_selector import select_search_engine
@@ -741,7 +741,7 @@ def process_youtube_first_flow(
     return True
 
 
-def _safe_create_automation_run(run_id, keyword, config, selected_browser, search_engine="youtube"):
+def _safe_create_automation_run(run_id, keyword, config, selected_browser, search_engine="youtube", flow_type=None):
     """Create DB record without breaking automation if DB is unavailable."""
     try:
         youtube_config = config.get("youtube", {})
@@ -753,6 +753,7 @@ def _safe_create_automation_run(run_id, keyword, config, selected_browser, searc
             browser_mode=build_browser_mode(config, selected_browser),
             target=youtube_config.get("targetChannel", ""),
             search_engine=search_engine,
+            flow_type=flow_type,
         )
     except Exception as error:
         logger.warning(
@@ -770,6 +771,7 @@ def _safe_update_automation_run(
     search_keyword=None,
     search_engine=None,
     browser_mode=None,
+    flow_type=None,
 ):
     """Update DB record without breaking automation if DB is unavailable."""
     if run_id is None:
@@ -778,7 +780,7 @@ def _safe_update_automation_run(
     try:
         update_automation_run(
             run_id=run_id,
-            finished_at=datetime.now(),
+            finished_at=datetime.now(timezone.utc),
             status=status,
             success_count=1 if status == "SUCCESS" else 0,
             failure_count=1 if status == "FAILED" else 0,
@@ -787,6 +789,7 @@ def _safe_update_automation_run(
             search_keyword=search_keyword or keyword,
             search_engine=search_engine,
             browser_mode=browser_mode,
+            flow_type=flow_type,
         )
     except Exception as error:
         logger.warning(
@@ -1084,6 +1087,7 @@ def run_session(
                 config,
                 selected_browser,
                 search_engine=("youtube" if flow == "youtube_first" else selected_search_engine),
+                flow_type=flow,
             )
 
             # -------------------------------------------------
@@ -1218,6 +1222,7 @@ def run_session(
                             search_keyword=keyword,
                             search_engine="youtube",
                             browser_mode=_final_browser_mode(config, selected_browser),
+                            flow_type=flow,
                         )
                     else:
                         try:
@@ -1233,6 +1238,7 @@ def run_session(
                             search_keyword=keyword,
                             search_engine="youtube",
                             browser_mode=_final_browser_mode(config, selected_browser),
+                            flow_type=flow,
                         )
 
                     if not is_browser_alive(driver, stop_event):
@@ -1274,6 +1280,7 @@ def run_session(
                         search_keyword=(actual_search_kw or keyword),
                         search_engine="youtube",
                         browser_mode=_final_browser_mode(config, selected_browser),
+                        flow_type=flow,
                     )
 
                     session_logger.info(
@@ -1997,6 +2004,7 @@ def run_session(
                         search_keyword=keyword,
                         search_engine=current_engine,
                         browser_mode=_final_browser_mode(config, selected_browser),
+                        flow_type=flow,
                     )
 
                     session_logger.info(
@@ -2074,6 +2082,7 @@ def run_session(
                     search_keyword=keyword,
                     search_engine=last_engine_tmp,
                     browser_mode=_final_browser_mode(config, selected_browser),
+                    flow_type=flow,
                 )
 
                 print()

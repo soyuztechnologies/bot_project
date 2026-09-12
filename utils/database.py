@@ -1,34 +1,34 @@
 """
 database.py
 
-Handles all database interactions for the bot project, including
-connection pooling, schema management, and logging.
+MongoDB (local / Atlas) interactions for the bot project, including
+client management, collection/index setup, and logging.
+
+DB selection:
+  config.json -> database.current_db  (e.g. "local" or "atlas")
+  config.json -> database.db[current_db]  = env var name holding the URI
+  .env       -> MONGO_URI_LOCAL / MONGO_URI_ATLAS
 """
 
 import os
-import psycopg2
-from psycopg2 import pool
 import logging
 import json
 from pathlib import Path
 from contextlib import contextmanager
+from datetime import datetime, timezone
+
 from dotenv import load_dotenv
-from psycopg2.extras import Json, register_uuid
+from pymongo import MongoClient, ASCENDING, DESCENDING
+from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
+
 from .logger import fallback_log
-from datetime import datetime
 
 load_dotenv()
 
-# Register the UUID adapter globally for all connections.
-# This allows psycopg2 to handle Python's uuid.UUID objects correctly.
-register_uuid()
-
 logger = logging.getLogger(__name__)
 
-# It's highly recommended to use environment variables for credentials
-# instead of hardcoding them.
 # ---------------------------------------------------------
-# Database Configuration
+# Database Configuration (config.json -> .env)
 # ---------------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -43,7 +43,7 @@ DATABASE_CONFIG = CONFIG.get("database", {})
 
 CURRENT_DB = DATABASE_CONFIG.get(
     "current_db",
-    "public",
+    "atlas",
 )
 
 DB_CONNECTION_ENV = DATABASE_CONFIG.get(
@@ -53,39 +53,86 @@ DB_CONNECTION_ENV = DATABASE_CONFIG.get(
 
 if not DB_CONNECTION_ENV:
     raise ValueError(
-        f"Database connection is not configured "
-        f"for '{CURRENT_DB}'"
+        "Database connection is not configured "
+        f"for '{CURRENT_DB}'. "
+        "Set database.current_db and database.db in config.json."
     )
 
-DB_CONNECTION_URL = os.getenv(
-    DB_CONNECTION_ENV
-)
+MONGO_URI = os.getenv(DB_CONNECTION_ENV)
 
-if not DB_CONNECTION_URL:
+if not MONGO_URI:
     raise ValueError(
-        f"Environment variable "
-        f"'{DB_CONNECTION_ENV}' is not set"
+        "Environment variable "
+        f"'{DB_CONNECTION_ENV}' is not set. "
+        "Set it in .env "
+        "(e.g. MONGO_URI_LOCAL / MONGO_URI_ATLAS)."
     )
+
+# Optional explicit DB name override, otherwise taken from the
+# URI path, otherwise seo_bot_db.
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "").strip() or None
 
 logger.info(
-    f"Database environment selected: {CURRENT_DB}"
+    f"Database environment selected: {CURRENT_DB} "
+    f"(env: {DB_CONNECTION_ENV})"
 )
 
-_db_available = False  # Assume DB is unavailable until a connection is confirmed
-_connection_pool = None
+_db_available = False  # Assume DB is unavailable until ping succeeds
+_client = None
+_db = None
 
-def _initialize_pool():
-    """Initializes the connection pool."""
-    global _connection_pool
-    if _connection_pool is None:
-        try:
-            _connection_pool = pool.ThreadedConnectionPool(
-                minconn=1,
-                maxconn=10,
-                dsn=DB_CONNECTION_URL,
-            )
-        except psycopg2.OperationalError as e:
-            logger.warning(f"Failed to initialize database connection pool: {e}")
+
+def _resolve_db_name(client, uri):
+    if MONGO_DB_NAME:
+        return MONGO_DB_NAME
+    try:
+        default_db = client.get_default_database()
+        if default_db is not None:
+            return default_db.name
+    except Exception:
+        pass
+    # Fallback: parse trailing path from URI, else default name.
+    try:
+        path = uri.split("?", 1)[0].rsplit("/", 1)[-1]
+        if path and not path.startswith("mongodb"):
+            return path
+    except Exception:
+        pass
+    return os.getenv("MONGO_DB_FALLBACK", "seo_bot_db")
+
+
+def _get_client():
+    """Lazily create the shared MongoClient."""
+    global _client, _db
+    if _client is None:
+        _client = MongoClient(
+            MONGO_URI,
+            serverSelectionTimeoutMS=int(
+                os.getenv("MONGO_SERVER_SELECTION_TIMEOUT_MS", "5000")
+            ),
+        )
+        _db = _client[_resolve_db_name(_client, MONGO_URI)]
+    return _client
+
+
+def get_database():
+    """Return the selected MongoDB database."""
+    _get_client()
+    return _db
+
+
+def get_runs_collection():
+    return get_database()["automation_runs"]
+
+
+def get_logs_collection():
+    return get_database()["automation_logs"]
+
+
+@contextmanager
+def get_db_connection():
+    """Compat context manager yielding the MongoDB database."""
+    yield get_database()
 
 
 def _json_safe(value):
@@ -101,208 +148,172 @@ def _json_safe(value):
     return str(value)
 
 
+def _utcnow():
+    return datetime.now(timezone.utc)
+
+
+def _as_utc(value):
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            # Naive datetimes come from datetime.now() in local time
+            # (e.g. IST). Interpret as local, then convert to UTC.
+            # Assuming UTC here added +5:30 to every duration.
+            local_tz = datetime.now().astimezone().tzinfo
+            return value.replace(tzinfo=local_tz).astimezone(timezone.utc)
+        return value
+    return _utcnow()
+
+
 def check_db_connection():
     """
-    Checks if a connection to the database can be established.
-    Sets a global flag based on the result and logs status.
+    Ping MongoDB. Sets a global flag and logs status.
     """
     global _db_available
-    if _connection_pool is None:
-        _initialize_pool()
-
     try:
-        with get_db_connection():
-            logger.info("Database connection successful.")
+        _get_client().admin.command("ping")
+        if not _db_available:
+            logger.info("Database connection successful (MongoDB).")
         _db_available = True
         return True
-    except psycopg2.OperationalError as e:
+    except (ServerSelectionTimeoutError, PyMongoError, Exception) as e:
         if _db_available:
-            # Only log the warning once when it transitions from available to unavailable
-            logger.warning(f"Database connection failed: {e}. Switching to fallback file logger.")
+            logger.warning(
+                f"Database connection failed: {e}. "
+                "Switching to fallback file logger."
+            )
         _db_available = False
         return False
 
 
-@contextmanager
-def get_db_connection():
-    """Context manager for a temporary database connection."""
-    conn = None
-    if _connection_pool is None:
-        raise psycopg2.OperationalError("Connection pool is not initialized.")
-    try:
-        conn = _connection_pool.getconn()
-        with conn.cursor() as cur:
-            cur.execute("SET TIMEZONE TO 'Asia/Kolkata';")
-        yield conn
-        conn.commit()
-    except psycopg2.Error:
-        if conn:
-            conn.rollback()
-        raise
-    finally:
-        if conn and _connection_pool:
-            _connection_pool.putconn(conn)
-
-
 def initialize_database():
     """
-    Ensures the necessary tables exist in the database. Creates 'automation_runs' and
-    'automation_logs' tables if they're not present.
+    Ensure collections + indexes exist for
+    'automation_runs' and 'automation_logs'.
     """
     global _db_available
-
-    create_runs_table_sql = """
-    CREATE TABLE IF NOT EXISTS automation_runs (
-        run_id UUID PRIMARY KEY,
-        automation_type VARCHAR(50) NOT NULL, -- 'SEARCH' or 'YOUTUBE'
-        original_keyword VARCHAR(255) NOT NULL,
-        search_keyword VARCHAR(255) NOT NULL,
-        fallback_used BOOLEAN NOT NULL DEFAULT FALSE,
-        browser_mode VARCHAR(50) NOT NULL,
-        target VARCHAR(255), -- Target domain for search, target channel for YouTube
-        search_engine VARCHAR(50), -- Specific search engine used (for SEARCH type)
-        started_at TIMESTAMPTZ NOT NULL,
-        finished_at TIMESTAMPTZ,
-        status VARCHAR(50) NOT NULL, -- 'RUNNING', 'SUCCESS', 'FAILED', 'INTERRUPTED'
-        success_count INTEGER DEFAULT 0, -- 1 if keyword attempt was successful, 0 otherwise
-        failure_count INTEGER DEFAULT 0, -- 1 if keyword attempt failed, 0 otherwise
-        retry_count INTEGER DEFAULT 0 -- Number of retries for this specific keyword operation
-    );
-    CREATE INDEX IF NOT EXISTS idx_automation_runs_started_at ON automation_runs (started_at);
-    CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs (status);
-    CREATE INDEX IF NOT EXISTS idx_automation_runs_type_status_started_at ON automation_runs (automation_type, status, started_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_automation_runs_engine_status_started_at ON automation_runs (search_engine, status, started_at DESC);
-    """
-    create_logs_table_sql = """
-    CREATE TABLE IF NOT EXISTS automation_logs (
-        log_id SERIAL PRIMARY KEY,
-        run_id UUID NOT NULL REFERENCES automation_runs(run_id) ON DELETE CASCADE,
-        timestamp TIMESTAMPTZ NOT NULL,
-        level VARCHAR(50) NOT NULL,
-        keyword VARCHAR(255), -- Contextual keyword for the log entry
-        search_engine VARCHAR(50), -- Contextual search engine for the log entry
-        action VARCHAR(80), -- Structured step name, e.g. KEYWORD_SEARCH
-        event_status VARCHAR(50), -- Structured step status, e.g. RUNNING/SUCCESS/FAILED
-        url TEXT,
-        error_message TEXT,
-        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-        message TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_automation_logs_run_id ON automation_logs (run_id);
-    CREATE INDEX IF NOT EXISTS idx_automation_logs_timestamp ON automation_logs (timestamp);
-    CREATE INDEX IF NOT EXISTS idx_automation_logs_level ON automation_logs (level);
-    CREATE INDEX IF NOT EXISTS idx_automation_logs_run_timestamp ON automation_logs (run_id, timestamp);
-    """
-    migrate_runs_table_sql = """
-    DO $$
-    BEGIN
-        IF EXISTS (
-            SELECT 1
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = 'automation_runs'
-              AND column_name = 'target_website'
-        ) AND NOT EXISTS (
-            SELECT 1
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = 'automation_runs'
-              AND column_name = 'target'
-        ) THEN
-            ALTER TABLE automation_runs RENAME COLUMN target_website TO target;
-        END IF;
-    END $$;
-    """
-    migrate_logs_table_sql = """
-    ALTER TABLE automation_logs ADD COLUMN IF NOT EXISTS action VARCHAR(80);
-    ALTER TABLE automation_logs ADD COLUMN IF NOT EXISTS event_status VARCHAR(50);
-    ALTER TABLE automation_logs ADD COLUMN IF NOT EXISTS url TEXT;
-    ALTER TABLE automation_logs ADD COLUMN IF NOT EXISTS error_message TEXT;
-    ALTER TABLE automation_logs ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
-    ALTER TABLE automation_logs DROP COLUMN IF EXISTS duration_ms;
-    ALTER TABLE automation_logs DROP COLUMN IF EXISTS retry_attempt;
-    CREATE INDEX IF NOT EXISTS idx_automation_logs_action_status ON automation_logs (action, event_status);
-    """
-    if _connection_pool is None:
-        _initialize_pool()
-
     try:
-        with get_db_connection() as conn:
-            # Drop old tables if they exist to ensure clean migration
-            with conn.cursor() as cur:
-                cur.execute("DROP TABLE IF EXISTS bot_logs CASCADE;")
-                cur.execute("DROP TABLE IF EXISTS bot_sessions CASCADE;")
-                conn.commit()
+        runs = get_runs_collection()
+        logs = get_logs_collection()
 
-            with conn.cursor() as cur:
-                cur.execute(create_runs_table_sql)
-                cur.execute(migrate_runs_table_sql)
-                cur.execute(create_logs_table_sql)
-                cur.execute(migrate_logs_table_sql)
-                conn.commit()
+        runs.create_index("run_id", unique=True)
+        runs.create_index([("started_at", DESCENDING)])
+        runs.create_index("status")
+        runs.create_index("flow_type")
+        runs.create_index(
+            [
+                ("automation_type", ASCENDING),
+                ("status", ASCENDING),
+                ("started_at", DESCENDING),
+            ]
+        )
+        runs.create_index(
+            [
+                ("search_engine", ASCENDING),
+                ("status", ASCENDING),
+                ("started_at", DESCENDING),
+            ]
+        )
+
+        logs.create_index([("run_id", ASCENDING)])
+        logs.create_index([("timestamp", ASCENDING)])
+        logs.create_index("level")
+        logs.create_index(
+            [("run_id", ASCENDING), ("timestamp", ASCENDING)]
+        )
+        logs.create_index(
+            [("action", ASCENDING), ("event_status", ASCENDING)]
+        )
+
         _db_available = True
-        logger.info("Database initialized: 'automation_runs' and 'automation_logs' tables are ready.")
-    except psycopg2.Error as e:
+        logger.info(
+            "Database initialized: 'automation_runs' and "
+            "'automation_logs' collections are ready (MongoDB)."
+        )
+    except (PyMongoError, Exception) as e:
         logger.error(f"Failed to initialize database: {e}")
         _db_available = False
 
 
-def create_automation_run(run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine=None):
+def create_automation_run(run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine=None, flow_type=None):
     """
-    Creates a new record for an automation run in the automation_runs table.
-    """
-    sql = """
-    INSERT INTO automation_runs (run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine, started_at, status)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s);
+    Insert a new automation run document. run_id stored as string.
+    flow_type is YouTube-only ('youtube_first' / 'search_engine_first').
     """
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine, 'RUNNING'))
-                conn.commit()
-    except psycopg2.Error as e:
+        get_runs_collection().insert_one(
+            {
+                "run_id": str(run_id),
+                "automation_type": automation_type,
+                "original_keyword": original_keyword,
+                "search_keyword": search_keyword,
+                "fallback_used": False,
+                "browser_mode": browser_mode,
+                "target": target,
+                "search_engine": search_engine,
+                "flow_type": flow_type,
+                "started_at": _utcnow(),
+                "finished_at": None,
+                "status": "RUNNING",
+                "success_count": 0,
+                "failure_count": 0,
+                "retry_count": 0,
+            }
+        )
+    except (PyMongoError, Exception) as e:
         logger.error(f"Failed to create automation run record for {run_id}: {e}")
 
 
-def update_automation_run(run_id, finished_at, status, success_count, failure_count, retry_count, fallback_used=False, search_keyword=None, search_engine=None, browser_mode=None):
+def update_automation_run(run_id, finished_at, status, success_count, failure_count, retry_count, fallback_used=False, search_keyword=None, search_engine=None, browser_mode=None, flow_type=None):
     """
-    Updates an existing automation run record with completion details.
-    search_engine/browser_mode use COALESCE so callers can finalize the
-    actual engine/browser used (e.g. after fallback) without overwriting
-    with NULL when not provided. Backward compatible.
+    Update a run document. None values leave existing fields untouched.
     """
-    # Ensure finished_at is a datetime object
     if not isinstance(finished_at, datetime):
-        finished_at = datetime.now()
+        finished_at = _utcnow()
+    else:
+        finished_at = _as_utc(finished_at)
 
-    sql = """
-    UPDATE automation_runs
-    SET finished_at = %s,
-        status = %s,
-        success_count = %s,
-        failure_count = %s,
-        retry_count = %s,
-        fallback_used = %s,
-        search_keyword = COALESCE(%s, search_keyword),
-        search_engine = COALESCE(%s, search_engine),
-        browser_mode = COALESCE(%s, browser_mode)
-    WHERE run_id = %s;
-    """
+    update = {
+        "finished_at": finished_at,
+        "status": status,
+        "success_count": success_count,
+        "failure_count": failure_count,
+        "retry_count": retry_count,
+        "fallback_used": fallback_used,
+    }
+    if search_keyword is not None:
+        update["search_keyword"] = search_keyword
+    if search_engine is not None:
+        update["search_engine"] = search_engine
+    if browser_mode is not None:
+        update["browser_mode"] = browser_mode
+    if flow_type is not None:
+        update["flow_type"] = flow_type
+
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (finished_at, status, success_count, failure_count, retry_count, fallback_used, search_keyword, search_engine, browser_mode, run_id))
-                conn.commit()
-    except psycopg2.Error as e:
+        get_runs_collection().update_one(
+            {"run_id": str(run_id)},
+            {"$set": update},
+        )
+    except (PyMongoError, Exception) as e:
         logger.error(f"Failed to update automation run record for {run_id}: {e}")
 
+
 def close_connection_pool():
-    """Closes all connections in the pool."""
-    global _connection_pool
-    if _connection_pool:
-        logger.info("Database connection pool closed.")
-        _connection_pool.closeall()
-        _connection_pool = None
+    """Close the shared MongoClient (kept name for compatibility)."""
+    global _client, _db
+    if _client is not None:
+        try:
+            _client.close()
+        except Exception:
+            pass
+        logger.info("Database connection closed (MongoDB).")
+    _client = None
+    _db = None
+
+
+# Alias with Mongo naming.
+close_mongo_client = close_connection_pool
+
 
 def log_event(
     run_id,
@@ -316,14 +327,20 @@ def log_event(
     url=None,
     error_message=None,
     metadata=None,
+    flow_type=None,
 ):
     """
-    Inserts a new event into the automation_logs table.
-    If the database is unavailable, it writes to a fallback file log.
+    Insert a log document into automation_logs.
+    Falls back to file log when MongoDB is unavailable.
     """
     global _db_available
+    if not isinstance(timestamp, datetime):
+        timestamp = _utcnow()
+    else:
+        timestamp = _as_utc(timestamp)
+
     event_data = {
-        "run_id": run_id,
+        "run_id": str(run_id),
         "timestamp": timestamp,
         "level": level,
         "keyword": keyword,
@@ -334,49 +351,15 @@ def log_event(
         "error_message": error_message,
         "metadata": metadata or {},
         "message": message,
+        "flow_type": flow_type,
     }
     if not _db_available:
         fallback_log(event_data)
         return
 
-    sql = """
-    INSERT INTO automation_logs (
-        run_id,
-        timestamp,
-        level,
-        keyword,
-        search_engine,
-        action,
-        event_status,
-        url,
-        error_message,
-        metadata,
-        message
-    )
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
-    """
-
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    sql,
-                    (
-                        run_id,
-                        timestamp,
-                        level,
-                        keyword,
-                        search_engine,
-                        action,
-                        event_status,
-                        url,
-                        error_message,
-                        Json(metadata or {}),
-                        message,
-                    ),
-                )
-                conn.commit()
-    except psycopg2.Error as e:
+        get_logs_collection().insert_one(event_data)
+    except (PyMongoError, Exception) as e:
         if _db_available:
             logger.warning(f"Database connection lost during log_event: {e}")
             logger.warning("Switching to fallback file logger for this and subsequent events.")
@@ -386,7 +369,7 @@ def log_event(
 
 class DatabaseHandler(logging.Handler):
     """
-    A custom logging handler that sends log records to the PostgreSQL database.
+    A custom logging handler that sends log records to MongoDB.
     """
 
     def __init__(self):
@@ -427,7 +410,10 @@ class DatabaseHandler(logging.Handler):
                 return
 
             keyword = getattr(record, "keyword", None)
-            search_engine = getattr(record, "engine", None) # 'engine' is used for search engines, 'youtube' for youtube
+            search_engine = getattr(record, "engine", None)  # 'engine' is used for search engines, 'youtube' for youtube
+            # YouTube-only flow ('youtube_first' / 'search_engine_first').
+            # SessionLoggerAdapter carries it as 'flow'; accept 'flow_type' too.
+            flow_type = getattr(record, "flow_type", None) or getattr(record, "flow", None)
             action = getattr(record, "action", None)
             event_status = getattr(record, "status", None)
             url = getattr(record, "url", None)
@@ -435,9 +421,9 @@ class DatabaseHandler(logging.Handler):
             metadata = self._metadata_from_record(record)
 
             # Use record.created for timestamp (float seconds since epoch) and convert to datetime
-            timestamp = datetime.fromtimestamp(record.created)
+            timestamp = datetime.fromtimestamp(record.created, tz=timezone.utc)
 
-            message = record.getMessage() # Use unformatted message
+            message = record.getMessage()  # Use unformatted message
 
             log_event(
                 run_id,
@@ -451,6 +437,7 @@ class DatabaseHandler(logging.Handler):
                 url=url,
                 error_message=error_message,
                 metadata=metadata,
+                flow_type=flow_type,
             )
         except Exception:
             self.handleError(record)

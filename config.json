@@ -8,19 +8,19 @@
 
     "distribution": {
         "chrome" : 80,
-        "edge" : 5,
-        "brave" : 5,
-        "firefox" : 5,
-        "opera" : 5    
+        "edge" : 20,
+        "brave" : 0,
+        "firefox" : 0,
+        "opera" : 0    
     }
   },
 
 
   "database": {
-    "current_db": "public",
+    "current_db": "atlas",
     "db": {
-      "public": "CONNECTION_URL_TEST",
-      "prod": "CONNECTION_URL_PROD"
+      "local": "MONGO_URI_LOCAL",
+      "atlas": "MONGO_URI_ATLAS"
     }
   },
 

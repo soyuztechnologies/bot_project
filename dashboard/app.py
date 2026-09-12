@@ -1,207 +1,263 @@
+import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from threading import Lock
 
-import psycopg2
-from psycopg2 import OperationalError
-from psycopg2.pool import ThreadedConnectionPool
-from psycopg2.extras import RealDictCursor
+from pymongo import MongoClient, DESCENDING, ASCENDING
 from flask import Flask, jsonify, render_template, request
 from dotenv import load_dotenv
 
 
 # =========================================================
-# ENVIRONMENT
+# ENVIRONMENT + DB SELECTION (config.json -> .env)
 # =========================================================
+#
+# config.json:
+#   "database": {
+#     "current_db": "atlas",
+#     "db": { "local": "MONGO_URI_LOCAL", "atlas": "MONGO_URI_ATLAS" }
+#   }
+# .env:
+#   MONGO_URI_LOCAL=mongodb://localhost:27017/seo_bot_db
+#   MONGO_URI_ATLAS=mongodb+srv://<user>:<pass>@<cluster>/seo_bot_db?retryWrites=true&w=majority
+#
+# Switch DB by changing database.current_db in config.json.
 
 load_dotenv()
 
 app = Flask(__name__)
 
+BASE_DIR = Path(__file__).resolve().parents[1]
 
-# =========================================================
-# DATABASE CONFIGURATION
-# =========================================================
+with open(BASE_DIR / "config.json", encoding="utf-8") as file:
+    _CONFIG = json.load(file)
 
-DB_CONFIG = {
-    "dbname": os.getenv("DB_NAME", "seo_bot_db"),
-    "user": os.getenv("DB_USER", "postgres"),
-    "password": os.getenv("DB_PASSWORD"),
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": os.getenv("DB_PORT", "5432"),
-}
+_DB_CONFIG = _CONFIG.get("database", {})
+CURRENT_DB = _DB_CONFIG.get("current_db", "atlas")
+_DB_ENV_VAR = _DB_CONFIG.get("db", {}).get(CURRENT_DB)
 
-# Keep local configuration unchanged unless DB_SSLMODE
-# is explicitly provided in the environment.
-if os.getenv("DB_SSLMODE"):
-    DB_CONFIG["sslmode"] = os.getenv("DB_SSLMODE")
-
-
-# =========================================================
-# DATABASE CONNECTION POOL
-# =========================================================
-#
-# The old version opened a new PostgreSQL connection for
-# every query. With Aiven/remote PostgreSQL, that means
-# repeated TCP/SSL connection overhead.
-#
-# The dashboard now keeps a small reusable connection pool.
-# =========================================================
-
-POOL_MIN = max(
-    1,
-    int(os.getenv("DASHBOARD_DB_POOL_MIN", "1"))
-)
-
-POOL_MAX = max(
-    POOL_MIN,
-    int(os.getenv("DASHBOARD_DB_POOL_MAX", "5"))
-)
-
-_pool_lock = Lock()
-_db_pool = None
-
-
-def create_db_pool():
-    return ThreadedConnectionPool(
-        minconn=POOL_MIN,
-        maxconn=POOL_MAX,
-        **DB_CONFIG,
+if not _DB_ENV_VAR:
+    raise ValueError(
+        f"Dashboard database is not configured for '{CURRENT_DB}'. "
+        "Set database.current_db and database.db in config.json."
     )
 
+MONGO_URI = os.getenv(_DB_ENV_VAR)
 
-def get_db_pool():
-    global _db_pool
+if not MONGO_URI:
+    raise ValueError(
+        f"Environment variable '{_DB_ENV_VAR}' is not set. "
+        "Set it in .env (MONGO_URI_LOCAL / MONGO_URI_ATLAS)."
+    )
 
-    if _db_pool is None:
-        with _pool_lock:
-            if _db_pool is None:
-                _db_pool = create_db_pool()
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "").strip() or None
 
-    return _db_pool
-
-
-def reset_db_pool():
-    """
-    Recreate the pool after a PostgreSQL connection-level
-    failure. This is only used for OperationalError.
-    """
-    global _db_pool
-
-    with _pool_lock:
-        old_pool = _db_pool
-        _db_pool = None
-
-        if old_pool is not None:
-            try:
-                old_pool.closeall()
-            except Exception:
-                pass
-
-        _db_pool = create_db_pool()
-
-    return _db_pool
+print(f"[DASHBOARD DB] environment={CURRENT_DB} (env: {_DB_ENV_VAR})")
 
 
 # =========================================================
-# DATABASE QUERY
+# MONGO CLIENT (lazy singleton)
 # =========================================================
 
-def query(sql, params=(), retries=1):
-    """
-    Execute a read query through the reusable connection pool.
+_client_lock = Lock()
+_client = None
+_db = None
 
-    On a connection-level OperationalError:
-      1. discard the bad connection
-      2. recreate the pool
-      3. retry once
 
-    Normal SQL errors are NOT swallowed or retried.
-    """
+def _resolve_db_name(client):
+    if MONGO_DB_NAME:
+        return MONGO_DB_NAME
+    try:
+        default_db = client.get_default_database()
+        if default_db is not None:
+            return default_db.name
+    except Exception:
+        pass
+    try:
+        path = MONGO_URI.split("?", 1)[0].rsplit("/", 1)[-1]
+        if path and not path.startswith("mongodb"):
+            return path
+    except Exception:
+        pass
+    return os.getenv("MONGO_DB_FALLBACK", "seo_bot_db")
 
-    last_error = None
 
-    for attempt in range(retries + 1):
-        conn = None
-        query_start = time.perf_counter()
+def get_mongo_db():
+    global _client, _db
+    if _client is None:
+        with _client_lock:
+            if _client is None:
+                _client = MongoClient(
+                    MONGO_URI,
+                    serverSelectionTimeoutMS=int(
+                        os.getenv("MONGO_SERVER_SELECTION_TIMEOUT_MS", "5000")
+                    ),
+                )
+                _db = _client[_resolve_db_name(_client)]
+    return _db
 
+
+def runs_collection():
+    return get_mongo_db()["automation_runs"]
+
+
+def logs_collection():
+    return get_mongo_db()["automation_logs"]
+
+
+# =========================================================
+# HELPERS
+# =========================================================
+
+def _utcnow():
+    return datetime.now(timezone.utc)
+
+
+def _as_datetime(value):
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+    if isinstance(value, str) and value:
         try:
-            pool = get_db_pool()
-            conn = pool.getconn()
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except Exception:
+            return None
+    return None
 
-            with conn.cursor(
-                cursor_factory=RealDictCursor
-            ) as cur:
 
-                cur.execute(sql, params)
+def _iso(value):
+    dt = _as_datetime(value)
+    return dt.isoformat() if dt else (str(value) if value else None)
 
-                rows = [
-                    dict(row)
-                    for row in cur.fetchall()
-                ]
 
-            elapsed_ms = (
-                time.perf_counter()
-                - query_start
-            ) * 1000
+def _norm_automation(value):
+    return str(value or "").strip().upper()
 
-            print(
-                "[DASHBOARD DB]",
-                f"time={elapsed_ms:.1f}ms",
-                f"rows={len(rows)}",
-            )
 
-            return rows
+def _fetch_runs(automation_type, cutoff):
+    """Fetch runs since cutoff, filtered to automation (case/space tolerant)."""
+    docs = list(
+        runs_collection().find(
+            {"started_at": {"$gte": cutoff}},
+            {"_id": 0},
+        )
+    )
+    return [
+        d for d in docs
+        if _norm_automation(d.get("automation_type")) == automation_type
+    ]
 
-        except OperationalError as error:
-            last_error = error
 
-            print(
-                "[DASHBOARD DB]",
-                f"connection error "
-                f"attempt={attempt + 1}/{retries + 1}:",
-                repr(error),
-            )
+def _build_summary(matched):
+    total = len(matched)
+    successful = sum(1 for r in matched if _norm_automation(r.get("status")) == "SUCCESS")
+    failed = sum(1 for r in matched if _norm_automation(r.get("status")) == "FAILED")
+    running = sum(1 for r in matched if _norm_automation(r.get("status")) == "RUNNING")
+    interrupted = sum(1 for r in matched if _norm_automation(r.get("status")) == "INTERRUPTED")
+    total_retries = sum(int(r.get("retry_count") or 0) for r in matched)
+    unique_keywords = len(
+        {str(r.get("original_keyword") or "").strip() for r in matched if r.get("original_keyword")}
+    )
+    summary = {
+        "total_runs": total,
+        "successful_runs": successful,
+        "failed_runs": failed,
+        "running_runs": running,
+        "interrupted_runs": interrupted,
+        "total_retries": total_retries,
+        "unique_keywords": unique_keywords,
+    }
+    summary["success_rate"] = round((successful / total) * 100, 1) if total else 0
+    return summary
 
-            # Do not return a known-bad connection to the pool.
-            if conn is not None:
-                try:
-                    pool.putconn(
-                        conn,
-                        close=True
-                    )
-                except Exception:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
 
-                conn = None
+def _build_daily(matched):
+    buckets = {}
+    for r in matched:
+        dt = _as_datetime(r.get("started_at"))
+        if not dt:
+            continue
+        key = dt.strftime("%Y-%m-%d")
+        b = buckets.setdefault(key, {"total": 0, "success": 0, "failed": 0})
+        b["total"] += 1
+        if _norm_automation(r.get("status")) == "SUCCESS":
+            b["success"] += 1
+        elif _norm_automation(r.get("status")) == "FAILED":
+            b["failed"] += 1
+    return [
+        {"day": k, "date": k, "label": k, **v}
+        for k, v in sorted(buckets.items())
+    ]
 
-            if attempt < retries:
-                try:
-                    reset_db_pool()
-                except Exception as reset_error:
-                    print(
-                        "[DASHBOARD DB] "
-                        "pool reset failed:",
-                        repr(reset_error),
-                    )
 
-                continue
+def _build_hourly(matched):
+    buckets = {}
+    for r in matched:
+        dt = _as_datetime(r.get("started_at"))
+        if not dt:
+            continue
+        hour = dt.replace(minute=0, second=0, microsecond=0)
+        key = hour.isoformat()
+        b = buckets.setdefault(key, {"total": 0, "success": 0, "failed": 0})
+        b["total"] += 1
+        if _norm_automation(r.get("status")) == "SUCCESS":
+            b["success"] += 1
+        elif _norm_automation(r.get("status")) == "FAILED":
+            b["failed"] += 1
+    return [
+        {"day": k, "date": k, "label": k, "hour": k, **v}
+        for k, v in sorted(buckets.items())
+    ]
 
-            raise last_error
 
-        finally:
-            if conn is not None:
-                try:
-                    get_db_pool().putconn(conn)
-                except Exception:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
+def _build_engines(matched):
+    buckets = {}
+    for r in matched:
+        engine = (r.get("search_engine") or "").strip()
+        if not engine or engine.lower() == "youtube":
+            continue
+        b = buckets.setdefault(engine, {"total": 0, "success": 0, "failed": 0})
+        b["total"] += 1
+        if _norm_automation(r.get("status")) == "SUCCESS":
+            b["success"] += 1
+        elif _norm_automation(r.get("status")) == "FAILED":
+            b["failed"] += 1
+    return [
+        {"engine": k, **v}
+        for k, v in sorted(buckets.items(), key=lambda kv: kv[1]["total"], reverse=True)
+    ]
+
+
+def _serialise_run(r):
+    started = _as_datetime(r.get("started_at"))
+    finished = _as_datetime(r.get("finished_at"))
+    now = _utcnow()
+    duration = None
+    if started:
+        duration = round(((finished or now) - started).total_seconds(), 1)
+    return {
+        "run_id": str(r.get("run_id") or ""),
+        "automation_type": r.get("automation_type"),
+        "original_keyword": r.get("original_keyword"),
+        "search_keyword": r.get("search_keyword"),
+        "browser_mode": r.get("browser_mode"),
+        "target": r.get("target"),
+        "search_engine": r.get("search_engine"),
+        "started_at": _iso(started),
+        "finished_at": _iso(finished),
+        "status": r.get("status"),
+        "success_count": int(r.get("success_count") or 0),
+        "failure_count": int(r.get("failure_count") or 0),
+        "retry_count": int(r.get("retry_count") or 0),
+        "fallback_used": bool(r.get("fallback_used", False)),
+        "duration_seconds": duration,
+    }
 
 
 # =========================================================
@@ -240,11 +296,6 @@ def dashboard():
             ),
         )
 
-        if days == 1:
-            period_start = "CURRENT_DATE"
-        else:
-            period_start = f"CURRENT_DATE - INTERVAL '{days - 1} days'"
-
         automation_type = automation_filter(
             request.args.get(
                 "automation",
@@ -258,240 +309,33 @@ def dashboard():
             f"days={days}",
         )
 
-        # -------------------------------------------------
-        # SUMMARY
-        # -------------------------------------------------
+        # Midnight (UTC) of (days-1) days ago, like
+        # the old CURRENT_DATE - (days-1) SQL filter.
+        today_midnight = _utcnow().replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        cutoff = today_midnight - timedelta(days=days - 1)
 
         query_start = time.perf_counter()
-
-        summary = query(
-            """
-            SELECT
-                COUNT(*)::int AS total_runs,
-
-                COUNT(*) FILTER (
-                    WHERE status = 'SUCCESS'
-                )::int AS successful_runs,
-
-                COUNT(*) FILTER (
-                    WHERE status = 'FAILED'
-                )::int AS failed_runs,
-
-                COUNT(*) FILTER (
-                    WHERE status = 'RUNNING'
-                )::int AS running_runs,
-
-                COUNT(*) FILTER (
-                    WHERE status = 'INTERRUPTED'
-                )::int AS interrupted_runs,
-
-                COALESCE(
-                    SUM(retry_count),
-                    0
-                )::int AS total_retries,
-
-                COUNT(
-                    DISTINCT original_keyword
-                )::int AS unique_keywords
-
-            FROM automation_runs
-
-            WHERE started_at >=
-                CURRENT_DATE - ((%s - 1) * INTERVAL '1 day')
-
-              AND UPPER(
-                    TRIM(automation_type)
-                  ) = %s
-            """,
-            (
-                days,
-                automation_type,
-            ),
-        )[0]
-
+        matched = _fetch_runs(automation_type, cutoff)
         print(
             "[DASHBOARD API]",
-            f"summary="
-            f"{(time.perf_counter() - query_start) * 1000:.1f}ms",
+            f"matched={len(matched)} "
+            f"fetch={(time.perf_counter() - query_start) * 1000:.1f}ms",
         )
 
-        total = summary["total_runs"] or 0
+        summary = _build_summary(matched)
+        daily = _build_daily(matched)
+        hourly = _build_hourly(matched)
+        engines = _build_engines(matched)
 
-        summary["success_rate"] = (
-            round(
-                (
-                    summary["successful_runs"]
-                    / total
-                ) * 100,
-                1,
-            )
-            if total
-            else 0
-        )
+        recent_docs = sorted(
+            matched,
+            key=lambda r: _as_datetime(r.get("started_at")) or _utcnow(),
+            reverse=True,
+        )[:50]
+        recent = [_serialise_run(r) for r in recent_docs]
 
-        # -------------------------------------------------
-        # DAILY
-        # -------------------------------------------------
-
-        query_start = time.perf_counter()
-
-        daily = query(
-            """
-            SELECT
-                DATE(started_at) AS day,
-
-                COUNT(*)::int AS total,
-
-                COUNT(*) FILTER (
-                    WHERE status = 'SUCCESS'
-                )::int AS success,
-
-                COUNT(*) FILTER (
-                    WHERE status = 'FAILED'
-                )::int AS failed
-
-            FROM automation_runs
-
-            WHERE started_at >=
-                CURRENT_DATE - ((%s - 1) * INTERVAL '1 day')
-
-              AND UPPER(
-                    TRIM(automation_type)
-                  ) = %s
-
-            GROUP BY DATE(started_at)
-
-            ORDER BY day
-            """,
-            (
-                days,
-                automation_type,
-            ),
-        )
-
-        print(
-            "[DASHBOARD API]",
-            f"daily="
-            f"{(time.perf_counter() - query_start) * 1000:.1f}ms",
-        )
-
-        # -------------------------------------------------
-        # ENGINES
-        # -------------------------------------------------
-
-        query_start = time.perf_counter()
-
-        engines = query(
-            """
-            SELECT
-                COALESCE(
-                    search_engine,
-                    'Unknown'
-                ) AS engine,
-
-                COUNT(*)::int AS total,
-
-                COUNT(*) FILTER (
-                    WHERE status = 'SUCCESS'
-                )::int AS success,
-
-                COUNT(*) FILTER (
-                    WHERE status = 'FAILED'
-                )::int AS failed
-
-            FROM automation_runs
-
-            WHERE started_at >=
-                CURRENT_DATE - ((%s - 1) * INTERVAL '1 day')
-
-              AND UPPER(
-                    TRIM(automation_type)
-                  ) = %s
-
-              AND search_engine IS NOT NULL
-
-              AND LOWER(
-                    TRIM(search_engine)
-                  ) <> 'youtube'
-
-            GROUP BY COALESCE(
-                search_engine,
-                'Unknown'
-            )
-
-            ORDER BY total DESC
-            """,
-            (
-                days,
-                automation_type,
-            ),
-        )
-
-        print(
-            "[DASHBOARD API]",
-            f"engines="
-            f"{(time.perf_counter() - query_start) * 1000:.1f}ms",
-        )
-
-        # -------------------------------------------------
-        # RECENT RUNS
-        # -------------------------------------------------
-
-        query_start = time.perf_counter()
-
-        recent = query(
-            """
-            SELECT
-                run_id,
-                automation_type,
-                original_keyword,
-                search_keyword,
-                browser_mode,
-                target,
-                search_engine,
-                started_at,
-                finished_at,
-                status,
-                success_count,
-                failure_count,
-                retry_count,
-                fallback_used,
-
-                ROUND(
-                    EXTRACT(
-                        EPOCH FROM
-                        (
-                            COALESCE(
-                                finished_at,
-                                NOW()
-                            )
-                            - started_at
-                        )
-                    )::numeric,
-                    1
-                ) AS duration_seconds
-
-            FROM automation_runs
-            WHERE started_at >= CURRENT_DATE - ((%s - 1) * INTERVAL '1 day')
-            AND UPPER(TRIM(automation_type)) = %s
-            ORDER BY started_at DESC
-            LIMIT 50
-            """,
-            (
-                 days,
-                automation_type,
-            ),
-        )
-
-        print(
-            "[DASHBOARD API]",
-            f"recent="
-            f"{(time.perf_counter() - query_start) * 1000:.1f}ms",
-        )
-
-        # -------------------------------------------------
-        # YOUTUBE PERFORMANCE
-        # -------------------------------------------------
         # YouTube Performance represents the selected YouTube
         # automation itself, not a search-engine row.
         youtube = None
@@ -508,11 +352,11 @@ def dashboard():
             "automation": automation_type,
             "summary": summary,
             "daily": daily,
+            "hourly": hourly,
             "engines": engines,
             "youtube": youtube,
             "recent": recent,
-            "generated_at":
-                datetime.now().isoformat(),
+            "generated_at": _utcnow().isoformat(),
         }
 
         total_ms = (
@@ -560,31 +404,29 @@ def logs(run_id):
     request_start = time.perf_counter()
 
     try:
-        rows = query(
-            """
-            SELECT
-                log_id,
-                timestamp,
-                level,
-                keyword,
-                search_engine,
-                action,
-                event_status,
-                url,
-                error_message,
-                metadata,
-                message
-
-            FROM automation_logs
-
-            WHERE run_id = %s
-
-            ORDER BY
-                timestamp ASC,
-                log_id ASC
-            """,
-            (run_id,),
+        docs = list(
+            logs_collection()
+            .find({"run_id": str(run_id)})
+            .sort([("timestamp", ASCENDING), ("_id", ASCENDING)])
         )
+
+        rows = []
+        for d in docs:
+            rows.append(
+                {
+                    "log_id": str(d.get("_id")),
+                    "timestamp": _iso(d.get("timestamp")),
+                    "level": d.get("level"),
+                    "keyword": d.get("keyword"),
+                    "search_engine": d.get("search_engine"),
+                    "action": d.get("action"),
+                    "event_status": d.get("event_status"),
+                    "url": d.get("url"),
+                    "error_message": d.get("error_message"),
+                    "metadata": d.get("metadata") or {},
+                    "message": d.get("message"),
+                }
+            )
 
         print(
             "[DASHBOARD LOGS]",
@@ -618,26 +460,13 @@ def logs(run_id):
 def health():
 
     try:
-        result = query(
-            """
-            SELECT
-                current_database() AS database_name,
-                current_user AS database_user,
-                inet_server_addr()::text AS server_address,
-                inet_server_port() AS server_port,
-                NOW() AS database_time
-            """
-        )[0]
+        get_mongo_db().command("ping")
 
         return jsonify(
             {
                 "status": "connected",
-                "database": result["database_name"],
-                "user": result["database_user"],
-                "server": result["server_address"],
-                "port": result["server_port"],
-                "database_time":
-                    result["database_time"],
+                "database": get_mongo_db().name,
+                "environment": CURRENT_DB,
             }
         )
 
