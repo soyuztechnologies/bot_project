@@ -7,11 +7,11 @@
   
 
     "distribution": {
-        "chrome" : 20,
+        "chrome" : 80,
         "edge" : 20,
-        "brave" : 20,
-        "firefox" : 20,
-        "opera" : 20    
+        "brave" : 0,
+        "firefox" : 0,
+        "opera" : 0    
     }
   },
 
@@ -25,10 +25,10 @@
 
 
   "database": {
-    "current_db": "prod",
+    "current_db": "atlas",
     "db": {
-      "public": "CONNECTION_URL_TEST",
-      "prod": "CONNECTION_URL_PROD"
+      "local": "MONGO_URI_LOCAL",
+      "atlas": "MONGO_URI_ATLAS"
     }
   },
 
