@@ -358,6 +358,7 @@ function showView(viewId) {
         updateAutomationToggle();
         updateSidebar();
         updateHeader();
+        updateBacklinksChrome();
         loadSelectedAutomation();
         return;
     }
@@ -365,6 +366,7 @@ function showView(viewId) {
     updateHeader();
     updateSidebar();
     updateAutomationToggle();
+    updateBacklinksChrome();
 
     /* Critical: changing a sidebar view must render the already-loaded data. */
     if (state.data) {
@@ -1989,6 +1991,10 @@ function renderCurrentMode() {
 
         case "performance":
             renderPerformanceView();
+            break;
+
+        case "backlinks":
+            renderBacklinksView();
             break;
 
         default:
@@ -4803,6 +4809,47 @@ function updateDashboardContext() {
     updateSidebar();
     updateHeader();
     updateContextLabels();
+    updateBacklinksChrome();
+}
+
+
+/* =========================================================
+   BACKLINKS FULL-PAGE CHROME
+   =========================================================
+   The Backlinks Summary section owns the whole page:
+   hide the Website/YouTube header toggle while it is active.
+   Sidebar navigation is untouched.
+   ========================================================= */
+
+function updateBacklinksChrome() {
+
+    const inBacklinks =
+        state.activeView === "backlinks";
+
+    const display =
+        inBacklinks
+            ? "none"
+            : "";
+
+    document
+        .querySelectorAll(
+            ".automation-switch"
+        )
+        .forEach(element => {
+
+            element.style.display =
+                display;
+        });
+
+    document
+        .querySelectorAll(
+            "#pageTitleWrap"
+        )
+        .forEach(element => {
+
+            element.style.display =
+                display;
+        });
 }
 
 
@@ -5264,10 +5311,7 @@ async function switchAutomationContext(
 ) {
 
     const normalized =
-        String(
-            mode || ""
-        ).toUpperCase() ===
-        "SEARCH"
+        String(mode || "").toUpperCase() === "SEARCH"
             ? "SEARCH"
             : "YOUTUBE";
 
@@ -5652,7 +5696,10 @@ function getSelectedDays() {
    ========================================================= */
 
 async function loadAutomationData(automation = state.automation) {
-    const requestedAutomation = String(automation || "").toUpperCase() === "SEARCH" ? "SEARCH" : "YOUTUBE";
+    const requestedAutomation =
+        String(automation || "").toUpperCase() === "SEARCH"
+            ? "SEARCH"
+            : "YOUTUBE";
     state.automation = requestedAutomation;
     const days = getSelectedDays();
     const apiAutomation = requestedAutomation;
@@ -5916,10 +5963,7 @@ async function changeAutomation(
     mode
 ) {
     const normalized =
-        String(
-            mode || ""
-        ).toUpperCase() ===
-        "SEARCH"
+        String(mode || "").toUpperCase() === "SEARCH"
             ? "SEARCH"
             : "YOUTUBE";
 
@@ -6313,6 +6357,494 @@ if (
 
     }
 }
+
+/* =========================================================
+   BACKLINKS (dedicated collection)
+   =========================================================
+   Reads ONLY the `backlinks` collection:
+   - summary tables  -> renderBacklinksView()
+   - generate button -> triggerBacklinkGenerate() calls
+     backlink_main.py via POST /api/backlinks/generate
+   - stop button     -> triggerBacklinkStop() calls
+     POST /api/backlinks/stop (kills the script tree)
+   ========================================================= */
+
+state.backlinks = null;
+state.backlinksLoading = false;
+state.backlinkJob = { running: false };
+state.backlinkPollTimer = null;
+
+
+async function fetchBacklinks(days) {
+    const value =
+        days ??
+        (typeof getSelectedDays === "function"
+            ? getSelectedDays()
+            : 7);
+
+    const response = await fetch(
+        `/api/backlinks?days=${encodeURIComponent(value)}`,
+        { cache: "no-store" }
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            `Backlinks API failed: ${response.status}`
+        );
+    }
+
+    return response.json();
+}
+
+
+async function loadBacklinks() {
+    if (state.backlinksLoading) {
+        return state.backlinks;
+    }
+
+    state.backlinksLoading = true;
+
+    try {
+        const data = await fetchBacklinks();
+
+        state.backlinks = data || {
+            summary: { total: 0, success: 0, failed: 0, running: 0, interrupted: 0, success_rate: 0 },
+            sites: [],
+            recent: []
+        };
+
+        if (state.activeView === "backlinks") {
+            renderBacklinksView();
+        }
+
+        return state.backlinks;
+    }
+    catch (error) {
+        console.error(
+            "[DASHBOARD] Backlinks load failed:",
+            error
+        );
+
+        return state.backlinks;
+    }
+    finally {
+        state.backlinksLoading = false;
+    }
+}
+
+
+function renderBacklinksView() {
+    updateBacklinksChrome();
+
+    const title = $("pageTitle");
+    const subtitle = $("pageSubtitle");
+
+    if (title) {
+        title.textContent = "Backlinks Summary";
+    }
+
+    if (subtitle) {
+        subtitle.textContent =
+            "Ping-site submissions from the dedicated backlinks collection.";
+    }
+
+    const summary =
+        (state.backlinks && state.backlinks.summary) || {};
+
+    setText("blRunsTotal", toNumber(summary.total));
+    setText("blRunsSuccess", toNumber(summary.success));
+    setText("blRunsFailed", toNumber(summary.failed));
+    setText(
+        "blRunsRate",
+        `${toNumber(summary.success_rate).toFixed(1)}%`
+    );
+
+    renderBacklinkSitesTable(
+        (state.backlinks && state.backlinks.sites) || []
+    );
+
+    renderBacklinksTable(
+        (state.backlinks && state.backlinks.recent) || []
+    );
+}
+
+
+function renderBacklinkSitesTable(sites = []) {
+    const tbody = $("backlinkSitesTable");
+
+    if (!tbody) {
+        return;
+    }
+
+    if (!Array.isArray(sites) || sites.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="empty-state">
+                    No backlink submissions found for this period.
+                    Press “Generate Backlinks” to run backlink_main.py.
+                </td>
+            </tr>
+        `;
+
+        return;
+    }
+
+    tbody.innerHTML = sites
+        .map(site => {
+            const rate = Number(site.success_rate || 0);
+
+            return `
+                <tr>
+                    <td class="site-cell">
+                        ${escapeHtml(site.site_id || "—")}
+                    </td>
+                    <td>
+                        <span class="bl-url" title="${escapeHtml(site.site_url || "")}">
+                            ${escapeHtml(site.site_url || "—")}
+                        </span>
+                    </td>
+                    <td>${toNumber(site.total)}</td>
+                    <td>${toNumber(site.success)}</td>
+                    <td>${toNumber(site.failed)}</td>
+                    <td>${rate.toFixed(1)}%</td>
+                </tr>
+            `;
+        })
+        .join("");
+}
+
+
+function renderBacklinksTable(rows = []) {
+    const tbody = $("backlinksTable");
+
+    if (!tbody) {
+        return;
+    }
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="empty-state">
+                    No backlink submissions found for this period.
+                </td>
+            </tr>
+        `;
+
+        return;
+    }
+
+    tbody.innerHTML = rows
+        .map(row => {
+            const status = String(row.status || "UNKNOWN");
+            const targetUrl = row.target_url || "—";
+            const resultText = row.result_text || "—";
+
+            const duration =
+                row.duration_seconds !== undefined &&
+                row.duration_seconds !== null
+                    ? formatDurationSeconds(row.duration_seconds)
+                    : "—";
+
+            return `
+                <tr>
+                    <td>
+                        <span class="status-badge status-${statusClass(status)}">
+                            ${escapeHtml(statusLabel(status))}
+                        </span>
+                    </td>
+                    <td class="site-cell">
+                        ${escapeHtml(row.site_id || "—")}
+                    </td>
+                    <td>
+                        <span class="bl-url" title="${escapeHtml(targetUrl)}">
+                            ${escapeHtml(targetUrl)}
+                        </span>
+                    </td>
+                    <td>
+                        ${escapeHtml(row.keyword || row.category || "—")}
+                    </td>
+                    <td>
+                        <span class="bl-result" title="${escapeHtml(resultText)}">
+                            ${escapeHtml(resultText)}
+                        </span>
+                    </td>
+                    <td>${escapeHtml(duration)}</td>
+                    <td>${escapeHtml(formatDateTime(row.started_at))}</td>
+                </tr>
+            `;
+        })
+        .join("");
+}
+
+
+/* =========================================================
+   GENERATE BACKLINKS (calls backlink_main.py)
+   ========================================================= */
+
+function syncBacklinkJobUI(job = {}) {
+    const button = $("generateBacklinksBtn");
+    const status = $("generateBacklinksStatus");
+
+    const running = Boolean(job.running);
+
+    state.backlinkJob = job;
+
+    if (button) {
+        /* Stays clickable while running: pressing it stops the script. */
+        button.disabled = false;
+        button.classList.toggle("busy", running);
+        button.innerHTML = running
+            ? `<span>⏹</span> Stop Backlinks`
+            : `<span>⚡</span> Generate Backlinks`;
+    }
+
+    if (status) {
+        if (running) {
+            const started = job.started_at
+                ? formatDateTime(job.started_at)
+                : "";
+            status.textContent = job.stop_requested
+                ? `Stopping backlink_main.py… ${started}`.trim()
+                : `Running backlink_main.py… press Stop to halt it. ${started}`.trim();
+        }
+        else if (job.finished_at) {
+            if (job.returncode === 0 && !job.error) {
+                status.textContent = "Last run finished successfully. Tables refreshed.";
+            }
+            else {
+                status.textContent = `Last run: ${job.error || `exited with code ${job.returncode ?? "?"}`}. Press Generate to run again.`;
+            }
+        }
+        else {
+            status.textContent = "Ready to generate.";
+        }
+    }
+}
+
+
+async function pollBacklinkJobStatus() {
+    if (state.backlinkPollTimer) {
+        clearInterval(state.backlinkPollTimer);
+        state.backlinkPollTimer = null;
+    }
+
+    const poll = async () => {
+        try {
+            const response = await fetch("/api/backlinks/status", {
+                cache: "no-store"
+            });
+
+            if (!response.ok) {
+                return;
+            }
+
+            const data = await response.json();
+            const job = data.job || {};
+
+            syncBacklinkJobUI(job);
+
+            if (!job.running) {
+                clearInterval(state.backlinkPollTimer);
+                state.backlinkPollTimer = null;
+
+                /* Refresh the backlink tables once the run is done. */
+                await loadBacklinks();
+            }
+        }
+        catch (error) {
+            console.error(
+                "[DASHBOARD] Backlink status poll failed:",
+                error
+            );
+        }
+    };
+
+    await poll();
+
+    if (state.backlinkJob && state.backlinkJob.running) {
+        state.backlinkPollTimer = setInterval(poll, 5000);
+    }
+}
+
+
+async function triggerBacklinkGenerate() {
+    const button = $("generateBacklinksBtn");
+
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = `<span>⏳</span> Starting…`;
+    }
+
+    try {
+        const response = await fetch("/api/backlinks/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({})
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (response.status === 409) {
+            syncBacklinkJobUI(data.job || { running: true });
+            await pollBacklinkJobStatus();
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(data.error || `Generate failed: ${response.status}`);
+        }
+
+        syncBacklinkJobUI(data.job || { running: true });
+        await pollBacklinkJobStatus();
+    }
+    catch (error) {
+        console.error(
+            "[DASHBOARD] Generate backlinks failed:",
+            error
+        );
+
+        const status = $("generateBacklinksStatus");
+
+        if (status) {
+            status.textContent = `Could not start: ${error.message}`;
+        }
+
+        if (button) {
+            button.disabled = false;
+        }
+    }
+}
+
+
+async function triggerBacklinkStop() {
+    const button = $("generateBacklinksBtn");
+    const status = $("generateBacklinksStatus");
+
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = `<span>⏳</span> Stopping…`;
+    }
+
+    if (status) {
+        status.textContent = "Requesting stop…";
+    }
+
+    try {
+        const response = await fetch("/api/backlinks/stop", {
+            method: "POST"
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            throw new Error(data.error || `Stop failed: ${response.status}`);
+        }
+
+        syncBacklinkJobUI(data.job || { running: true, stop_requested: true });
+
+        /* Keep polling until the process is actually gone. */
+        await pollBacklinkJobStatus();
+    }
+    catch (error) {
+        console.error(
+            "[DASHBOARD] Stop backlinks failed:",
+            error
+        );
+
+        if (status) {
+            status.textContent = `Could not stop: ${error.message}`;
+        }
+
+        await pollBacklinkJobStatus();
+    }
+}
+
+
+function initializeBacklinksUI() {
+    const generateBtn = $("generateBacklinksBtn");
+
+    if (generateBtn && generateBtn.dataset.backlinksBound !== "true") {
+        generateBtn.dataset.backlinksBound = "true";
+        generateBtn.addEventListener("click", () => {
+            if (state.backlinkJob && state.backlinkJob.running) {
+                triggerBacklinkStop();
+            }
+            else {
+                triggerBacklinkGenerate();
+            }
+        });
+    }
+
+    const reloadBtn = $("refreshBacklinksBtn");
+
+    if (reloadBtn && reloadBtn.dataset.backlinksBound !== "true") {
+        reloadBtn.dataset.backlinksBound = "true";
+        reloadBtn.addEventListener("click", async event => {
+            event.preventDefault();
+            reloadBtn.disabled = true;
+
+            try {
+                await loadBacklinks();
+            }
+            finally {
+                reloadBtn.disabled = false;
+            }
+        });
+    }
+
+    /* Keep backlink tables in sync with the global range + refresh. */
+    const range = $("range");
+
+    if (range && range.dataset.backlinksBound !== "true") {
+        range.dataset.backlinksBound = "true";
+        range.addEventListener("change", () => {
+            loadBacklinks();
+        });
+    }
+
+    const refreshBtn = $("refreshBtn");
+
+    if (refreshBtn && refreshBtn.dataset.backlinksBound !== "true") {
+        refreshBtn.dataset.backlinksBound = "true";
+        refreshBtn.addEventListener("click", () => {
+            loadBacklinks();
+            pollBacklinkJobStatus();
+        });
+    }
+
+    /* If a job was already running (e.g. page reloaded), resume polling. */
+    pollBacklinkJobStatus();
+    loadBacklinks();
+}
+
+
+/* Hook backlinks boot into the final startup (non-blocking). */
+(function hookBacklinksStartup() {
+    if (window.__SEO_BACKLINKS_HOOKED__) {
+        return;
+    }
+
+    window.__SEO_BACKLINKS_HOOKED__ = true;
+
+    const boot = () => {
+        try {
+            initializeBacklinksUI();
+        }
+        catch (error) {
+            console.error(
+                "[DASHBOARD] Backlinks UI init failed:",
+                error
+            );
+        }
+    };
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", boot, { once: true });
+    }
+    else {
+        setTimeout(boot, 0);
+    }
+})();
 
 /* =========================================================
    END OF DASHBOARD.JS

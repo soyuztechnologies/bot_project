@@ -164,7 +164,43 @@
                 Performance
             </button>
 
+            <div class="nav-label">
+                BACKLINKS
+            </div>
+
+
+            <button
+                class="nav-item"
+                data-view="backlinks"
+            >
+                <span>🔗</span>
+                Backlinks Summary
+            </button>
+
         </nav>
+
+
+        <!-- GENERATE BACKLINKS -->
+
+        <div class="sidebar-generate">
+
+            <button
+                type="button"
+                class="generate-btn"
+                id="generateBacklinksBtn"
+            >
+                <span>⚡</span>
+                Generate Backlinks
+            </button>
+
+            <small
+                class="generate-status"
+                id="generateBacklinksStatus"
+            >
+                Ready to generate.
+            </small>
+
+        </div>
 
 
         <!-- DATABASE STATUS -->
@@ -211,7 +247,7 @@
 
         <header class="topbar">
 
-            <div>
+            <div id="pageTitleWrap">
 
                 <div class="eyebrow">
                     AUTOMATION CONTROL CENTER
@@ -1314,6 +1350,244 @@
 
 
                         <tbody id="youtubeTable"></tbody>
+
+                    </table>
+
+                </div>
+
+            </article>
+
+        </section>
+
+
+
+        <!-- =====================================================
+             BACKLINKS SUMMARY
+        ====================================================== -->
+
+        <section
+            id="backlinks"
+            class="view"
+        >
+
+            <div class="section-title">
+
+                <div>
+
+                    <div class="eyebrow">
+                        BACKLINKS
+                    </div>
+
+                    <h2>
+                        Backlinks Summary
+                    </h2>
+
+                    <p>
+                        Every ping-site submission, stored in the dedicated backlinks collection.
+                    </p>
+
+                </div>
+
+
+                <div class="top-actions">
+
+                    <button
+                        class="primary-btn"
+                        id="refreshBacklinksBtn"
+                        title="Reload backlink data"
+                    >
+                        ↻ Reload
+                    </button>
+
+                </div>
+
+            </div>
+
+
+
+            <div class="metric-grid compact">
+
+
+                <article class="metric">
+
+                    <div class="metric-icon blue">
+                        🔗
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Total Submissions
+                        </span>
+
+                        <strong id="blRunsTotal">
+                            —
+                        </strong>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon green">
+                        ✓
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Successful
+                        </span>
+
+                        <strong id="blRunsSuccess">
+                            —
+                        </strong>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon red">
+                        !
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Failed
+                        </span>
+
+                        <strong id="blRunsFailed">
+                            —
+                        </strong>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="metric">
+
+                    <div class="metric-icon cyan">
+                        %
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Success Rate
+                        </span>
+
+                        <strong id="blRunsRate">
+                            —
+                        </strong>
+
+                    </div>
+
+                </article>
+
+            </div>
+
+
+
+            <article class="panel">
+
+                <div class="panel-head">
+
+                    <div>
+
+                        <h3>
+                            Performance by Ping Site
+                        </h3>
+
+                        <span>
+                            Submissions grouped per ping website
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <div class="table-wrap">
+
+                    <table>
+
+                        <thead>
+
+                            <tr>
+
+                                <th>Ping Site</th>
+                                <th>Site URL</th>
+                                <th>Total</th>
+                                <th>Success</th>
+                                <th>Failed</th>
+                                <th>Success Rate</th>
+
+                            </tr>
+
+                        </thead>
+
+
+                        <tbody id="backlinkSitesTable"></tbody>
+
+                    </table>
+
+                </div>
+
+            </article>
+
+
+
+            <article class="panel">
+
+                <div class="panel-head">
+
+                    <div>
+
+                        <h3>
+                            Backlink Submissions
+                        </h3>
+
+                        <span>
+                            Detailed per-URL submission history
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <div class="table-wrap">
+
+                    <table>
+
+                        <thead>
+
+                            <tr>
+
+                                <th>Status</th>
+                                <th>Ping Site</th>
+                                <th>Target URL</th>
+                                <th>Keyword</th>
+                                <th>Result</th>
+                                <th>Duration</th>
+                                <th>Started</th>
+
+                            </tr>
+
+                        </thead>
+
+
+                        <tbody id="backlinksTable"></tbody>
 
                     </table>
 

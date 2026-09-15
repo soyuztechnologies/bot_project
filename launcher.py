@@ -8,6 +8,7 @@ Allows user to choose which automation to run.
  
 from main import main as website_main
 from youtube_main import main as youtube_main
+from backlink_main import main as backlink_main
 from utils.exceptions import ConfigError, DatabaseError, SeoBotError, UnhandledAutomationError, wrap_unexpected
 import logging
  
@@ -21,10 +22,11 @@ def main():
     print("=" * 50)
     print("1. Website Automation")
     print("2. YouTube Automation")
+    print("3. Generate Backlinks")
     print("=" * 50)
- 
+
     try:
-        choice = input("Enter your choice (1 or 2): ").strip()
+        choice = input("Enter your choice (1, 2 or 3): ").strip()
     except (EOFError, KeyboardInterrupt):
         print("\nInput cancelled by user.")
         logger.info("Launcher interrupted during input.")
@@ -43,7 +45,11 @@ def main():
         elif choice == "2":
             print("\nStarting YouTube Automation...\n")
             youtube_main()
- 
+
+        elif choice == "3":
+            print("\nStarting Generate Backlinks...\n")
+            backlink_main()
+
         else:
             print("\nInvalid choice.")
     except UnhandledAutomationError as e:
