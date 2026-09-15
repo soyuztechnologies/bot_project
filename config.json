@@ -1,23 +1,31 @@
 {
   "browser": {
     "name": "chrome",
-    "mode": "headless",
-    "maximize": true,
+    "mode": "headed",
+    "maximize": false,
 
-    "browsers": ["chrome"],
+  
 
     "distribution": {
-        "chrome" : 80,
-        "edge" : 5,
-        "brave" : 5,
-        "firefox" : 5,
-        "opera" : 5    
+        "chrome" : 20,
+        "edge" : 20,
+        "brave" : 20,
+        "firefox" : 20,
+        "opera" : 20    
     }
   },
 
+  "vpn": {
+  "enabled": true,
+  "provider": "nordvpn",
+  "installation_dir": "C:\\Program Files\\NordVPN",
+  "verify_connection": true
+},
+
+
 
   "database": {
-    "current_db": "public",
+    "current_db": "prod",
     "db": {
       "public": "CONNECTION_URL_TEST",
       "prod": "CONNECTION_URL_PROD"
@@ -73,3 +81,5 @@
     "searchEngines": "data/search_engines.json"
   }
 }
+
+

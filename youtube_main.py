@@ -22,6 +22,7 @@ from utils.exceptions import (
 )
  
 from automation.youtube_session import start_parallel_sessions
+from utils.vpn_manager import connect_vpn, disconnect_vpn
 from utils.database import (
     check_db_connection,
     DatabaseHandler,
@@ -179,6 +180,7 @@ def main():
     completed = None
     interrupted = False
     unexpected_error = None
+    vpn_connected = False
  
     try:
  
@@ -300,6 +302,14 @@ def main():
         # start_parallel_sessions now always prints summary even on Ctrl+C/error
         # and youtube_main will also ensure summary in finally (like main.py)
         # -----------------------------------------------------
+
+        vpn_config = config.get("vpn", {})
+
+        if vpn_config.get("enabled", False):
+            logger.info("Connecting to VPN before starting YouTube automation.")
+            connect_vpn()
+            vpn_connected = True
+            logger.info("VPN connected and verified.")
  
         result = start_parallel_sessions(
             keywords,
@@ -419,6 +429,17 @@ def main():
         # -----------------------------------------------------
         # Database Cleanup — rely on database.py log, avoid duplicate logger.info
         # -----------------------------------------------------
+
+        if vpn_connected:
+            try:
+                logger.info("Disconnecting VPN after YouTube automation.")
+                disconnect_vpn()
+                logger.info("VPN disconnected and verified.")
+            except Exception as vpn_error:
+                logger.error(
+                    f"Failed to disconnect VPN: {vpn_error}",
+                    exc_info=True,
+                )
 
         if db_initialized:
 

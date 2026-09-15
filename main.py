@@ -14,6 +14,7 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from automation.session import start_parallel_sessions
+from utils.vpn_manager import connect_vpn, disconnect_vpn
 from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool
 from utils.logger import setup_logger
 from utils.exceptions import (
@@ -298,6 +299,7 @@ def main():
     config = None
     interrupted = False
     unexpected_error = None
+    vpn_connected = False
     try:
         setup_logger()
  
@@ -328,7 +330,15 @@ def main():
         logger.info(f"Parallel Sessions : {config['sessions']['parallel']}")
         logger.info(f"Keywords          : {len(keywords)}")
  
-        # Start automation
+        # Start automation with VPN
+        vpn_config = config.get("vpn", {})
+
+        if vpn_config.get("enabled", False):
+            logger.info("Connecting to VPN before starting automation.")
+            connect_vpn()
+            vpn_connected = True
+            logger.info("VPN connected and verified.")
+
         stats = start_parallel_sessions(
             keywords,
             config,
@@ -431,6 +441,19 @@ def main():
             logger.info("Automation ended normally.")
  
         logger.info("Automation Project Finished.")
+
+        # Always disconnect VPN if this run connected it.
+        if vpn_connected:
+            try:
+                logger.info("Disconnecting VPN after automation.")
+                disconnect_vpn()
+                logger.info("VPN disconnected and verified.")
+            except Exception as vpn_error:
+                logger.error(
+                    f"Failed to disconnect VPN: {vpn_error}",
+                    exc_info=True,
+                )
+                
         try:
             close_connection_pool()
         except DatabaseError as e:
