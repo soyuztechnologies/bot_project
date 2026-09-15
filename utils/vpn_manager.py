@@ -1,5 +1,7 @@
+import ipaddress
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -79,12 +81,51 @@ def _run_nordvpn_command(action):
         action,
     ]
 
-    return subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"NordVPN command timed out after 60 seconds: {action}"
+        ) from exc
+    except OSError as exc:
+        raise RuntimeError(
+            f"Failed to execute NordVPN command '{action}': {exc}"
+        ) from exc
+
+
+def _is_nordlynx_active():
+    """Return True when NordLynx has an active default route."""
+
+    command = [
+        "powershell",
+        "-NoProfile",
+        "-Command",
+        (
+            "Get-NetRoute "
+            "-InterfaceAlias 'NordLynx' "
+            "-DestinationPrefix '0.0.0.0/0' "
+            "-ErrorAction SilentlyContinue | "
+            "Where-Object {$_.State -eq 'Alive'} | "
+            "Select-Object -First 1"
+        ),
+    ]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+    return result.returncode == 0 and bool(result.stdout.strip())
 
 
 def get_public_ip():
@@ -92,7 +133,7 @@ def get_public_ip():
 
     result = subprocess.run(
         [
-            "python",
+            sys.executable,
             "-c",
             (
                 "import urllib.request; "
@@ -119,6 +160,13 @@ def get_public_ip():
             "Public IP check returned an empty result."
         )
 
+    try:
+        ipaddress.ip_address(ip_address)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Public IP check returned an invalid IP address: {ip_address}"
+        ) from exc
+
     return ip_address
 
 
@@ -136,6 +184,11 @@ def connect_vpn():
     original_ip = get_public_ip()
 
     print(f"[VPN] Current public IP: {original_ip}")
+
+    if _is_nordlynx_active():
+        print("[VPN] NordLynx is already active.")
+        return False
+
     print("[VPN] Connecting to NordVPN...")
 
     result = _run_nordvpn_command("-c")
@@ -177,9 +230,32 @@ def connect_vpn():
             print("[VPN] VPN connection verified.")
             return True
 
+    try:
+        print("[VPN] Connection could not be verified.")
+        print("[VPN] Attempting automatic VPN disconnect...")
+
+        disconnect_result = _run_nordvpn_command("-d")
+
+        if disconnect_result.returncode != 0:
+            error = (
+                disconnect_result.stderr.strip()
+                or disconnect_result.stdout.strip()
+            )
+
+            raise RuntimeError(
+                f"Automatic VPN disconnect failed: {error}"
+            )
+
+    except Exception as cleanup_error:
+        raise RuntimeError(
+            "NordVPN connection could not be verified, and "
+            f"automatic disconnect failed: {cleanup_error}"
+        ) from cleanup_error
+
     raise RuntimeError(
-        "NordVPN command completed, but the public IP "
-        "did not change. VPN connection could not be verified."
+        "NordVPN command completed, but the public IP did not change. "
+        "VPN connection could not be verified. "
+        "VPN was automatically disconnected."
     )
 
 
@@ -197,6 +273,11 @@ def disconnect_vpn():
     vpn_ip = get_public_ip()
 
     print(f"[VPN] Current public IP: {vpn_ip}")
+
+    if not _is_nordlynx_active():
+        print("[VPN] NordLynx is already disconnected.")
+        return False
+
     print("[VPN] Disconnecting from NordVPN...")
 
     result = _run_nordvpn_command("-d")

@@ -307,9 +307,12 @@ def main():
 
         if vpn_config.get("enabled", False):
             logger.info("Connecting to VPN before starting YouTube automation.")
-            connect_vpn()
-            vpn_connected = True
-            logger.info("VPN connected and verified.")
+            vpn_connected = connect_vpn()
+    
+            if vpn_connected:
+                logger.info("VPN connected and verified.")
+            else:
+                logger.info("VPN was already connected.")
  
         result = start_parallel_sessions(
             keywords,
