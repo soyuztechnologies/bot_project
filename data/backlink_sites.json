@@ -1,0 +1,189 @@
+[
+  {
+    "id": "pingmyurls",
+    "name": "pingmyurls",
+    "url": "https://pingmyurls.com",
+    "enabled": true,
+    "input_type": "single",
+    "input": {
+      "primary_xpath": "/html/body/div[2]/div[4]/form/table/tbody/tr/td[1]/div/input",
+      "fallbacks": [
+        "//form//input[@type='text']",
+        "//form//input[not(@type) or @type='text' or @type='url']",
+        "//input[contains(@name,'url') or contains(@id,'url')]"
+      ]
+    },
+    "submit": {
+      "primary_xpath": "/html/body/div[2]/div[4]/form/table/tbody/tr/td[2]/div/input",
+      "fallbacks": [
+        "//form//input[@type='submit']",
+        "//form//input[@type='button']",
+        "//form//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "/html/body/div[2]/div[4]/div[2]/table/tbody/tr[2]/td[3]/img",
+      "fallbacks": [
+        "//table//tr[2]/td[3]//img",
+        "//table//tr[position()>1]/td[3]",
+        "//div[contains(@class,'result')]//table"
+      ],
+      "success_hint": "status image shows text 'ping'",
+      "wait_seconds": 25
+    },
+    "notes": "Table with 2 cols - url & status, status is an image showing text 'ping'."
+  },
+  {
+    "id": "pingmylinks",
+    "name": "pingmylinks",
+    "url": "https://www.pingmylinks.com/addurl/",
+    "enabled": true,
+    "input_type": "single",
+    "input": {
+      "primary_xpath": "/html/body/div[1]/div[3]/form/table/tbody/tr/td[1]/div/input",
+      "fallbacks": [
+        "//form//input[@type='text']",
+        "//form//input[not(@type) or @type='text' or @type='url']",
+        "//input[contains(@name,'url') or contains(@id,'url')]"
+      ]
+    },
+    "submit": {
+      "primary_xpath": "/html/body/div[1]/div[3]/form/table/tbody/tr/td[2]/div/input",
+      "fallbacks": [
+        "//form//input[@type='submit']",
+        "//form//input[@type='button']",
+        "//form//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "/html/body/div[1]/div[3]/div[2]/table/tbody/tr[2]/td[3]/img",
+      "fallbacks": [
+        "//table//tr[2]/td[3]//img",
+        "//table//tr[position()>1]/td[3]",
+        "//div[contains(@class,'result')]//table"
+      ],
+      "success_hint": "status image shows text 'ok'",
+      "wait_seconds": 25
+    },
+    "notes": "Table with 2 cols - url & status, status is an image showing text 'ok'."
+  },
+  {
+    "id": "prepostseo",
+    "name": "prepostseo",
+    "url": "https://www.prepostseo.com/ping-multiple-urls-online",
+    "enabled": true,
+    "input_type": "textarea_bulk",
+    "max_urls_per_submit": 10,
+    "input": {
+      "primary_xpath": "/html/body/main/div[3]/div[1]/div/div[1]/div[1]/div[1]/div/form/div[2]/div/div/textarea",
+      "fallbacks": [
+        "//form//textarea",
+        "//textarea"
+      ]
+    },
+    "submit_step1": {
+      "primary_xpath": "/html/body/main/div[3]/div[1]/div/div[1]/div[1]/div[1]/div/p[3]/span",
+      "label": "pingNow",
+      "fallbacks": [
+        "//span[contains(translate(.,'PINGNOW','pingnow'),'ping now')]",
+        "//button[contains(translate(.,'PING','ping'),'ping')]",
+        "//p//span[contains(translate(.,'PING','ping'),'ping')]"
+      ]
+    },
+    "submit_step2": {
+      "primary_xpath": "/html/body/main/div[3]/div[1]/div/div[1]/div[1]/div[1]/div/p[4]/span[7]",
+      "label": "startPinging button (after clicking pingnow)",
+      "fallbacks": [
+        "//span[contains(translate(.,'START','start'),'start ping')]",
+        "//button[contains(translate(.,'START','start'),'start')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "/html/body/main/div[3]/div[1]/div/div[1]/div[1]/div[2]/div/div/table/tbody/tr[1]/td[2]/div/strong[2]",
+      "fallbacks": [
+        "//table//tr[1]/td[2]",
+        "//table[contains(@class,'table')]//td[2]",
+        "//div[contains(@class,'result')]//table"
+      ],
+      "success_hint": "Table with 2 cols - webpage & status, status inside div box with text",
+      "wait_seconds": 60
+    },
+    "notes": "Textarea supports up to 10 urls. Click pingNow, then startPinging button. We submit 1 url per session for uniformity."
+  },
+  {
+    "id": "duplichecker",
+    "name": "duplichecker",
+    "url": "https://www.duplichecker.com/search-engine-pinging-website-tool.php",
+    "enabled": true,
+    "input_type": "single",
+    "input": {
+      "primary_xpath": "/html/body/div[7]/div/div[1]/div/div[1]/form/div/div[1]/div[1]/div[1]/input",
+      "fallbacks": [
+        "//form//input[@type='text']",
+        "//form//input[not(@type) or @type='text' or @type='url']",
+        "//input[contains(@name,'url') or contains(@id,'url') or contains(@placeholder,'URL') or contains(@placeholder,'url')]"
+      ]
+    },
+    "submit": {
+      "primary_xpath": "/html/body/div[7]/div/div[1]/div/div[1]/form/div/div[5]/input",
+      "label": "Ping now",
+      "fallbacks": [
+        "//form//input[@type='submit']",
+        "//form//button[contains(translate(.,'PING','ping'),'ping')]",
+        "//input[contains(@value,'Ping') or contains(@value,'ping')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "/html/body/div[7]/div/div[1]/div/div[3]/div[6]/div[2]/span/div[1]/div[2]/div",
+      "fallbacks": [
+        "//div[contains(text(),'Success') or contains(text(),'success') or contains(text(),'Pinged') or contains(text(),'pinged')]",
+        "//div[contains(@class,'result') or contains(@class,'success')]"
+      ],
+      "success_hint": "div with success text inside it",
+      "wait_seconds": 40
+    },
+    "notes": "Result is a div with success text."
+  },
+  {
+    "id": "free_backlinks",
+    "name": "free-backlinks",
+    "url": "https://free-backlinks.net/ping-my-url.html",
+    "enabled": true,
+    "input_type": "url_plus_title",
+    "input": {
+      "primary_xpath": "/html/body/div/div[2]/div/form/input[1]",
+      "label": "url to ping",
+      "fallbacks": [
+        "//form//input[1]",
+        "//form//input[@type='text' or @type='url'][1]",
+        "//form//input[contains(@name,'url') or contains(@placeholder,'URL') or contains(@placeholder,'url')]"
+      ]
+    },
+    "title": {
+      "primary_xpath": "/html/body/div/div[2]/div/form/input[2]",
+      "label": "Title of url",
+      "fallbacks": [
+        "//form//input[2]",
+        "//form//input[contains(@name,'title') or contains(@placeholder,'Title') or contains(@placeholder,'title')]"
+      ]
+    },
+    "submit": {
+      "primary_xpath": "//form//input[@type='submit']",
+      "fallbacks": [
+        "//form//button[@type='submit']",
+        "//form//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]",
+        "//form//input[@type='button']"
+      ]
+    },
+    "result": {
+      "primary_xpath": "/html/body/div/div[2]/div/br[2]",
+      "fallbacks": [
+        "//div[contains(text(),'400') or contains(text(),'500') or contains(text(),'200') or contains(text(),'Success') or contains(text(),'success') or contains(text(),'Ping')]",
+        "//div[2]/div"
+      ],
+      "success_hint": "Text contains status code/result like 400, 0, 500",
+      "wait_seconds": 30
+    },
+    "notes": "Needs both URL and Title. Result text contains status code like 400, 0, 500."
+  }
+]

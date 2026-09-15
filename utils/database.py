@@ -129,6 +129,15 @@ def get_logs_collection():
     return get_database()["automation_logs"]
 
 
+def get_backlinks_collection():
+    """Dedicated collection for backlink (ping submission) results.
+
+    One flat document per (ping site x target url) submission, so the
+    dashboard can render backlink tables without joining runs/logs.
+    """
+    return get_database()["backlinks"]
+
+
 @contextmanager
 def get_db_connection():
     """Compat context manager yielding the MongoDB database."""
@@ -188,12 +197,13 @@ def check_db_connection():
 def initialize_database():
     """
     Ensure collections + indexes exist for
-    'automation_runs' and 'automation_logs'.
+    'automation_runs', 'automation_logs' and 'backlinks'.
     """
     global _db_available
     try:
         runs = get_runs_collection()
         logs = get_logs_collection()
+        backlinks = get_backlinks_collection()
 
         runs.create_index("run_id", unique=True)
         runs.create_index([("started_at", DESCENDING)])
@@ -224,10 +234,22 @@ def initialize_database():
             [("action", ASCENDING), ("event_status", ASCENDING)]
         )
 
+        backlinks.create_index("run_id", unique=True)
+        backlinks.create_index([("started_at", DESCENDING)])
+        backlinks.create_index("status")
+        backlinks.create_index("site_id")
+        backlinks.create_index(
+            [
+                ("site_id", ASCENDING),
+                ("status", ASCENDING),
+                ("started_at", DESCENDING),
+            ]
+        )
+
         _db_available = True
         logger.info(
-            "Database initialized: 'automation_runs' and "
-            "'automation_logs' collections are ready (MongoDB)."
+            "Database initialized: 'automation_runs', "
+            "'automation_logs' and 'backlinks' collections are ready (MongoDB)."
         )
     except (PyMongoError, Exception) as e:
         logger.error(f"Failed to initialize database: {e}")
@@ -296,6 +318,33 @@ def update_automation_run(run_id, finished_at, status, success_count, failure_co
         )
     except (PyMongoError, Exception) as e:
         logger.error(f"Failed to update automation run record for {run_id}: {e}")
+
+
+def save_backlink_submission(doc):
+    """Upsert one flat backlink result document (keyed by run_id).
+
+    Expected keys: run_id, site_id, site_url, target_url, target_title,
+    keyword, category, status, result_text, result_xpath, detail,
+    browser_mode, started_at, finished_at, duration_seconds.
+    Never raises — backlink persistence must not break the automation.
+    """
+    try:
+        payload = dict(doc or {})
+        payload["run_id"] = str(payload.get("run_id") or "")
+        if not payload["run_id"]:
+            logger.error("Refusing to save backlink submission without run_id.")
+            return False
+        payload["updated_at"] = _utcnow()
+        payload.setdefault("started_at", payload["updated_at"])
+        get_backlinks_collection().update_one(
+            {"run_id": payload["run_id"]},
+            {"$set": payload},
+            upsert=True,
+        )
+        return True
+    except (PyMongoError, Exception) as e:
+        logger.error(f"Failed to save backlink submission: {e}")
+        return False
 
 
 def close_connection_pool():

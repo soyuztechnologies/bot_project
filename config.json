@@ -1,7 +1,7 @@
 {
   "browser": {
     "name": "chrome",
-    "mode": "headed",
+    "mode": "headless",
     "maximize": false,
 
   
@@ -78,7 +78,14 @@
 
   "files": {
     "keywords": "data/keywords.json",
-    "searchEngines": "data/search_engines.json"
+    "searchEngines": "data/search_engines.json",
+    "backlinkSites": "data/backlink_sites.json",
+    "backlinkTargets": "data/backlink_targets.json"
+  },
+
+  "backlink": {
+    "sitesFile": "data/backlink_sites.json",
+    "targetsFile": "data/backlink_targets.json"
   }
 }
 

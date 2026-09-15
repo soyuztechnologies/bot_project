@@ -1,5 +1,8 @@
 import json
 import os
+import subprocess
+import sys
+import threading
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -105,6 +108,30 @@ def runs_collection():
 
 def logs_collection():
     return get_mongo_db()["automation_logs"]
+
+
+def backlinks_collection():
+    """Dedicated per-submission backlink results (one doc per ping-site x URL)."""
+    return get_mongo_db()["backlinks"]
+
+
+def _ensure_backlinks_indexes():
+    """Idempotent index setup for the backlinks collection (safe to call per request)."""
+    try:
+        coll = backlinks_collection()
+        coll.create_index("run_id", unique=True)
+        coll.create_index([("started_at", DESCENDING)])
+        coll.create_index("status")
+        coll.create_index("site_id")
+        coll.create_index(
+            [
+                ("site_id", ASCENDING),
+                ("status", ASCENDING),
+                ("started_at", DESCENDING),
+            ]
+        )
+    except Exception as exc:
+        print(f"[DASHBOARD BACKLINKS INDEX WARN] {exc!r}")
 
 
 # =========================================================
@@ -272,7 +299,7 @@ def index():
 def automation_filter(mode):
     mode = (mode or "YOUTUBE").upper()
 
-    if mode not in {"YOUTUBE", "SEARCH"}:
+    if mode not in {"YOUTUBE", "SEARCH", "BACKLINK"}:
         mode = "YOUTUBE"
 
     return mode
@@ -450,6 +477,297 @@ def logs(run_id):
                 "error": str(error)
             }
         ), 500
+
+
+# =========================================================
+# BACKLINKS (dedicated collection)
+# =========================================================
+
+def _serialise_backlink(d):
+    started = _as_datetime(d.get("started_at"))
+    finished = _as_datetime(d.get("finished_at"))
+    duration = d.get("duration_seconds")
+    if duration is None and started:
+        try:
+            duration = round(((finished or _utcnow()) - started).total_seconds(), 1)
+        except Exception:
+            duration = None
+    result_text = str(d.get("result_text") or "")
+    return {
+        "run_id": str(d.get("run_id") or ""),
+        "site_id": d.get("site_id"),
+        "site_url": d.get("site_url"),
+        "target_url": d.get("target_url"),
+        "target_title": d.get("target_title"),
+        "keyword": d.get("keyword"),
+        "category": d.get("category"),
+        "status": d.get("status"),
+        "result_text": result_text[:500],
+        "result_xpath": d.get("result_xpath"),
+        "detail": d.get("detail"),
+        "browser_mode": d.get("browser_mode"),
+        "started_at": _iso(started),
+        "finished_at": _iso(finished),
+        "duration_seconds": duration,
+    }
+
+
+def _build_backlink_summary(matched):
+    total = len(matched)
+    successful = sum(1 for r in matched if _norm_automation(r.get("status")) == "SUCCESS")
+    failed = sum(1 for r in matched if _norm_automation(r.get("status")) == "FAILED")
+    running = sum(1 for r in matched if _norm_automation(r.get("status")) == "RUNNING")
+    interrupted = sum(1 for r in matched if _norm_automation(r.get("status")) == "INTERRUPTED")
+    summary = {
+        "total": total,
+        "success": successful,
+        "failed": failed,
+        "running": running,
+        "interrupted": interrupted,
+    }
+    summary["success_rate"] = round((successful / total) * 100, 1) if total else 0
+    return summary
+
+
+def _build_backlink_sites(matched):
+    buckets = {}
+    for r in matched:
+        site_id = (r.get("site_id") or "unknown").strip()
+        b = buckets.setdefault(
+            site_id, {"site_id": site_id, "site_url": r.get("site_url") or "", "total": 0, "success": 0, "failed": 0}
+        )
+        if r.get("site_url") and not b["site_url"]:
+            b["site_url"] = r.get("site_url")
+        b["total"] += 1
+        if _norm_automation(r.get("status")) == "SUCCESS":
+            b["success"] += 1
+        elif _norm_automation(r.get("status")) == "FAILED":
+            b["failed"] += 1
+    rows = sorted(buckets.values(), key=lambda v: v["total"], reverse=True)
+    for row in rows:
+        row["success_rate"] = round((row["success"] / row["total"]) * 100, 1) if row["total"] else 0
+    return rows
+
+
+@app.get("/api/backlinks")
+def backlinks():
+    request_start = time.perf_counter()
+    try:
+        days = max(1, min(int(request.args.get("days", 7)), 90))
+        _ensure_backlinks_indexes()
+        today_midnight = _utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        cutoff = today_midnight - timedelta(days=days - 1)
+        docs = list(
+            backlinks_collection()
+            .find({"started_at": {"$gte": cutoff}}, {"_id": 0})
+            .sort("started_at", DESCENDING)
+            .limit(500)
+        )
+        summary = _build_backlink_summary(docs)
+        sites = _build_backlink_sites(docs)
+        recent = [_serialise_backlink(d) for d in docs[:200]]
+        print(
+            "[DASHBOARD BACKLINKS]",
+            f"days={days} matched={len(docs)} "
+            f"time={(time.perf_counter() - request_start) * 1000:.1f}ms",
+        )
+        return jsonify(
+            {
+                "summary": summary,
+                "sites": sites,
+                "recent": recent,
+                "generated_at": _utcnow().isoformat(),
+            }
+        )
+    except Exception as error:
+        print("[DASHBOARD BACKLINKS ERROR]", repr(error))
+        return jsonify({"error": str(error)}), 500
+
+
+# --- Generate Backlinks job (runs backlink_main.py in background) ---
+
+# RLock: the 409 branch serialises the job while already holding the lock.
+_backlink_job_lock = threading.RLock()
+_backlink_job = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "returncode": None,
+    "output_tail": "",
+    "error": None,
+    "args": [],
+    "stop_requested": False,
+}
+
+# Handle to the live backlink_main.py process (if any), guarded by _backlink_proc_lock.
+_backlink_proc_lock = Lock()
+_backlink_proc = None
+
+
+def _run_backlink_job(cmd):
+    global _backlink_proc
+    started = _utcnow()
+    try:
+        with _backlink_proc_lock:
+            _backlink_proc = subprocess.Popen(
+                cmd,
+                cwd=str(BASE_DIR),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            print(f"[DASHBOARD BACKLINK JOB] pid={_backlink_proc.pid}")
+        try:
+            out, _ = _backlink_proc.communicate(timeout=6 * 3600)
+            returncode = _backlink_proc.returncode
+        except subprocess.TimeoutExpired:
+            _kill_backlink_tree()
+            out, _ = _backlink_proc.communicate()
+            returncode = _backlink_proc.returncode
+        tail = (out or "")[-6000:]
+        with _backlink_job_lock:
+            stopped = bool(_backlink_job.get("stop_requested"))
+            if stopped:
+                error = "Stopped by user."
+            else:
+                error = None if returncode == 0 else f"backlink_main.py exited with code {returncode}"
+            _backlink_job.update(
+                {
+                    "running": False,
+                    "finished_at": _utcnow().isoformat(),
+                    "returncode": returncode,
+                    "output_tail": tail,
+                    "error": error,
+                    "stop_requested": False,
+                }
+            )
+    except Exception as exc:
+        with _backlink_job_lock:
+            _backlink_job.update(
+                {
+                    "running": False,
+                    "finished_at": _utcnow().isoformat(),
+                    "returncode": -1,
+                    "error": str(exc),
+                    "stop_requested": False,
+                }
+            )
+    finally:
+        with _backlink_proc_lock:
+            _backlink_proc = None
+    print(f"[DASHBOARD BACKLINK JOB] finished in {(_utcnow() - started).total_seconds():.1f}s")
+
+
+def _kill_backlink_tree():
+    """Terminate the running backlink_main.py process tree (best effort).
+
+    Returns True when a live process was signalled, False when nothing ran.
+    """
+    with _backlink_proc_lock:
+        proc = _backlink_proc
+    if proc is None or proc.poll() is not None:
+        return False
+    try:
+        if os.name == "nt":
+            # /T kills the whole tree (browsers spawned by the script included).
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True,
+                timeout=20,
+            )
+        else:
+            proc.terminate()
+    except Exception as exc:
+        print(f"[DASHBOARD BACKLINK STOP WARN] {exc!r}")
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    try:
+        proc.wait(timeout=20)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    return True
+
+
+@app.post("/api/backlinks/generate")
+def backlinks_generate():
+    try:
+        payload = request.get_json(silent=True) or {}
+        sites = str(payload.get("sites") or request.args.get("sites") or "").strip()
+        try:
+            max_targets = int(payload.get("max_targets") or request.args.get("max_targets") or 0)
+        except (TypeError, ValueError):
+            max_targets = 0
+
+        cmd = [sys.executable, "backlink_main.py"]
+        if sites:
+            cmd += ["--sites", sites]
+        if max_targets and max_targets > 0:
+            cmd += ["--max-targets", str(max_targets)]
+
+        with _backlink_job_lock:
+            if _backlink_job.get("running"):
+                return (
+                    jsonify({"error": "A backlink generation job is already running.", "job": _serialise_job()}),
+                    409,
+                )
+            _backlink_job.update(
+                {
+                    "running": True,
+                    "started_at": _utcnow().isoformat(),
+                    "finished_at": None,
+                    "returncode": None,
+                    "output_tail": "",
+                    "error": None,
+                    "args": cmd[1:],
+                    "stop_requested": False,
+                }
+            )
+
+        worker = threading.Thread(target=_run_backlink_job, args=(cmd,), daemon=True, name="BacklinkGenerateJob")
+        worker.start()
+        print("[DASHBOARD BACKLINK JOB] started:", " ".join(cmd))
+        return jsonify({"status": "started", "job": _serialise_job()}), 202
+    except Exception as error:
+        print("[DASHBOARD BACKLINK GENERATE ERROR]", repr(error))
+        return jsonify({"error": str(error)}), 500
+
+
+def _serialise_job():
+    with _backlink_job_lock:
+        return dict(_backlink_job)
+
+
+@app.post("/api/backlinks/stop")
+def backlinks_stop():
+    """Stop a running backlink generation job (kills the process tree)."""
+    try:
+        with _backlink_job_lock:
+            if not _backlink_job.get("running"):
+                return jsonify({"status": "idle", "job": dict(_backlink_job)}), 200
+            _backlink_job["stop_requested"] = True
+        print("[DASHBOARD BACKLINK JOB] stop requested")
+        killed = _kill_backlink_tree()
+        with _backlink_job_lock:
+            snapshot = dict(_backlink_job)
+        # If the process was already gone, let the worker thread finish up;
+        # report current state either way.
+        return jsonify({"status": "stopping" if killed else "idle", "job": snapshot}), 202
+    except Exception as error:
+        print("[DASHBOARD BACKLINK STOP ERROR]", repr(error))
+        return jsonify({"error": str(error)}), 500
+
+
+@app.get("/api/backlinks/status")
+def backlinks_status():
+    try:
+        return jsonify({"job": _serialise_job()})
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
 
 
 # =========================================================
