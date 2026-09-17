@@ -320,6 +320,52 @@ def update_automation_run(run_id, finished_at, status, success_count, failure_co
         logger.error(f"Failed to update automation run record for {run_id}: {e}")
 
 
+def reconcile_stale_runs(timeout_minutes=30, batch_limit=500):
+    """Flip old RUNNING runs to INTERRUPTED. Never raises.
+
+    Covers process kills / Ctrl+C during DB outage / any early-return
+    path that skipped the terminal update: the console summary comes
+    from in-memory stats, but the DB row stays RUNNING forever.
+    Called once at startup; also fixes rows stuck by previous runs.
+    Returns number of rows reconciled (0 on any failure).
+    """
+    from datetime import timedelta
+
+    try:
+        cutoff = _utcnow() - timedelta(minutes=max(1, int(timeout_minutes)))
+    except Exception:
+        from datetime import timedelta as _td
+
+        cutoff = _utcnow() - _td(minutes=30)
+    try:
+        result = get_runs_collection().update_many(
+            {"status": "RUNNING", "started_at": {"$lt": cutoff}},
+            {
+                "$set": {
+                    "status": "INTERRUPTED",
+                    "finished_at": _utcnow(),
+                    "stale_reconciled": True,
+                }
+            },
+        )
+        matched = getattr(result, "matched_count", 0) or 0
+        if matched:
+            try:
+                logger.warning(
+                    f"Reconciled {matched} stale RUNNING automation run(s) "
+                    f"older than {cutoff.isoformat()} to INTERRUPTED."
+                )
+            except Exception:
+                pass
+        return matched
+    except (PyMongoError, Exception) as e:
+        try:
+            logger.warning(f"Stale-run reconciliation skipped: {e}")
+        except Exception:
+            pass
+        return 0
+
+
 def save_backlink_submission(doc):
     """Upsert one flat backlink result document (keyed by run_id).
 
@@ -348,16 +394,50 @@ def save_backlink_submission(doc):
 
 
 def close_connection_pool():
-    """Close the shared MongoClient (kept name for compatibility)."""
+    """Close the shared MongoClient (kept name for compatibility).
+
+    Never raises and never blocks shutdown: ``MongoClient.close()``
+    performs network I/O (``_end_sessions`` -> DNS ``getaddrinfo``)
+    which hangs when the VPN just broke the network. Run it in a
+    daemon thread with a short timeout and swallow BaseException
+    (including KeyboardInterrupt arriving during finally).
+    """
     global _client, _db
-    if _client is not None:
+    client, _client = _client, None
+    _db = None
+    if client is None:
+        return
+    import threading
+
+    def _do_close():
         try:
-            _client.close()
+            client.close()
+        except BaseException:
+            pass
+
+    worker = threading.Thread(target=_do_close, daemon=True)
+    try:
+        worker.start()
+    except BaseException:
+        return
+    try:
+        worker.join(timeout=3.0)
+    except BaseException:
+        pass
+    if worker.is_alive():
+        # Still hanging on DNS/network: abandon it, process can exit.
+        try:
+            logger.warning(
+                "Database close timed out (network down?), "
+                "skipping blocking close."
+            )
         except Exception:
             pass
+        return
+    try:
         logger.info("Database connection closed (MongoDB).")
-    _client = None
-    _db = None
+    except Exception:
+        pass
 
 
 # Alias with Mongo naming.

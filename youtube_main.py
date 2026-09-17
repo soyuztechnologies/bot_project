@@ -28,6 +28,7 @@ from utils.database import (
     DatabaseHandler,
     close_connection_pool,
     initialize_database,
+    reconcile_stale_runs,
 )
 from utils.logger import setup_logger
  
@@ -205,6 +206,18 @@ def main():
  
             # Check whether database is reachable.
             check_db_connection()
+
+            # Flip stale RUNNING rows from previous crashed/killed runs
+            # so they don't stay RUNNING forever. Never fatal.
+            try:
+                reconciled = reconcile_stale_runs()
+                if reconciled:
+                    logger.info(
+                        f"Reconciled {reconciled} stale RUNNING run(s) "
+                        "from previous runs."
+                    )
+            except Exception:
+                pass
  
             # Add database logging to the root logger.
             database_handler = DatabaseHandler()
@@ -303,16 +316,42 @@ def main():
         # and youtube_main will also ensure summary in finally (like main.py)
         # -----------------------------------------------------
 
-        vpn_config = config.get("vpn", {})
+        vpn_config = config.get("vpn", {}) or {}
 
         if vpn_config.get("enabled", False):
-            logger.info("Connecting to VPN before starting YouTube automation.")
-            vpn_connected = connect_vpn()
-    
-            if vpn_connected:
-                logger.info("VPN connected and verified.")
-            else:
-                logger.info("VPN was already connected.")
+            try:
+                logger.info("Connecting to VPN before starting YouTube automation.")
+                vpn_connected = connect_vpn()
+
+                if vpn_connected:
+                    logger.info("VPN connected and verified.")
+                else:
+                    logger.info(
+                        "VPN not connected (disabled/already active/skipped). "
+                        "Continuing without VPN."
+                    )
+            except (KeyboardInterrupt, SystemExit):
+                # Ctrl+C during VPN must respond instantly (child is
+                # already killed in vpn_manager). Treat as user stop.
+                raise
+            except BaseException as vpn_error:
+                # Any VPN error must never stop automation.
+                vpn_connected = False
+                try:
+                    logger.warning(
+                        f"VPN connection failed/skipped: {vpn_error}. "
+                        "Continuing without VPN."
+                    )
+                except Exception:
+                    pass
+                try:
+                    print(
+                        f"[VPN WARNING] VPN connection failed/skipped: "
+                        f"{vpn_error}. Continuing without VPN.",
+                        flush=True,
+                    )
+                except Exception:
+                    pass
  
         result = start_parallel_sessions(
             keywords,
@@ -438,11 +477,14 @@ def main():
                 logger.info("Disconnecting VPN after YouTube automation.")
                 disconnect_vpn()
                 logger.info("VPN disconnected and verified.")
-            except Exception as vpn_error:
-                logger.error(
-                    f"Failed to disconnect VPN: {vpn_error}",
-                    exc_info=True,
-                )
+            except BaseException as vpn_error:
+                # Disconnect must never crash shutdown / print traceback.
+                try:
+                    logger.warning(
+                        f"Failed to disconnect VPN (skipped): {vpn_error}."
+                    )
+                except Exception:
+                    pass
 
         if db_initialized:
 
@@ -450,13 +492,16 @@ def main():
 
                 close_connection_pool()
 
-            except Exception as db_error:
-
-                logger.error(
-                    f"Failed to close database connection pool : "
-                    f"{db_error}",
-                    exc_info=True,
-                )
+            except BaseException as db_error:
+                # close_connection_pool itself never blocks now, but
+                # a Ctrl+C landing exactly here must not traceback.
+                try:
+                    logger.warning(
+                        f"Failed to close database connection pool (skipped): "
+                        f"{db_error}"
+                    )
+                except Exception:
+                    pass
  
         if interrupted:
             logger.info("YouTube automation ended due to interruption.")

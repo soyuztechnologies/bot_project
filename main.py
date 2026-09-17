@@ -15,7 +15,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from automation.session import start_parallel_sessions
 from utils.vpn_manager import connect_vpn, disconnect_vpn
-from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool
+from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool, reconcile_stale_runs
 from utils.logger import setup_logger
 from utils.exceptions import (
     BrowserError,
@@ -309,6 +309,16 @@ def main():
         # Initialize database and then check the connection
         initialize_database()
         check_db_connection()
+        # Flip stale RUNNING rows from previous crashed/killed runs.
+        try:
+            reconciled = reconcile_stale_runs()
+            if reconciled:
+                logger.info(
+                    f"Reconciled {reconciled} stale RUNNING run(s) "
+                    "from previous runs."
+                )
+        except Exception:
+            pass
         logger.info("=" * 50)
         logger.info("Automation Project Started")
         logger.info("=" * 50)
@@ -330,17 +340,41 @@ def main():
         logger.info(f"Parallel Sessions : {config['sessions']['parallel']}")
         logger.info(f"Keywords          : {len(keywords)}")
  
-        # Start automation with VPN
-        vpn_config = config.get("vpn", {})
+        # Start automation with VPN (never fatal - skip on any error)
+        vpn_config = config.get("vpn", {}) or {}
 
         if vpn_config.get("enabled", False):
-            logger.info("Connecting to VPN before starting automation.")
-            vpn_connected = connect_vpn()
+            try:
+                logger.info("Connecting to VPN before starting automation.")
+                vpn_connected = connect_vpn()
 
-            if vpn_connected:
-                logger.info("VPN connected and verified.")
-            else:
-                logger.info("VPN was already connected.")
+                if vpn_connected:
+                    logger.info("VPN connected and verified.")
+                else:
+                    logger.info(
+                        "VPN not connected (already active, disabled, "
+                        "or skipped due to error). Continuing without VPN."
+                    )
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException as vpn_error:
+                # VPN installation / connection failure must never stop script.
+                vpn_connected = False
+                try:
+                    logger.warning(
+                        f"VPN connection failed/skipped: {vpn_error}. "
+                        "Continuing without VPN."
+                    )
+                except Exception:
+                    pass
+                try:
+                    print(
+                        f"[VPN WARNING] VPN connection failed/skipped: "
+                        f"{vpn_error}. Continuing without VPN.",
+                        flush=True,
+                    )
+                except Exception:
+                    pass
 
         stats = start_parallel_sessions(
             keywords,
@@ -446,24 +480,28 @@ def main():
         logger.info("Automation Project Finished.")
 
         # Always disconnect VPN if this run connected it.
+        # Disconnect failure must never crash the script.
         if vpn_connected:
             try:
                 logger.info("Disconnecting VPN after automation.")
                 disconnect_vpn()
                 logger.info("VPN disconnected and verified.")
-            except Exception as vpn_error:
-                logger.error(
-                    f"Failed to disconnect VPN: {vpn_error}",
-                    exc_info=True,
-                )
+            except BaseException as vpn_error:
+                try:
+                    logger.warning(
+                        f"Failed to disconnect VPN (skipped): {vpn_error}. "
+                        "Continuing script shutdown."
+                    )
+                except Exception:
+                    pass
 
         try:
             close_connection_pool()
-        except DatabaseError as e:
-            logger.warning(f"Failed to close DB pool (expected DB error): {e} [{type(e).__name__}]", exc_info=False)
-        except Exception as e:
-            wrapped = wrap_unexpected(e, "close_connection_pool")
-            logger.warning(f"Failed to close DB pool (bug): {wrapped}", exc_info=True)
+        except BaseException as e:
+            try:
+                logger.warning(f"Failed to close DB pool (skipped): {e}")
+            except Exception:
+                pass
  
 if __name__ == "__main__":
     main()
