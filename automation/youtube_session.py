@@ -18,7 +18,6 @@ import time
 import traceback
 import random
 import logging
-import queue
 import sys
 from datetime import datetime, timezone
 import uuid
@@ -27,13 +26,10 @@ from automation.search_engine_selector import filter_engines_for_browser, select
 from utils.session_stats import SessionStats
 from utils.database import create_automation_run, update_automation_run
 from utils.exceptions import (
-    BrowserDiedError,
     BrowserError,
     CaptchaDetectedError,
     ConfigError,
     SearchEngineError,
-    SeoBotError,
-    TargetNotFoundError,
     UnhandledAutomationError,
     VideoNotFoundError,
     YoutubeError,
@@ -754,6 +750,7 @@ def _safe_create_automation_run(run_id, keyword, config, selected_browser, searc
             target=youtube_config.get("targetChannel", ""),
             search_engine=search_engine,
             flow_type=flow_type,
+            user_name=config.get("user_name", "unknown"),
         )
     except Exception as error:
         logger.warning(
@@ -1589,7 +1586,6 @@ def run_session(
                         print("[SEARCH ENGINE] Switching to next search engine...")
                         # Count as expected captcha, not bug
                         try:
-                            from utils.exceptions import CaptchaDetectedError
                             raise CaptchaDetectedError(f"Captcha on {current_engine} for {keyword}", engine=current_engine, keyword=keyword)
                         except CaptchaDetectedError as ce:
                             session_logger.warning(
@@ -1911,7 +1907,6 @@ def run_session(
                     except Exception:
                         pass
 
-                    target_video_found = True
                     keyword_completed = True
 
                     # -------------------------------------------------
@@ -2280,9 +2275,9 @@ def run_session(
             try:
                 # Dedup by keyword+thread only (engine ignored) — prevents double-count per worker
                 tid = str(threading.get_ident())
-                if not any(str(d.get("keyword"))==str(current_keyword) and str(d.get("thread_id", tid))==tid for d in stats.interrupted):
-                    if not any(str(d.get("keyword"))==str(current_keyword) and str(d.get("thread_id", tid))==tid for d in stats.failed):
-                        if not any(str(d.get("keyword"))==str(current_keyword) and str(d.get("thread_id", tid))==tid for d in stats.success):
+                if not any(str(d.get("keyword")) == str(current_keyword) and str(d.get("thread_id", tid)) == tid for d in stats.interrupted):
+                    if not any(str(d.get("keyword")) == str(current_keyword) and str(d.get("thread_id", tid)) == tid for d in stats.failed):
+                        if not any(str(d.get("keyword")) == str(current_keyword) and str(d.get("thread_id", tid)) == tid for d in stats.success):
                             stats.record_keyword_interrupted(current_keyword, _interrupt_engine, thread_id=tid)
                 # Also account for any unstarted keywords in this worker's chunk
                 # so Summary Total matches keywords assigned on Ctrl+C.

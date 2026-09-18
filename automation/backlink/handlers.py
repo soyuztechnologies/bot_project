@@ -2,25 +2,14 @@
 handlers.py — dispatch (site_id -> site module submit).
 """
 
-from automation.backlink.sites import duplichecker, free_backlinks, pingmylinks, pingmyurls, prepostseo
-
-_HANDLERS = {
-    "pingmyurls": pingmyurls.submit,
-    "pingmylinks": pingmylinks.submit,
-    "prepostseo": prepostseo.submit,
-    "duplichecker": duplichecker.submit,
-    "free_backlinks": free_backlinks.submit,
-}
-
+from automation.backlink.engine import generic_submit
 
 def get_handler(site_id):
-    try:
-        return _HANDLERS[str(site_id)]
-    except KeyError:
-        raise ValueError(
-            f"No backlink handler for site '{site_id}'. Available: {sorted(_HANDLERS)}"
-        )
-
+    # Always return the generic engine for any site configuration
+    return generic_submit
 
 def supported_sites():
-    return sorted(_HANDLERS)
+    # Since it's config-driven, we just support anything passed in config.
+    # Returning a placeholder or parsing config could be an option, 
+    # but the generic engine supports dynamic sites.
+    return []

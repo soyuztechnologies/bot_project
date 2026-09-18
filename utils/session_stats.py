@@ -256,7 +256,6 @@ class SessionStats:
     def print_summary(self):
 
         import logging
-        logger = logging.getLogger(__name__)
         self.reconcile()
         # Main.py-style per-keyword tick/cross header (even on Ctrl+C/error) - use print for all to keep order, mimic logger timestamp
         try:

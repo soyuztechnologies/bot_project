@@ -256,7 +256,7 @@ def initialize_database():
         _db_available = False
 
 
-def create_automation_run(run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine=None, flow_type=None):
+def create_automation_run(run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine=None, flow_type=None, user_name=None):
     """
     Insert a new automation run document. run_id stored as string.
     flow_type is YouTube-only ('youtube_first' / 'search_engine_first').
@@ -273,6 +273,7 @@ def create_automation_run(run_id, automation_type, original_keyword, search_keyw
                 "target": target,
                 "search_engine": search_engine,
                 "flow_type": flow_type,
+                "user_name": user_name,
                 "started_at": _utcnow(),
                 "finished_at": None,
                 "status": "RUNNING",

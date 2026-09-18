@@ -14,7 +14,6 @@ Responsibilities:
 """
 import logging
 import queue
-import sys
 import threading
 import uuid
 import random
@@ -44,22 +43,11 @@ from automation.website import visit_website
 from utils.helpers import build_browser_mode, build_fallback_keyword
 from utils.database import create_automation_run, update_automation_run
 from utils.exceptions import (
-    BrowserBinaryNotFoundError,
-    BrowserDiedError,
     BrowserError,
-    BrowserStartupError,
     CaptchaDetectedError,
     ConfigError,
-    EngineConfigError,
-    EngineOpenError,
-    InvalidLocatorError,
-    NavigationError,
-    SearchEngineError,
-    SearchFailedError,
-    SeoBotError,
     TargetNotFoundError,
     UnhandledAutomationError,
-    UnsupportedBrowserError,
     wrap_unexpected,
 )
 
@@ -178,7 +166,8 @@ _CLOSED_DRIVER_IDS_LOCK = threading.Lock()
 def _kill_orphaned_browser_profiles():
     """Best-effort sweep for any remaining browser_profiles processes (orphaned msedge/chrome)."""
     try:
-        import psutil, os
+        import psutil
+        import os
         # Find browser_profiles root from drivers or cwd
         roots = set()
         with _ACTIVE_DRIVERS_LOCK:
@@ -546,7 +535,8 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
     retry_count = 0
 
     # Create initial session record in the database - never let DB failure kill session
-    _safe_create_run(run_id, automation_type, original_keyword, current_search_keyword, browser_mode, target, engine_name)
+    user_name = config.get("user_name", "unknown")
+    _safe_create_run(run_id, automation_type, original_keyword, current_search_keyword, browser_mode, target, engine_name, user_name=user_name)
 
     try:
         if stop_event.is_set():
@@ -1433,7 +1423,6 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
         try:
             _kill_orphaned_browser_profiles()
             # Last resort Windows taskkill by profile path via browser helper
-            from browser.browser import _kill_browsers_by_profile
             import pathlib as _pl
             bp_root = _pl.Path.cwd() / "browser_profiles"
             if bp_root.exists():
