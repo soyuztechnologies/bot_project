@@ -23,7 +23,7 @@ import sys
 from datetime import datetime, timezone
 import uuid
 
-from automation.search_engine_selector import select_search_engine
+from automation.search_engine_selector import filter_engines_for_browser, select_search_engine
 from utils.session_stats import SessionStats
 from utils.database import create_automation_run, update_automation_run
 from utils.exceptions import (
@@ -839,8 +839,41 @@ def run_session(
         selected_browser = select_browser(config)
     except Exception:
         selected_browser = "chrome"
+
+    # DuckDuckGo is only reliable on Chrome; drop it for other browsers.
     try:
-        selected_search_engine = select_search_engine(config)
+        _configured_engines = list((config.get("search", {}) or {}).get("engines", []) or [])
+        _allowed_engines = filter_engines_for_browser(
+            _configured_engines,
+            search_engines,
+            selected_browser,
+        )
+    except Exception:
+        _allowed_engines = []
+
+    try:
+        if _allowed_engines:
+            selected_search_engine = str(random.choice(_allowed_engines)).strip().lower()
+        else:
+            # DDG is the only configured engine and it's blocked on this browser.
+            # Attempt it anyway as best-effort (fail-fast thanks to captcha detection)
+            # but strongly recommend adding google/yahoo to config.
+            print(
+                f"[{thread_name}] WARNING: Configured engine(s) {_configured_engines} "
+                f"are blocked on browser '{selected_browser}'. "
+                f"DuckDuckGo only works reliably on Chrome. "
+                f"Add 'google' and/or 'yahoo' to search.engines to fix this."
+            )
+            logger.warning(
+                f"[{thread_name}] No compatible search engine for browser "
+                f"'{_configured_engines}' configured engines {_configured_engines} "
+                f"blocked on '{selected_browser}'. Running DDG as last resort.",
+                extra={"action": "SESSION_START", "status": "WARNING"},
+            )
+            try:
+                selected_search_engine = str(random.choice(_configured_engines)).strip().lower()
+            except Exception:
+                selected_search_engine = select_search_engine(config)
     except Exception as sel_err:
         logger.warning(
             f"[{thread_name}] Search engine selection failed: {sel_err}",
@@ -1333,6 +1366,24 @@ def run_session(
             # -------------------------------------------------
 
             fallback_engines = config["search"]["engines"]
+            try:
+                # Skip engines incompatible with the current browser
+                # (e.g. DuckDuckGo on Edge/Firefox/Opera/Brave) when alternatives exist.
+                _filtered = filter_engines_for_browser(
+                    fallback_engines,
+                    search_engines,
+                    selected_browser,
+                )
+                if _filtered:
+                    fallback_engines = _filtered
+                else:
+                    print(
+                        f"[{thread_name}] WARNING: engines {fallback_engines} are blocked "
+                        f"on browser '{selected_browser}'. Trying DuckDuckGo as last resort "
+                        f"for '{keyword}' (add google/yahoo to config to avoid failures)."
+                    )
+            except Exception:
+                pass
 
             keyword_completed = False
             target_video_found = False
@@ -1639,6 +1690,8 @@ def run_session(
                     current_engine_config,
                     config,
                     stop_event,
+                    keyword=keyword,
+                    target_channel=target_channel,
                 )
 
                 if not video_tab_success:

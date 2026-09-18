@@ -33,6 +33,7 @@ def _short_err(e, max_len=250):
 
 from browser.browser import setup_browser, close_browser
 from browser.browser_selector import select_browser
+from automation.search_engine_selector import filter_engines_for_browser
 from automation.search_engine import (
     open_search_engine,
     search_keyword,
@@ -625,6 +626,24 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         # If still CAPTCHA on all, count as FAILED/not found and close browser cleanly
         # -------------------------------------------------
         fallback_order = _get_fallback_engine_order(config, search_engines, all_engine_names, engine_name, engine)
+        try:
+            # Skip engines incompatible with the current browser
+            # (e.g. DuckDuckGo on Edge/Firefox/Opera/Brave) when alternatives exist.
+            _allowed = filter_engines_for_browser(
+                [n for n, _ in fallback_order],
+                search_engines,
+                selected_browser,
+            )
+            if _allowed:
+                fallback_order = [(n, e) for n, e in fallback_order if n in _allowed]
+            else:
+                print(
+                    f"WARNING: configured engines are blocked on browser "
+                    f"'{selected_browser}'. Trying DuckDuckGo as last resort for "
+                    f"'{original_keyword}' (add google/yahoo to config to avoid failures)."
+                )
+        except Exception:
+            pass
         session_logger.info(f"Engine fallback order for '{original_keyword}': {[n for n,_ in fallback_order]} (browser={selected_browser})", extra={'action': 'ENGINE_FALLBACK_ORDER', 'status': 'RUNNING', 'engine': engine_name})
 
         found = False

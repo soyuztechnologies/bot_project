@@ -12,8 +12,8 @@
   ],
 
   "searchBox": {
-    "by": "NAME",
-    "value": "search_query"
+    "by": "CSS_SELECTOR",
+    "value": "input#search, input[name='search_query']"
   },
 
   "videoCards": {

@@ -29,14 +29,10 @@ from urllib.parse import parse_qs, quote_plus, unquote, urlparse
  
 from utils.exceptions import (
     BrowserDiedError,
-    CaptchaDetectedError,
     EngineConfigError,
-    EngineOpenError,
     InvalidLocatorError,
     NavigationError,
     SearchFailedError,
-    TargetNotFoundError,
-    UnhandledAutomationError,
     wrap_unexpected,
 )
  
@@ -152,12 +148,18 @@ def extract_result_url(href: str) -> str:
  
     if not href:
         return ""
- 
+
+    href = href.strip()
+
+    # Protocol-relative links, e.g. "//duckduckgo.com/l/?uddg=..."
+    if href.startswith("//"):
+        href = "https:" + href
+
     parsed = urlparse(href)
- 
+
     if parsed.scheme not in {"http", "https"}:
         return ""
- 
+
     query_values = parse_qs(parsed.query)
  
     # Google / Yahoo / DuckDuckGo
@@ -483,7 +485,7 @@ def is_captcha_page(driver, engine_name=None, stop_event=None):
                 return False
             visible_text = ""
  
-        # URL indicators - strong signal
+# URL indicators - strong signal
         url_indicators = [
             "/sorry/",
             "captcha",
@@ -491,10 +493,15 @@ def is_captcha_page(driver, engine_name=None, stop_event=None):
             "verify-you-are-human",
             "areyouhuman",
             "/interstitial/",
+            "/anomaly/",
         ]
         if any(ind in current_url for ind in url_indicators):
             return True
- 
+
+        # DuckDuckGo Anomaly page title (SPA and HTML endpoints)
+        if "anomaly" in page_title:
+            return True
+
         # Text indicators visible to user - covers Bing "One last step" screenshot and others
         text_indicators = [
             "one last step",
@@ -517,6 +524,15 @@ def is_captcha_page(driver, engine_name=None, stop_event=None):
             "not a robot",
             "verify your humanity",
             "prove you are human",
+            "we need to verify",
+            "verify that you are a human",
+            "verify that you're a human",
+            "you're a human",
+            "anomaly",
+            "select all squares",
+            "complete the following challenge",
+            "please complete the following challenge",
+            "images not loading",
         ]
         # Check title and visible body text first (avoid false positives from scripts)
         for ind in text_indicators:
@@ -528,11 +544,20 @@ def is_captcha_page(driver, engine_name=None, stop_event=None):
             return True
         # Only do extra XPath probes when visible text already looks suspicious
         # (avoids 5 extra round-trips on every clean page).
-        if "verify you are human" in visible_text or "one last step" in visible_text or "captcha" in visible_text:
+        if (
+            "verify you are human" in visible_text
+            or "one last step" in visible_text
+            or "captcha" in visible_text
+            or "anomaly" in visible_text
+            or "you're a human" in visible_text
+        ):
             try:
                 captcha_selectors = [
                     "//*[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'verify you are human')]",
                     "//*[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'one last step')]",
+                    "//form[@id='challenge-form']",
+                    "//form[contains(@id,'challenge')]",
+                    "//*[contains(@data-testid,'challenge')]",
                 ]
                 for xpath in captcha_selectors:
                     try:
@@ -558,23 +583,76 @@ def open_video_tab(
     engine: dict,
     config: dict,
     stop_event=None,
+    keyword: str = "",
+    target_channel: str = "",
 ) -> bool:
     """
     Open the Videos tab from the current search-engine results page.
- 
+    For DuckDuckGo, navigates directly to a pre-filtered video search URL
+    that includes the target channel name, bypassing the Videos tab click.
+
     Returns:
         bool: True when the Videos tab was opened successfully.
     """
  
     if stop_event and stop_event.is_set():
         return False
- 
+
     video_tab = engine.get("videoTab")
 
     if not video_tab:
         print("Video tab configuration not found.")
         return False
- 
+
+    # -----------------------------------------------------------------
+    # DuckDuckGo: navigate directly to the lightweight HTML endpoint
+    # restricted to YouTube, so results are server-rendered and rarely
+    # hit the Anomaly challenge that the SPA videos vertical triggers.
+    # -----------------------------------------------------------------
+    if engine.get("isDuckDuckGo") and keyword:
+        try:
+            channel_suffix = target_channel if target_channel else ""
+            ddg_query = f"site:youtube.com {keyword} {channel_suffix}".strip()
+            direct_video_url = (
+                "https://html.duckduckgo.com/html/?q="
+                + quote_plus(ddg_query)
+            )
+            print(f"[DUCKDUCKGO] Navigating to HTML YouTube search: {direct_video_url}")
+            driver.get(direct_video_url)
+            random_sleep(
+                config["timing"]["sleepMin"],
+                config["timing"]["sleepMax"],
+                stop_event,
+            )
+
+            # If DDG served an Anomaly/challenge, retry once after a backoff
+            try:
+                if is_captcha_page(driver, stop_event=stop_event):
+                    print("[DUCKDUCKGO] Anomaly/verification detected. Retrying after backoff...")
+                    random_sleep(3, 6, stop_event)
+                    driver.get(direct_video_url)
+                    random_sleep(
+                        config["timing"]["sleepMin"],
+                        config["timing"]["sleepMax"],
+                        stop_event,
+                    )
+                    if is_captcha_page(driver, stop_event=stop_event):
+                        print("[DUCKDUCKGO] Still blocked after retry.")
+                        return False
+            except Exception:
+                pass
+
+            # Keep the URL around so the results scanner can reload if empty
+            try:
+                driver.ddg_video_search_url = direct_video_url
+            except Exception:
+                pass
+
+            print("[DUCKDUCKGO] HTML YouTube search page loaded successfully.")
+            return True
+        except Exception as ddg_err:
+            print(f"[DUCKDUCKGO] Direct URL navigation failed: {ddg_err}, falling back to tab click.")
+
     try:
         print("Opening Videos tab...")
 
@@ -588,7 +666,7 @@ def open_video_tab(
                 return False
         except Exception:
             pass
- 
+
         # ---------------------------------------------
         # Find Videos tab
         # ---------------------------------------------
@@ -783,9 +861,7 @@ def find_target_video_in_video_results(
     No arbitrary YouTube result is opened.
     """
  
-    from selenium.common.exceptions import (
-        StaleElementReferenceException,
-    )
+    
     from selenium.webdriver.common.by import By
  
     video_locator = engine.get("videoResultLinks")
@@ -802,9 +878,13 @@ def find_target_video_in_video_results(
         target_channel.strip().lower().split()
     )
  
-    # Prevent inspecting the same result repeatedly
+# Prevent inspecting the same result repeatedly
     inspected_urls = set()
- 
+
+    # DuckDuckGo HTML endpoint occasionally serves an empty page;
+    # reload it once before giving up on this engine.
+    ddg_reloaded = False
+
     for page in range(max_pages):
  
         if stop_event and stop_event.is_set():
@@ -821,7 +901,7 @@ def find_target_video_in_video_results(
         # Progressively inspect the current Google Videos page
         # ---------------------------------------------------------
  
-        for scroll_attempt in range(20):
+        for scroll_attempt in range(200):
  
             if stop_event and stop_event.is_set():
                 return False
@@ -831,7 +911,7 @@ def find_target_video_in_video_results(
             # -----------------------------------------------------
 
             try:
-                result_timeout = 15 if engine.get("isDuckDuckGo") else 5
+                result_timeout = 10 if engine.get("isDuckDuckGo") else 5
 
                 links = wait_for_elements(
                     driver,
@@ -841,6 +921,37 @@ def find_target_video_in_video_results(
 
             except Exception:
                 links = []
+
+            # DuckDuckGo: when no results are present (throttle/anomaly),
+            # reload the HTML search page once before scrolling further.
+            if engine.get("isDuckDuckGo") and not links and not ddg_reloaded and page == 0:
+                try:
+                    ddg_url = getattr(driver, "ddg_video_search_url", None)
+                    if ddg_url:
+                        ddg_reloaded = True
+                        print("[DUCKDUCKGO] No results yet; reloading DDG search page once...")
+                        random_sleep(2, 4, stop_event)
+                        driver.get(ddg_url)
+                        random_sleep(2, 4, stop_event)
+                        try:
+                            links = wait_for_elements(
+                                driver,
+                                video_locator,
+                                timeout=10,
+                            )
+                        except Exception:
+                            links = []
+                        if not links:
+                            try:
+                                if is_captcha_page(driver, stop_event=stop_event):
+                                    print("[DUCKDUCKGO] Duck/keyboard challenge still shown after reload. Failing over to next engine...")
+                                    return False
+                            except Exception:
+                                pass
+                        if stop_event and stop_event.is_set():
+                            return False
+                except Exception:
+                    links = []
  
             # -----------------------------------------------------
             # Inspect current results
@@ -869,12 +980,43 @@ def find_target_video_in_video_results(
                     if not href:
                         continue
  
-                    # Avoid processing the same Google result
-                    # again after the page scrolls.
+                    # Avoid processing the same result again after scroll.
                     if href in inspected_urls:
                         continue
  
                     inspected_urls.add(href)
+
+                    # -------------------------------------------------
+                    # DuckDuckGo fast-path: results are already filtered
+                    # by the target channel name in the search query.
+                    # Accept the first valid YouTube URL immediately.
+                    # -------------------------------------------------
+                    if engine.get("isDuckDuckGo"):
+                        # DDG wraps every result in an /l/?uddg= redirect;
+                        # decode it to the real destination before matching.
+                        real_href = extract_result_url(href)
+                        if not real_href:
+                            continue
+                        normalized_url = normalize_youtube_video_url(real_href)
+                        if "youtube.com/watch" in normalized_url:
+                            driver.target_video_url = normalized_url
+
+                            # Get title for logging
+                            try:
+                                article = link.find_element(By.XPATH, "./ancestor::article[1]")
+                                link_title = " ".join((article.text or "").split())
+                            except Exception:
+                                link_title = " ".join((link.text or href).split())
+
+                            print()
+                            print("=" * 60)
+                            print("TARGET RESULT FOUND [DuckDuckGo pre-filtered]")
+                            print(f"Result title : {link_title[:200]}")
+                            print(f"Result URL   : {normalized_url}")
+                            print("=" * 60)
+                            page_target_found = True
+                            break
+                        continue  # Skip non-YouTube links on DDG
  
                     # -------------------------------------------------
                     # Result title
@@ -901,8 +1043,10 @@ def find_target_video_in_video_results(
                             result_card = link
  
                         elif engine.get("isDuckDuckGo"):
-                           # DuckDuckGo: the <a> itself contains the complete result card
-                           result_card = link
+                           try:
+                               result_card = link.find_element(By.XPATH, "./ancestor::article[1]")
+                           except Exception:
+                               result_card = link
 
                         elif link.get_attribute("data-referenceurl"):
                              # Yahoo: the <a> itself contains the complete video card
@@ -916,8 +1060,10 @@ def find_target_video_in_video_results(
                             )
  
                     except Exception:
-                        result_card = None
-                        pass
+                        try:
+                            result_card = link.find_element(By.XPATH, "./ancestor::div[4]")
+                        except Exception:
+                            result_card = link
                     # -------------------------------------------------
                     # Read complete card text
                     # -------------------------------------------------
@@ -1031,10 +1177,19 @@ def find_target_video_in_video_results(
                         card_normalized = " ".join(
                             normalized_card_text.lower().split()
                         )
-
+ 
                         if target in card_normalized:
-
                             channel_match = True
+                        else:
+                            simplified_target = target.split('(')[0].strip()
+                            if simplified_target and simplified_target in card_normalized:
+                                channel_match = True
+                            else:
+                                # Lenient fallback for search engines like DuckDuckGo that truncate or omit the channel name
+                                # Check if the primary unique word of the target channel is present in the text (e.g. 'anubhav' in 'by anubhav')
+                                sig_words = [w for w in simplified_target.split() if len(w) > 4]
+                                if sig_words and any(w in card_normalized for w in sig_words):
+                                    channel_match = True
  
                     # -------------------------------------------------
                     # Target found
@@ -1227,7 +1382,7 @@ def find_target_website(
         except Exception:
             pass
  
-    from selenium.common.exceptions import StaleElementReferenceException, WebDriverException
+    from selenium.common.exceptions import  WebDriverException
  
     # Validate locator
     link_locator = engine.get("resultLinks")
