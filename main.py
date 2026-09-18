@@ -13,7 +13,7 @@ import json
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
-from automation.session import start_parallel_sessions
+from automation.website_session import start_parallel_sessions
 # from utils.vpn_manager import connect_vpn, disconnect_vpn  # VPN DISABLED - commented out
 from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool, reconcile_stale_runs
 from utils.logger import setup_logger

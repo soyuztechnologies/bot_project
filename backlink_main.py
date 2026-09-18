@@ -29,7 +29,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from automation.backlink.session import start_parallel_backlink_sessions
+from automation.backlink.backlink_session import start_parallel_backlink_sessions
 from utils.database import check_db_connection, close_connection_pool, initialize_database, DatabaseHandler
 from utils.exceptions import ConfigError, ConfigFileNotFoundError, ConfigInvalidError, ValidationError, wrap_unexpected
 from utils.logger import setup_logger
