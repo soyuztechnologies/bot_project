@@ -166,7 +166,8 @@ def run_backlink_job(site, target, config, stop_event, stats):
             "thread_id": threading.get_ident(),
         },
     )
-    _safe_create_run(run_id, "BACKLINK", target_url, keyword, browser_mode, target_url, search_engine=site_id)
+    user_name = config.get("user_name", "unknown")
+    _safe_create_run(run_id, "BACKLINK", target_url, keyword, browser_mode, target_url, search_engine=site_id, user_name=user_name)
 
     if stop_event.is_set():
         status = "INTERRUPTED"

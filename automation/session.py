@@ -534,7 +534,8 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
     retry_count = 0
 
     # Create initial session record in the database - never let DB failure kill session
-    _safe_create_run(run_id, automation_type, original_keyword, current_search_keyword, browser_mode, target, engine_name)
+    user_name = config.get("user_name", "unknown")
+    _safe_create_run(run_id, automation_type, original_keyword, current_search_keyword, browser_mode, target, engine_name, user_name=user_name)
 
     try:
         if stop_event.is_set():
