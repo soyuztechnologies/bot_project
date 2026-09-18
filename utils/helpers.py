@@ -8,7 +8,7 @@ across the entire automation project.
 import random
 import time
 
-from selenium.webdriver.common.action_chains import ActionChains
+
 
 def build_fallback_keyword(original: str, extra: str | None) -> str | None:
     """

@@ -24,9 +24,7 @@ from browser.browser import close_browser, setup_browser
 from browser.browser_selector import select_browser
 from utils.database import create_automation_run, save_backlink_submission, update_automation_run
 from utils.exceptions import (
-    BrowserError,
     SeoBotError,
-    UnhandledAutomationError,
     wrap_unexpected,
 )
 from utils.helpers import build_browser_mode
@@ -344,38 +342,48 @@ def start_parallel_backlink_sessions(sites, targets, config):
 
     interrupted = False
     try:
-        for site in sites:
+        # Create all (site, target) combinations
+        all_jobs = [(site, t) for t in targets for site in sites]
+        
+        logger.info(f"Processing {len(all_jobs)} jobs in batches of {parallel}")
+        for batch_no, batch in enumerate(chunked(all_jobs, parallel), start=1):
             if stop_event.is_set():
                 break
-            site_id = site.get("id")
-            logger.info(f"Backlink site start: {site_id} ({site.get('url')}) — {len(targets)} targets in batches of {parallel}")
-            for batch_no, batch in enumerate(chunked(targets, parallel), start=1):
+                
+            logger.info(f"Batch {batch_no}: {len(batch)} session(s) in parallel")
+            job_q = queue.Queue()
+            for job in batch:
+                job_q.put(job)
+                
+            workers = []
+            for i in range(min(parallel, len(batch))):
+                w = threading.Thread(
+                    target=_batch_worker, 
+                    args=(job_q, config, stop_event, stats), 
+                    daemon=True, 
+                    name=f"Backlink-B{batch_no}-W{i+1}"
+                )
+                workers.append(w)
+                
+            for w in workers:
+                w.start()
+                
+            # Wait for this batch to finish before opening the next batch
+            while job_q.unfinished_tasks > 0:
                 if stop_event.is_set():
                     break
-                logger.info(f"[{site_id}] Batch {batch_no}: {len(batch)} session(s) in parallel :: {[t.get('url') for t in batch]}")
-                job_q = queue.Queue()
-                for t in batch:
-                    job_q.put((site, t))
-                workers = []
-                for i in range(min(parallel, len(batch))):
-                    w = threading.Thread(target=_batch_worker, args=(job_q, config, stop_event, stats), daemon=True, name=f"Backlink-{site_id}-B{batch_no}-W{i+1}")
-                    workers.append(w)
-                for w in workers:
-                    w.start()
-                # Wait for this batch to finish before opening the next batch
-                while job_q.unfinished_tasks > 0:
-                    if stop_event.is_set():
-                        break
-                    time.sleep(0.5)
-                for w in workers:
-                    w.join(timeout=5)
-                # Ensure browsers of this batch are really closed before next batch
-                try:
-                    close_active_drivers(stop_event)
-                except Exception:
-                    pass
-                logger.info(f"[{site_id}] Batch {batch_no} done (sessions closed) — continuing to next batch")
-            logger.info(f"Backlink site done: {site_id}")
+                time.sleep(0.5)
+                
+            for w in workers:
+                w.join(timeout=5)
+                
+            # Ensure browsers of this batch are really closed before next batch
+            try:
+                close_active_drivers(stop_event)
+            except Exception:
+                pass
+            logger.info(f"Batch {batch_no} done (sessions closed) — continuing to next batch")
+
     except KeyboardInterrupt:
         interrupted = True
         try:

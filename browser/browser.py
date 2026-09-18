@@ -298,9 +298,9 @@ def _kill_process_tree_psutil(pid: int, timeout: float = 2.0) -> bool:
             pass
         # Wait briefly
         try:
-            gone, alive = psutil.wait_procs(children + [parent], timeout=timeout)
+            _, alive = psutil.wait_procs(children + [parent], timeout=timeout)
         except Exception:
-            gone, alive = [], children + [parent]
+            _, alive = [], children + [parent]
         for p in alive:
             try:
                 p.kill()
@@ -509,6 +509,7 @@ def close_browser(driver, timeout: float = 4.0):
         # Run quit with timeout — driver.quit() can hang if browser is busy (Ctrl+C mid-navigation)
         import threading as _th
         result = {"err": None, "done": False}
+
         def _do_quit():
             try:
                 driver.quit()

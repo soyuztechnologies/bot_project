@@ -446,11 +446,11 @@ def main():
                 # Session already printed detailed summary — only add one-line final status
                 # (no duplicate full summary)
                 if interrupted:
-                    print(f"\nYouTube final status: interrupted (Ctrl+C)")
+                    print("\nYouTube final status: interrupted (Ctrl+C)")
                 elif youtube_stats.failed_sessions == 0 and youtube_stats.keywords_failed == 0 and len(youtube_stats.interrupted) == 0:
-                    print(f"\nYouTube final status: completed")
+                    print("\nYouTube final status: completed")
                 else:
-                    print(f"\nYouTube final status: completed with failures/interruptions")
+                    print("\nYouTube final status: completed with failures/interruptions")
             elif youtube_stats is not None:
                 _print_youtube_summary(youtube_stats, config, keywords)
             elif completed is not None:
