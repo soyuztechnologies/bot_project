@@ -274,6 +274,7 @@ def create_automation_run(run_id, automation_type, original_keyword, search_keyw
                 "search_engine": search_engine,
                 "flow_type": flow_type,
                 "user_name": user_name,
+                "captcha_encountered": False,
                 "started_at": _utcnow(),
                 "finished_at": None,
                 "status": "RUNNING",
@@ -286,7 +287,7 @@ def create_automation_run(run_id, automation_type, original_keyword, search_keyw
         logger.error(f"Failed to create automation run record for {run_id}: {e}")
 
 
-def update_automation_run(run_id, finished_at, status, success_count, failure_count, retry_count, fallback_used=False, search_keyword=None, search_engine=None, browser_mode=None, flow_type=None):
+def update_automation_run(run_id, finished_at, status, success_count, failure_count, retry_count, fallback_used=False, search_keyword=None, search_engine=None, browser_mode=None, flow_type=None, captcha_encountered=None):
     """
     Update a run document. None values leave existing fields untouched.
     """
@@ -311,6 +312,8 @@ def update_automation_run(run_id, finished_at, status, success_count, failure_co
         update["browser_mode"] = browser_mode
     if flow_type is not None:
         update["flow_type"] = flow_type
+    if captcha_encountered is not None:
+        update["captcha_encountered"] = captcha_encountered
 
     try:
         get_runs_collection().update_one(

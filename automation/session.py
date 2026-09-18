@@ -1188,8 +1188,9 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         elif status in ("FAILED", "COMPLETED"):
             fallback_used = bool(success_via_fallback or fallback_attempted)
         final_browser_mode = build_browser_mode(config, selected_browser)
+        captcha_encountered = len(captcha_engines) > 0
 
-        _safe_update_run(run_id, session_end_time, status, success_count, failure_count, retry_count, fallback_used=fallback_used, search_keyword=current_search_keyword, search_engine=engine_name, browser_mode=final_browser_mode)
+        _safe_update_run(run_id, session_end_time, status, success_count, failure_count, retry_count, fallback_used=fallback_used, search_keyword=current_search_keyword, search_engine=engine_name, browser_mode=final_browser_mode, captcha_encountered=captcha_encountered)
 
 
 def _session_worker(job_queue, config, stop_event, stats, search_engines=None, all_engine_names=None):

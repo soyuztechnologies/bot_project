@@ -249,9 +249,10 @@ def run_backlink_job(site, target, config, stop_event, stats):
                 _save_backlink(status, detail=f"interrupted during submit: {e}")
                 return
             wrapped = e if isinstance(e, SeoBotError) else wrap_unexpected(e, f"backlink {site_id} {target_url}")
+            is_captcha = "captcha" in str(wrapped).lower() or type(wrapped).__name__ == "CaptchaSkipped"
             session_logger.error(f"Backlink submit failed ({site_id} | {target_url}): {wrapped}", exc_info=True, extra={"action": "BACKLINK_SUBMITTED", "status": "FAILED", "error_message": str(wrapped), "url": target_url})
             _record(stats, "failed", target_url, site_id)
-            _safe_update_run(run_id, datetime.now(timezone.utc), "FAILED", 0, 1, 0)
+            _safe_update_run(run_id, datetime.now(timezone.utc), "FAILED", 0, 1, 0, captcha_encountered=is_captcha)
             _save_backlink("FAILED", result_text=str(wrapped)[:2000], detail="submit handler raised")
             return
 
@@ -270,7 +271,7 @@ def run_backlink_job(site, target, config, stop_event, stats):
                 extra={"action": "BACKLINK_SUBMITTED", "status": "SUCCESS", "url": target_url, "error_message": None},
             )
             _record(stats, "success", target_url, site_id)
-            _safe_update_run(run_id, datetime.now(timezone.utc), "SUCCESS", 1, 0, 0)
+            _safe_update_run(run_id, datetime.now(timezone.utc), "SUCCESS", 1, 0, 0, captcha_encountered=False)
             _save_backlink("SUCCESS", result_text=result_text, result_xpath=result_xpath, detail=(result or {}).get("detail", ""))
         else:
             session_logger.warning(
@@ -278,7 +279,7 @@ def run_backlink_job(site, target, config, stop_event, stats):
                 extra={"action": "BACKLINK_SUBMITTED", "status": "FAILED", "url": target_url, "error_message": result_text[:500]},
             )
             _record(stats, "failed", target_url, site_id)
-            _safe_update_run(run_id, datetime.now(timezone.utc), "FAILED", 0, 1, 0)
+            _safe_update_run(run_id, datetime.now(timezone.utc), "FAILED", 0, 1, 0, captcha_encountered=False)
             _save_backlink("FAILED", result_text=result_text, result_xpath=result_xpath, detail=(result or {}).get("detail", ""))
     finally:
         if driver is not None:
