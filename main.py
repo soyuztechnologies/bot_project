@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from automation.session import start_parallel_sessions
-from utils.vpn_manager import connect_vpn, disconnect_vpn
+# from utils.vpn_manager import connect_vpn, disconnect_vpn  # VPN DISABLED - commented out
 from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool, reconcile_stale_runs
 from utils.logger import setup_logger
 from utils.exceptions import (
@@ -299,7 +299,7 @@ def main():
     config = None
     interrupted = False
     unexpected_error = None
-    vpn_connected = False
+    # vpn_connected = False  # VPN DISABLED - commented out
     try:
         setup_logger()
  
@@ -340,41 +340,41 @@ def main():
         logger.info(f"Parallel Sessions : {config['sessions']['parallel']}")
         logger.info(f"Keywords          : {len(keywords)}")
  
-        # Start automation with VPN (never fatal - skip on any error)
-        vpn_config = config.get("vpn", {}) or {}
-
-        if vpn_config.get("enabled", False):
-            try:
-                logger.info("Connecting to VPN before starting automation.")
-                vpn_connected = connect_vpn()
-
-                if vpn_connected:
-                    logger.info("VPN connected and verified.")
-                else:
-                    logger.info(
-                        "VPN not connected (already active, disabled, "
-                        "or skipped due to error). Continuing without VPN."
-                    )
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException as vpn_error:
-                # VPN installation / connection failure must never stop script.
-                vpn_connected = False
-                try:
-                    logger.warning(
-                        f"VPN connection failed/skipped: {vpn_error}. "
-                        "Continuing without VPN."
-                    )
-                except Exception:
-                    pass
-                try:
-                    print(
-                        f"[VPN WARNING] VPN connection failed/skipped: "
-                        f"{vpn_error}. Continuing without VPN.",
-                        flush=True,
-                    )
-                except Exception:
-                    pass
+        # # Start automation with VPN (never fatal - skip on any error)  # VPN DISABLED - commented out
+        # vpn_config = config.get("vpn", {}) or {}  # VPN DISABLED - commented out
+        #  # VPN DISABLED - commented out
+        # if vpn_config.get("enabled", False):  # VPN DISABLED - commented out
+        #     try:  # VPN DISABLED - commented out
+        #         logger.info("Connecting to VPN before starting automation.")  # VPN DISABLED - commented out
+        #         vpn_connected = connect_vpn()  # VPN DISABLED - commented out
+        #  # VPN DISABLED - commented out
+        #         if vpn_connected:  # VPN DISABLED - commented out
+        #             logger.info("VPN connected and verified.")  # VPN DISABLED - commented out
+        #         else:  # VPN DISABLED - commented out
+        #             logger.info(  # VPN DISABLED - commented out
+        #                 "VPN not connected (already active, disabled, "  # VPN DISABLED - commented out
+        #                 "or skipped due to error). Continuing without VPN."  # VPN DISABLED - commented out
+        #             )  # VPN DISABLED - commented out
+        #     except (KeyboardInterrupt, SystemExit):  # VPN DISABLED - commented out
+        #         raise  # VPN DISABLED - commented out
+        #     except BaseException as vpn_error:  # VPN DISABLED - commented out
+        #         # VPN installation / connection failure must never stop script.  # VPN DISABLED - commented out
+        #         vpn_connected = False  # VPN DISABLED - commented out
+        #         try:  # VPN DISABLED - commented out
+        #             logger.warning(  # VPN DISABLED - commented out
+        #                 f"VPN connection failed/skipped: {vpn_error}. "  # VPN DISABLED - commented out
+        #                 "Continuing without VPN."  # VPN DISABLED - commented out
+        #             )  # VPN DISABLED - commented out
+        #         except Exception:  # VPN DISABLED - commented out
+        #             pass  # VPN DISABLED - commented out
+        #         try:  # VPN DISABLED - commented out
+        #             print(  # VPN DISABLED - commented out
+        #                 f"[VPN WARNING] VPN connection failed/skipped: "  # VPN DISABLED - commented out
+        #                 f"{vpn_error}. Continuing without VPN.",  # VPN DISABLED - commented out
+        #                 flush=True,  # VPN DISABLED - commented out
+        #             )  # VPN DISABLED - commented out
+        #         except Exception:  # VPN DISABLED - commented out
+        #             pass  # VPN DISABLED - commented out
 
         stats = start_parallel_sessions(
             keywords,
@@ -479,21 +479,21 @@ def main():
  
         logger.info("Automation Project Finished.")
 
-        # Always disconnect VPN if this run connected it.
-        # Disconnect failure must never crash the script.
-        if vpn_connected:
-            try:
-                logger.info("Disconnecting VPN after automation.")
-                disconnect_vpn()
-                logger.info("VPN disconnected and verified.")
-            except BaseException as vpn_error:
-                try:
-                    logger.warning(
-                        f"Failed to disconnect VPN (skipped): {vpn_error}. "
-                        "Continuing script shutdown."
-                    )
-                except Exception:
-                    pass
+        # # Always disconnect VPN if this run connected it.  # VPN DISABLED - commented out
+        # # Disconnect failure must never crash the script.  # VPN DISABLED - commented out
+        # if vpn_connected:  # VPN DISABLED - commented out
+        #     try:  # VPN DISABLED - commented out
+        #         logger.info("Disconnecting VPN after automation.")  # VPN DISABLED - commented out
+        #         disconnect_vpn()  # VPN DISABLED - commented out
+        #         logger.info("VPN disconnected and verified.")  # VPN DISABLED - commented out
+        #     except BaseException as vpn_error:  # VPN DISABLED - commented out
+        #         try:  # VPN DISABLED - commented out
+        #             logger.warning(  # VPN DISABLED - commented out
+        #                 f"Failed to disconnect VPN (skipped): {vpn_error}. "  # VPN DISABLED - commented out
+        #                 "Continuing script shutdown."  # VPN DISABLED - commented out
+        #             )  # VPN DISABLED - commented out
+        #         except Exception:  # VPN DISABLED - commented out
+        #             pass  # VPN DISABLED - commented out
 
         try:
             close_connection_pool()

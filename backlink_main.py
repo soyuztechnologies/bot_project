@@ -33,7 +33,7 @@ from automation.backlink.session import start_parallel_backlink_sessions
 from utils.database import check_db_connection, close_connection_pool, initialize_database, DatabaseHandler
 from utils.exceptions import ConfigError, ConfigFileNotFoundError, ConfigInvalidError, ValidationError, wrap_unexpected
 from utils.logger import setup_logger
-from utils.vpn_manager import connect_vpn, disconnect_vpn
+# from utils.vpn_manager import connect_vpn, disconnect_vpn  # VPN DISABLED - commented out
 
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
@@ -144,7 +144,7 @@ def main(argv=None):
     args = parse_args(argv)
     stats = None
     config = None
-    vpn_connected = False
+    # vpn_connected = False  # VPN DISABLED - commented out
     try:
         setup_logger()
         logging.getLogger().addHandler(DatabaseHandler())
@@ -190,12 +190,12 @@ def main(argv=None):
             print(f"\nDry-run OK: {len(enabled)} site(s) x {len(targets)} target(s) = {len(enabled)*len(targets)} jobs. DB reachable check done above.")
             return {"total": len(enabled) * len(targets), "success": [], "failed": [], "interrupted": []}
 
-        vpn_config = config.get("vpn", {})
-        if vpn_config.get("enabled", False):
-            logger.info("Connecting to VPN before backlink automation.")
-            #connect_vpn()
-            vpn_connected = True
-            logger.info("VPN connected and verified.")
+        # vpn_config = config.get("vpn", {})  # VPN DISABLED - commented out
+        # if vpn_config.get("enabled", False):  # VPN DISABLED - commented out
+        #     logger.info("Connecting to VPN before backlink automation.")  # VPN DISABLED - commented out
+        #     #connect_vpn()  # VPN DISABLED - commented out
+        #     vpn_connected = True  # VPN DISABLED - commented out
+        #     logger.info("VPN connected and verified.")  # VPN DISABLED - commented out
 
         stats = start_parallel_backlink_sessions(enabled, targets, config)
         return stats
@@ -218,12 +218,12 @@ def main(argv=None):
                 print_summary(stats)
             except Exception as e:
                 logger.error(f"Failed to print backlink summary: {e}", exc_info=True)
-        if vpn_connected:
-            try:
-                logger.info("Disconnecting VPN after backlink automation.")
-                #disconnect_vpn()
-            except Exception as e:
-                logger.error(f"Failed to disconnect VPN: {e}", exc_info=True)
+        # if vpn_connected:  # VPN DISABLED - commented out
+        #     try:  # VPN DISABLED - commented out
+        #         logger.info("Disconnecting VPN after backlink automation.")  # VPN DISABLED - commented out
+        #         #disconnect_vpn()  # VPN DISABLED - commented out
+        #     except Exception as e:  # VPN DISABLED - commented out
+        #         logger.error(f"Failed to disconnect VPN: {e}", exc_info=True)  # VPN DISABLED - commented out
         try:
             close_connection_pool()
         except Exception:

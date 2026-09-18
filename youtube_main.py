@@ -22,7 +22,7 @@ from utils.exceptions import (
 )
  
 from automation.youtube_session import start_parallel_sessions
-from utils.vpn_manager import connect_vpn, disconnect_vpn
+# from utils.vpn_manager import connect_vpn, disconnect_vpn  # VPN DISABLED - commented out
 from utils.database import (
     check_db_connection,
     DatabaseHandler,
@@ -181,7 +181,7 @@ def main():
     completed = None
     interrupted = False
     unexpected_error = None
-    vpn_connected = False
+    # vpn_connected = False  # VPN DISABLED - commented out
  
     try:
  
@@ -316,42 +316,42 @@ def main():
         # and youtube_main will also ensure summary in finally (like main.py)
         # -----------------------------------------------------
 
-        vpn_config = config.get("vpn", {}) or {}
-
-        if vpn_config.get("enabled", False):
-            try:
-                logger.info("Connecting to VPN before starting YouTube automation.")
-                vpn_connected = connect_vpn()
-
-                if vpn_connected:
-                    logger.info("VPN connected and verified.")
-                else:
-                    logger.info(
-                        "VPN not connected (disabled/already active/skipped). "
-                        "Continuing without VPN."
-                    )
-            except (KeyboardInterrupt, SystemExit):
-                # Ctrl+C during VPN must respond instantly (child is
-                # already killed in vpn_manager). Treat as user stop.
-                raise
-            except BaseException as vpn_error:
-                # Any VPN error must never stop automation.
-                vpn_connected = False
-                try:
-                    logger.warning(
-                        f"VPN connection failed/skipped: {vpn_error}. "
-                        "Continuing without VPN."
-                    )
-                except Exception:
-                    pass
-                try:
-                    print(
-                        f"[VPN WARNING] VPN connection failed/skipped: "
-                        f"{vpn_error}. Continuing without VPN.",
-                        flush=True,
-                    )
-                except Exception:
-                    pass
+        # vpn_config = config.get("vpn", {}) or {}  # VPN DISABLED - commented out
+        #  # VPN DISABLED - commented out
+        # if vpn_config.get("enabled", False):  # VPN DISABLED - commented out
+        #     try:  # VPN DISABLED - commented out
+        #         logger.info("Connecting to VPN before starting YouTube automation.")  # VPN DISABLED - commented out
+        #         vpn_connected = connect_vpn()  # VPN DISABLED - commented out
+        #  # VPN DISABLED - commented out
+        #         if vpn_connected:  # VPN DISABLED - commented out
+        #             logger.info("VPN connected and verified.")  # VPN DISABLED - commented out
+        #         else:  # VPN DISABLED - commented out
+        #             logger.info(  # VPN DISABLED - commented out
+        #                 "VPN not connected (disabled/already active/skipped). "  # VPN DISABLED - commented out
+        #                 "Continuing without VPN."  # VPN DISABLED - commented out
+        #             )  # VPN DISABLED - commented out
+        #     except (KeyboardInterrupt, SystemExit):  # VPN DISABLED - commented out
+        #         # Ctrl+C during VPN must respond instantly (child is  # VPN DISABLED - commented out
+        #         # already killed in vpn_manager). Treat as user stop.  # VPN DISABLED - commented out
+        #         raise  # VPN DISABLED - commented out
+        #     except BaseException as vpn_error:  # VPN DISABLED - commented out
+        #         # Any VPN error must never stop automation.  # VPN DISABLED - commented out
+        #         vpn_connected = False  # VPN DISABLED - commented out
+        #         try:  # VPN DISABLED - commented out
+        #             logger.warning(  # VPN DISABLED - commented out
+        #                 f"VPN connection failed/skipped: {vpn_error}. "  # VPN DISABLED - commented out
+        #                 "Continuing without VPN."  # VPN DISABLED - commented out
+        #             )  # VPN DISABLED - commented out
+        #         except Exception:  # VPN DISABLED - commented out
+        #             pass  # VPN DISABLED - commented out
+        #         try:  # VPN DISABLED - commented out
+        #             print(  # VPN DISABLED - commented out
+        #                 f"[VPN WARNING] VPN connection failed/skipped: "  # VPN DISABLED - commented out
+        #                 f"{vpn_error}. Continuing without VPN.",  # VPN DISABLED - commented out
+        #                 flush=True,  # VPN DISABLED - commented out
+        #             )  # VPN DISABLED - commented out
+        #         except Exception:  # VPN DISABLED - commented out
+        #             pass  # VPN DISABLED - commented out
  
         result = start_parallel_sessions(
             keywords,
@@ -472,19 +472,19 @@ def main():
         # Database Cleanup — rely on database.py log, avoid duplicate logger.info
         # -----------------------------------------------------
 
-        if vpn_connected:
-            try:
-                logger.info("Disconnecting VPN after YouTube automation.")
-                disconnect_vpn()
-                logger.info("VPN disconnected and verified.")
-            except BaseException as vpn_error:
-                # Disconnect must never crash shutdown / print traceback.
-                try:
-                    logger.warning(
-                        f"Failed to disconnect VPN (skipped): {vpn_error}."
-                    )
-                except Exception:
-                    pass
+        # if vpn_connected:  # VPN DISABLED - commented out
+        #     try:  # VPN DISABLED - commented out
+        #         logger.info("Disconnecting VPN after YouTube automation.")  # VPN DISABLED - commented out
+        #         disconnect_vpn()  # VPN DISABLED - commented out
+        #         logger.info("VPN disconnected and verified.")  # VPN DISABLED - commented out
+        #     except BaseException as vpn_error:  # VPN DISABLED - commented out
+        #         # Disconnect must never crash shutdown / print traceback.  # VPN DISABLED - commented out
+        #         try:  # VPN DISABLED - commented out
+        #             logger.warning(  # VPN DISABLED - commented out
+        #                 f"Failed to disconnect VPN (skipped): {vpn_error}."  # VPN DISABLED - commented out
+        #             )  # VPN DISABLED - commented out
+        #         except Exception:  # VPN DISABLED - commented out
+        #             pass  # VPN DISABLED - commented out
 
         if db_initialized:
 
