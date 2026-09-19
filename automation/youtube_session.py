@@ -769,6 +769,7 @@ def _safe_update_automation_run(
     search_engine=None,
     browser_mode=None,
     flow_type=None,
+    captcha_encountered=None,
 ):
     """Update DB record without breaking automation if DB is unavailable."""
     if run_id is None:
@@ -787,6 +788,7 @@ def _safe_update_automation_run(
             search_engine=search_engine,
             browser_mode=browser_mode,
             flow_type=flow_type,
+            captcha_encountered=captcha_encountered,
         )
     except Exception as error:
         logger.warning(
@@ -1088,6 +1090,7 @@ def run_session(
         for keyword_index, keyword in enumerate(keywords):
 
             current_keyword = keyword
+            captcha_encountered_for_keyword = False
 
             if stop_event.is_set():
                 # Mark this and all unstarted keywords in this worker's chunk
@@ -1253,6 +1256,7 @@ def run_session(
                             search_engine="youtube",
                             browser_mode=_final_browser_mode(config, selected_browser),
                             flow_type=flow,
+                            captcha_encountered=captcha_encountered_for_keyword,
                         )
                     else:
                         try:
@@ -1269,6 +1273,7 @@ def run_session(
                             search_engine="youtube",
                             browser_mode=_final_browser_mode(config, selected_browser),
                             flow_type=flow,
+                            captcha_encountered=captcha_encountered_for_keyword,
                         )
 
                     if not is_browser_alive(driver, stop_event):
@@ -1311,6 +1316,7 @@ def run_session(
                         search_engine="youtube",
                         browser_mode=_final_browser_mode(config, selected_browser),
                         flow_type=flow,
+                        captcha_encountered=captcha_encountered_for_keyword,
                     )
 
                     session_logger.info(
@@ -1599,8 +1605,10 @@ def run_session(
                                 },
                             )
                             logger.warning(f"Captcha on {current_engine} for {keyword}: {ce} [{type(ce).__name__}]", exc_info=False)
+                            captcha_encountered_for_keyword = True
                             continue
                 except CaptchaDetectedError:
+                    captcha_encountered_for_keyword = True
                     continue
                 except Exception as ce:
                     # Captcha check itself failed — log as unexpected but continue
@@ -2053,6 +2061,7 @@ def run_session(
                         search_engine=current_engine,
                         browser_mode=_final_browser_mode(config, selected_browser),
                         flow_type=flow,
+                        captcha_encountered=captcha_encountered_for_keyword,
                     )
 
                     session_logger.info(
@@ -2131,6 +2140,7 @@ def run_session(
                     search_engine=last_engine_tmp,
                     browser_mode=_final_browser_mode(config, selected_browser),
                     flow_type=flow,
+                    captcha_encountered=captcha_encountered_for_keyword,
                 )
 
                 print()
