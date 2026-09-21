@@ -1,0 +1,44 @@
+name: Website Automation
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 20 * * *' # every night at 02:00 IST
+
+jobs:
+  run-automation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install SeleniumBase browsers
+        run: |
+          sbase install chromedriver
+          sbase install edgedriver
+          sbase install geckodriver
+
+      - name: Run Website Automation
+        env:
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MONGO_URI_ATLAS: ${{ secrets.MONGO_URI_ATLAS }}
+        run: python main.py
+
+      - name: Upload run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-report
+          path: logs/
+          retention-days: 30

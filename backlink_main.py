@@ -22,7 +22,7 @@ import argparse
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -142,8 +142,10 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
+    start_time = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
     stats = None
     config = None
+    targets = []
     # vpn_connected = False  # VPN DISABLED - commented out
     try:
         setup_logger()
@@ -218,6 +220,18 @@ def main(argv=None):
                 print_summary(stats)
             except Exception as e:
                 logger.error(f"Failed to print backlink summary: {e}", exc_info=True)
+            try:
+                from utils.report import RunLogger
+                from utils.mailer import send_report_email
+                target_urls = [t.get("url") for t in targets] if targets else []
+                reporter = RunLogger(target_urls=target_urls, started_at=start_time)
+                reporter.set_results_from_stats(stats, config)
+                json_path = reporter.write_json()
+                html_path = reporter.write_html()
+                if config:
+                    send_report_email(config, reporter.summary(), html_path, json_path)
+            except Exception as e:
+                logger.error(f"Failed to generate report or send email: {e}", exc_info=True)
         # if vpn_connected:  # VPN DISABLED - commented out
         #     try:  # VPN DISABLED - commented out
         #         logger.info("Disconnecting VPN after backlink automation.")  # VPN DISABLED - commented out

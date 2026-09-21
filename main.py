@@ -13,6 +13,7 @@ import json
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
+from datetime import datetime, timezone, timedelta
 from automation.website_session import start_parallel_sessions
 # from utils.vpn_manager import connect_vpn, disconnect_vpn  # VPN DISABLED - commented out
 from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool, reconcile_stale_runs
@@ -295,6 +296,7 @@ def print_summary(stats, config):
  
 def main():
     """Main function to run the SEO automation bot."""
+    start_time = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
     stats = None
     config = None
     interrupted = False
@@ -444,6 +446,17 @@ def main():
                     print(f"\nSummary fallback: total={total}")
                 except Exception:
                     pass
+            try:
+                from utils.report import RunLogger
+                from utils.mailer import send_report_email
+                target_urls = [config.get("website", {}).get("domain", "")]
+                reporter = RunLogger(target_urls=target_urls, started_at=start_time)
+                reporter.set_results_from_stats(stats, config)
+                json_path = reporter.write_json()
+                html_path = reporter.write_html()
+                send_report_email(config, reporter.summary(), html_path, json_path)
+            except Exception as e:
+                logger.error(f"Failed to generate report or send email: {e}", exc_info=True)
         elif interrupted:
             logger.info("No summary: automation was interrupted before stats were available.")
             print("\n=== No stats available (interrupted before start) ===")

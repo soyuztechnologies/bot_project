@@ -23,6 +23,12 @@
   "verify_connection": true
 },
 
+  "email": {
+    "enabled": true,
+    "from": "wednesday.ui5@gmail.com",
+    "to": "wednesday.ui5@gmail.com"
+  },
+
 
 
   "database": {

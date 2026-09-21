@@ -510,6 +510,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
     fallback_used = False
     fallback_attempted = False
     status = None
+    start_time = time.time()
 
     selected_browser = select_browser(config).lower()
     browser_mode = build_browser_mode(config, selected_browser)
@@ -685,7 +686,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                     pass
                 with _STATS_LOCK:
                     if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
-                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
                 failure_count = 1
                 status = "FAILED"
                 return
@@ -745,7 +746,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                     pass
                 with _STATS_LOCK:
                     if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
-                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
                 failure_count = 1
                 status = "FAILED"
                 return
@@ -1031,9 +1032,9 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 # Don't count as success if interrupted during visit
                 if stop_event.is_set():
                     if not any(d.get('keyword') == original_keyword for d in stats.get("interrupted", [])):
-                        stats["interrupted"].append({"keyword": original_keyword, "engine": engine_name})
+                        stats["interrupted"].append({"keyword": original_keyword, "engine": engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
                 else:
-                    stats["success"].append({"keyword": original_keyword, "engine": engine_name})
+                    stats["success"].append({"keyword": original_keyword, "engine": engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
                     success_count = 1
                     status = "SUCCESS"
                     return
@@ -1072,7 +1073,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                     return
                 if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
                     if not any(d.get('keyword') == original_keyword for d in stats.get("interrupted", [])):
-                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
+                        stats["failed"].append({"keyword": original_keyword, "engine": engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
 
     except (BrowserError, SearchEngineError, CaptchaDetectedError, TargetNotFoundError, ConfigError) as error:
         # Expected business failures — graceful, counted as FAILED, not a bug

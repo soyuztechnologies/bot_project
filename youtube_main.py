@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
  
 from dotenv import load_dotenv  # type: ignore
+from datetime import datetime, timezone, timedelta
  
 from utils.exceptions import (
     ConfigError,
@@ -173,6 +174,7 @@ def main():
     """
  
     db_initialized = False
+    start_time = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
     database_handler = None
     config = None
     keywords = None
@@ -467,6 +469,21 @@ def main():
                     print(f"Keywords configured: {len(keywords)}")
         except Exception as summary_err:
             logger.error(f"Failed to print YouTube final summary: {summary_err}", exc_info=True)
+            
+        try:
+            if youtube_stats is not None:
+                from utils.report import RunLogger
+                from utils.mailer import send_report_email
+                # youtube config target is just targetChannel but we can leave target_urls empty or set to channel
+                target_urls = [config.get("youtube", {}).get("targetChannel", "")]
+                reporter = RunLogger(target_urls=target_urls, started_at=start_time)
+                reporter.set_results_from_stats(youtube_stats, config)
+                json_path = reporter.write_json()
+                html_path = reporter.write_html()
+                if config:
+                    send_report_email(config, reporter.summary(), html_path, json_path)
+        except Exception as e:
+            logger.error(f"Failed to generate report or send email: {e}", exc_info=True)
 
         # -----------------------------------------------------
         # Database Cleanup — rely on database.py log, avoid duplicate logger.info

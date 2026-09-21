@@ -103,11 +103,16 @@ def chunked(items, size):
         yield items[i : i + size]
 
 
-def _record(stats, bucket, keyword, engine):
+def _record(stats, bucket, keyword, engine, durationMs=None, url=None):
     with _STATS_LOCK:
         lst = stats.get(bucket, [])
         if not any(d.get("keyword") == keyword and d.get("engine") == engine for d in lst):
-            lst.append({"keyword": keyword, "engine": engine})
+            entry = {"keyword": keyword, "engine": engine}
+            if durationMs is not None:
+                entry["durationMs"] = durationMs
+            if url is not None:
+                entry["url"] = str(url)
+            lst.append(entry)
 
 
 def run_backlink_job(site, target, config, stop_event, stats):
@@ -115,7 +120,9 @@ def run_backlink_job(site, target, config, stop_event, stats):
     driver = None
     run_id = uuid.uuid4()
     site_id = site.get("id", "unknown")
+    site_url = site.get("url", "")
     target_url = target.get("url", "")
+    start_time = time.time()
     keyword = target.get("keyword") or target_url
     selected_browser = "chrome"
     status = None
@@ -251,13 +258,13 @@ def run_backlink_job(site, target, config, stop_event, stats):
             wrapped = e if isinstance(e, SeoBotError) else wrap_unexpected(e, f"backlink {site_id} {target_url}")
             is_captcha = "captcha" in str(wrapped).lower() or type(wrapped).__name__ == "CaptchaSkipped"
             session_logger.error(f"Backlink submit failed ({site_id} | {target_url}): {wrapped}", exc_info=True, extra={"action": "BACKLINK_SUBMITTED", "status": "FAILED", "error_message": str(wrapped), "url": target_url})
-            _record(stats, "failed", target_url, site_id)
+            _record(stats, "failed", target_url, site_id, durationMs=int((time.time() - start_time) * 1000), url=site_url)
             _safe_update_run(run_id, datetime.now(timezone.utc), "FAILED", 0, 1, 0, captcha_encountered=is_captcha)
             _save_backlink("FAILED", result_text=str(wrapped)[:2000], detail="submit handler raised")
             return
 
         if stop_event.is_set():
-            _record(stats, "interrupted", target_url, site_id)
+            _record(stats, "interrupted", target_url, site_id, durationMs=int((time.time() - start_time) * 1000), url=site_url)
             _safe_update_run(run_id, datetime.now(timezone.utc), "INTERRUPTED", 0, 0, 0)
             _save_backlink("INTERRUPTED", detail="interrupted after submit, before result handling")
             return
@@ -270,7 +277,7 @@ def run_backlink_job(site, target, config, stop_event, stats):
                 f"Backlink submitted OK ({site_id} | {target_url}) :: {result_text[:300]}",
                 extra={"action": "BACKLINK_SUBMITTED", "status": "SUCCESS", "url": target_url, "error_message": None},
             )
-            _record(stats, "success", target_url, site_id)
+            _record(stats, "success", target_url, site_id, durationMs=int((time.time() - start_time) * 1000), url=site_url)
             _safe_update_run(run_id, datetime.now(timezone.utc), "SUCCESS", 1, 0, 0, captcha_encountered=False)
             _save_backlink("SUCCESS", result_text=result_text, result_xpath=result_xpath, detail=(result or {}).get("detail", ""))
         else:
@@ -278,7 +285,7 @@ def run_backlink_job(site, target, config, stop_event, stats):
                 f"Backlink submit finished without success signal ({site_id} | {target_url}) :: {result_text[:300]} xpath={result_xpath}",
                 extra={"action": "BACKLINK_SUBMITTED", "status": "FAILED", "url": target_url, "error_message": result_text[:500]},
             )
-            _record(stats, "failed", target_url, site_id)
+            _record(stats, "failed", target_url, site_id, durationMs=int((time.time() - start_time) * 1000), url=site_url)
             _safe_update_run(run_id, datetime.now(timezone.utc), "FAILED", 0, 1, 0, captcha_encountered=False)
             _save_backlink("FAILED", result_text=result_text, result_xpath=result_xpath, detail=(result or {}).get("detail", ""))
     finally:

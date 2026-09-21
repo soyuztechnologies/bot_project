@@ -112,7 +112,7 @@ class SessionStats:
             return True
         return False
 
-    def record_keyword_success(self, keyword, engine="unknown", thread_id=None):
+    def record_keyword_success(self, keyword, engine="unknown", thread_id=None, url=None, duration_ms=None):
         """Record per-keyword success for tick/cross summary (like main.py)."""
         try:
             # Prevent exact duplicate (same keyword+engine+thread) from double-count
@@ -121,11 +121,15 @@ class SessionStats:
             entry = {"keyword": str(keyword), "engine": str(engine)}
             if thread_id is not None:
                 entry["thread_id"] = str(thread_id)
+            if url is not None:
+                entry["url"] = str(url)
+            if duration_ms is not None:
+                entry["durationMs"] = duration_ms
             self.success.append(entry)
         except Exception:
             pass
 
-    def record_keyword_failed(self, keyword, engine="unknown", thread_id=None):
+    def record_keyword_failed(self, keyword, engine="unknown", thread_id=None, url=None, duration_ms=None, error=None):
         """Record per-keyword failure for tick/cross summary."""
         try:
             if self._is_duplicate(self.failed, keyword, engine, thread_id):
@@ -133,11 +137,17 @@ class SessionStats:
             entry = {"keyword": str(keyword), "engine": str(engine)}
             if thread_id is not None:
                 entry["thread_id"] = str(thread_id)
+            if url is not None:
+                entry["url"] = str(url)
+            if duration_ms is not None:
+                entry["durationMs"] = duration_ms
+            if error is not None:
+                entry["error"] = str(error)
             self.failed.append(entry)
         except Exception:
             pass
 
-    def record_keyword_interrupted(self, keyword, engine="unknown", thread_id=None):
+    def record_keyword_interrupted(self, keyword, engine="unknown", thread_id=None, url=None, duration_ms=None):
         """Record per-keyword interruption for tick/cross summary."""
         try:
             if self._is_duplicate(self.interrupted, keyword, engine, thread_id):
@@ -148,6 +158,10 @@ class SessionStats:
             entry = {"keyword": str(keyword), "engine": str(engine)}
             if thread_id is not None:
                 entry["thread_id"] = str(thread_id)
+            if url is not None:
+                entry["url"] = str(url)
+            if duration_ms is not None:
+                entry["durationMs"] = duration_ms
             self.interrupted.append(entry)
         except Exception:
             pass

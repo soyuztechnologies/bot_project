@@ -366,6 +366,8 @@ def process_youtube_first_flow(
                 "keyword": keyword,
             },
         )
+    
+    start_time = time.time()
 
     # --------------------------------
     # Open YouTube
@@ -643,7 +645,9 @@ def process_youtube_first_flow(
         stats.record_video_found()
         # Per-keyword tick/cross for summary like main.py
         try:
-            stats.record_keyword_success(keyword, "youtube", thread_id=str(threading.get_ident()))
+            target_url = getattr(driver, "current_url", "")
+            duration_ms = int((time.time() - start_time) * 1000)
+            stats.record_keyword_success(keyword, "youtube", thread_id=str(threading.get_ident()), url=target_url, duration_ms=duration_ms)
         except Exception:
             pass
 
@@ -1334,6 +1338,8 @@ def run_session(
             # =================================================
             # CASE 2 - SEARCH ENGINE FIRST
             # =================================================
+            
+            start_time = time.time()
 
             print(
                 f"\n[{thread_name}]"
@@ -1911,7 +1917,8 @@ def run_session(
                     stats.record_video_found()
                     try:
                         # For tick/cross summary like main.py
-                        stats.record_keyword_success(keyword, current_engine, thread_id=str(threading.get_ident()))
+                        duration_ms = int((time.time() - start_time) * 1000)
+                        stats.record_keyword_success(keyword, current_engine, thread_id=str(threading.get_ident()), url=target_video_url, duration_ms=duration_ms)
                     except Exception:
                         pass
 
