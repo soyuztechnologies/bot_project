@@ -56,10 +56,9 @@
       "by": "CSS_SELECTOR",
       "value": ".sb_pagN"
     },
-
     "resultLinks": {
       "by": "XPATH",
-      "value": "div.mc_vtvc_con_rc[ourl]"
+      "value": "//h2/a"
     },
 
     "videoTab": {
