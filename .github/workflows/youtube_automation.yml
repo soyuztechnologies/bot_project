@@ -3,7 +3,7 @@ name: YouTube Automation
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 20 * * *' # every night at 02:00 IST
+    - cron: '30 20 * * *' # every night at 02:00 AM IST
 
 jobs:
   run-automation:

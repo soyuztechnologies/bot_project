@@ -224,7 +224,7 @@ def main(argv=None):
                 from utils.report import RunLogger
                 from utils.mailer import send_report_email
                 target_urls = [t.get("url") for t in targets] if targets else []
-                reporter = RunLogger(target_urls=target_urls, started_at=start_time)
+                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="Backlink")
                 reporter.set_results_from_stats(stats, config)
                 json_path = reporter.write_json()
                 html_path = reporter.write_html()

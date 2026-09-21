@@ -476,7 +476,7 @@ def main():
                 from utils.mailer import send_report_email
                 # youtube config target is just targetChannel but we can leave target_urls empty or set to channel
                 target_urls = [config.get("youtube", {}).get("targetChannel", "")]
-                reporter = RunLogger(target_urls=target_urls, started_at=start_time)
+                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="YouTube")
                 reporter.set_results_from_stats(youtube_stats, config)
                 json_path = reporter.write_json()
                 html_path = reporter.write_html()

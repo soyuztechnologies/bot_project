@@ -3,7 +3,7 @@ name: Backlink Automation
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 20 * * *' # every night at 02:00 IST
+    - cron: '30 21 * * *' # every night at 03:00 AM IST
 
 jobs:
   run-automation:

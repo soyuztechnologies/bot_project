@@ -29,11 +29,13 @@ def escape_html(text):
     return "".join(html_escape_table.get(c, c) for c in text)
 
 class RunLogger:
-    def __init__(self, logs_dir="logs", target_urls=None, started_at=None):
+    def __init__(self, logs_dir="logs", target_urls=None, started_at=None, automation_type="Unknown"):
         if started_at:
             self.started_at = started_at
         else:
             self.started_at = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+        
+        self.automation_type = automation_type
         
         # Resolve path relative to project root
         base_dir = Path(__file__).resolve().parent.parent
@@ -74,14 +76,21 @@ class RunLogger:
 
                 entry = {
                     "browser": item.get("browser", global_browser),
-                    "site": item.get("site", item.get("engine", "unknown")),
-                    "url": item.get("url", ""),
                     "target": item.get("target", item.get("target_url", default_target)),
                     "keyword": item.get("keyword", ""),
                     "status": status,
                     "message": item.get("message", item.get("error", "")),
-                    "duration": duration_str
+                    "duration": duration_str,
+                    "captcha_encountered": str(item.get("captcha_encountered", "False")),
+                    "automation_type": self.automation_type
                 }
+                
+                if self.automation_type in ["Web", "YouTube", "Web & YouTube"]:
+                    entry["engine"] = item.get("site", item.get("engine", "unknown"))
+                else:
+                    entry["site"] = item.get("site", item.get("engine", "unknown"))
+                    entry["url"] = item.get("url", "")
+                    
                 self.results.append(entry)
 
     def summary(self):
@@ -112,6 +121,7 @@ class RunLogger:
             "byStatus": by_status,
             "byBrowser": by_browser,
             "byTarget": by_target,
+            "automationType": self.automation_type,
         }
 
     def write_json(self):
@@ -125,22 +135,40 @@ class RunLogger:
 
     def write_html(self):
         summary = self.summary()
+        auto_type = summary.get("automationType", "Unknown")
+        is_web_yt = auto_type in ["Web", "YouTube", "Web & YouTube"]
         
         rows = ""
         for r in self.results:
             duration = escape_html(r.get("duration", ""))
             target_link = f"<a href=\"{escape_html(r['target'])}\" target=\"_blank\">{escape_html(r['target'])}</a>" if r.get("target") else ""
             color = STATUS_COLORS.get(r["status"], "#555")
-            rows += f'''
+            
+            if is_web_yt:
+                rows += f'''
             <tr>
-                <td>{escape_html(r['browser'])}</td>
-                <td>{escape_html(r['site'])}</td>
-                <td><a href="{escape_html(r['url'])}" target="_blank">{escape_html(r['url'])}</a></td>
+                <td>{escape_html(r.get('browser', ''))}</td>
+                <td>{escape_html(r.get('engine', ''))}</td>
                 <td>{target_link}</td>
-                <td>{escape_html(r['keyword'])}</td>
+                <td>{escape_html(r.get('keyword', ''))}</td>
                 <td style="color:{color};font-weight:600">{escape_html(r['status'])}</td>
-                <td>{escape_html(r['message'])}</td>
+                <td>{escape_html(r.get('message', ''))}</td>
                 <td>{duration}</td>
+                <td>{escape_html(r.get('captcha_encountered', ''))}</td>
+                <td>{escape_html(r.get('automation_type', ''))}</td>
+            </tr>'''
+            else:
+                rows += f'''
+            <tr>
+                <td>{escape_html(r.get('browser', ''))}</td>
+                <td>{escape_html(r.get('site', ''))}</td>
+                <td><a href="{escape_html(r.get('url', ''))}" target="_blank">{escape_html(r.get('url', ''))}</a></td>
+                <td>{target_link}</td>
+                <td>{escape_html(r.get('keyword', ''))}</td>
+                <td style="color:{color};font-weight:600">{escape_html(r['status'])}</td>
+                <td>{escape_html(r.get('message', ''))}</td>
+                <td>{duration}</td>
+                <td>{escape_html(r.get('captcha_encountered', ''))}</td>
             </tr>'''
 
         status_rows = "".join(f'<li><span style="color:{STATUS_COLORS.get(status, "#555")};font-weight:600">{escape_html(status)}</span>: {count}</li>' for status, count in summary["byStatus"].items())
@@ -153,11 +181,13 @@ class RunLogger:
         target_url_rows = "".join(f'<li><a href="{escape_html(url)}">{escape_html(url)}</a></li>' for url in summary["targetUrls"])
         target_breakdown_rows = "".join(f'<li><a href="{escape_html(url)}">{escape_html(url)}</a> &mdash; {count}</li>' for url, count in summary["byTarget"].items())
 
+        table_headers = "<tr><th>Browser</th><th>Engine</th><th>Target</th><th>Keyword</th><th>Status</th><th>Message</th><th>Duration</th><th>Captcha Encountered</th><th>Automation Type</th></tr>" if is_web_yt else "<tr><th>Browser</th><th>Site</th><th>URL</th><th>Target</th><th>Keyword</th><th>Status</th><th>Message</th><th>Duration</th><th>Captcha Encountered</th></tr>"
+
         html = f'''<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>SEO Automation Report</title>
+<title>{auto_type} SEO Automation Report</title>
 <style>
   body {{ font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 24px; color: #1c1c1c; background: #fafafa; }}
   h1 {{ font-size: 20px; }}
@@ -170,7 +200,7 @@ class RunLogger:
 </style>
 </head>
 <body>
-  <h1>SEO Automation Report</h1>
+  <h1>{auto_type} SEO Automation Report</h1>
   <p class="meta">
     Started: {escape_html(summary['startedAt'])}<br>
     Finished: {escape_html(summary['finishedAt'])}<br>
@@ -192,7 +222,7 @@ class RunLogger:
   <h2>Full log</h2>
   <table>
     <thead>
-      <tr><th>Browser</th><th>Site</th><th>URL</th><th>Target</th><th>Keyword</th><th>Status</th><th>Message</th><th>Duration</th></tr>
+      {table_headers}
     </thead>
     <tbody>{rows}</tbody>
   </table>

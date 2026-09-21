@@ -50,7 +50,8 @@ def send_report_email(config, summary, html_path, json_path):
     
     failed_count = summary["byStatus"].get("failed", 0) + summary["byStatus"].get("skipped-captcha", 0)
     outcome = f"{failed_count} issue(s)" if failed_count > 0 else "all clean"
-    subject = f"SEO Automation report — {summary['totalAttempts']} attempts, {outcome} — {summary['finishedAt']}"
+    auto_type = summary.get("automationType", "Unknown")
+    subject = f"[{auto_type} Automation] SEO Report — {summary['totalAttempts']} attempts, {outcome} — {summary['finishedAt']}"
 
     msg = EmailMessage()
     msg['Subject'] = subject
