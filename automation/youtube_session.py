@@ -2202,6 +2202,16 @@ def run_session(
                         pass
 
                     return
+                    
+            try:
+                tid = str(threading.get_ident())
+                for cat in ["success", "failed", "interrupted"]:
+                    for s in stats.get(cat, []):
+                        if str(s.get("keyword")) == str(keyword) and str(s.get("thread_id")) == tid:
+                            s["browser"] = selected_browser
+                            s["captcha_encountered"] = str(captcha_encountered_for_keyword)
+            except Exception:
+                pass
 
         # =====================================================
         # SESSION COMPLETED
@@ -2362,7 +2372,7 @@ def _session_worker(keywords, config, search_engines, stop_event, stats,):
             extra={"action": "SESSION_BUG", "status": "FAILED", "error_message": str(error)},
         )
 
-def start_parallel_sessions(keywords, config, search_engines):
+def start_parallel_sessions(keywords, config, search_engines, stats=None):
     """
     Start multiple YouTube sessions in parallel.
     Robust: timeout join loop for Ctrl+C, stats.print_summary in finally.
@@ -2370,9 +2380,21 @@ def start_parallel_sessions(keywords, config, search_engines):
     so browsers are still reused). Returns SessionStats.
     """
 
+    if stats is None:
+        stats = SessionStats()
+
     keywords = list(keywords or [])
     if not keywords:
-        return SessionStats()
+        return stats
+        
+    try:
+        iterations = int(config.get("sessions", {}).get("iterations", 1))
+        num_engines = len(config.get("search", {}).get("engines", ["google"]))
+        multiplier = iterations * num_engines
+        if multiplier > 1:
+            keywords = keywords * multiplier
+    except Exception:
+        pass
 
     try:
         requested = int(config.get("sessions", {}).get("parallel", 1))
@@ -2381,8 +2403,6 @@ def start_parallel_sessions(keywords, config, search_engines):
     max_workers = max(1, min(requested, len(keywords)))
 
     stop_event = threading.Event()
-
-    stats = SessionStats()
 
     # Round-robin split: each keyword goes to exactly one worker.
     shuffled = list(keywords)

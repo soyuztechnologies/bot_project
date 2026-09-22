@@ -454,7 +454,7 @@ def main():
                 reporter.set_results_from_stats(stats, config)
                 json_path = reporter.write_json()
                 html_path = reporter.write_html()
-                send_report_email(config, reporter.summary(), html_path, json_path)
+                send_report_email(config, reporter.summary(), reporter.results, html_path, json_path)
             except Exception as e:
                 logger.error(f"Failed to generate report or send email: {e}", exc_info=True)
         elif interrupted:

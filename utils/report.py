@@ -89,8 +89,8 @@ class RunLogger:
                     entry["engine"] = item.get("site", item.get("engine", "unknown"))
                 else:
                     entry["site"] = item.get("site", item.get("engine", "unknown"))
-                    entry["url"] = item.get("url", "")
-                    
+                
+                entry["url"] = item.get("url", "")
                 self.results.append(entry)
 
     def summary(self):
@@ -178,7 +178,6 @@ class RunLogger:
             parts = ", ".join(f"{escape_html(status)}: {count}" for status, count in stats.items() if status != "total")
             browser_rows += f"<li><strong>{escape_html(browser)}</strong> &mdash; {stats['total']} attempted ({parts})</li>"
             
-        target_url_rows = "".join(f'<li><a href="{escape_html(url)}">{escape_html(url)}</a></li>' for url in summary["targetUrls"])
         target_breakdown_rows = "".join(f'<li><a href="{escape_html(url)}">{escape_html(url)}</a> &mdash; {count}</li>' for url, count in summary["byTarget"].items())
 
         table_headers = "<tr><th>Browser</th><th>Engine</th><th>Target</th><th>Keyword</th><th>Status</th><th>Message</th><th>Duration</th><th>Captcha Encountered</th><th>Automation Type</th></tr>" if is_web_yt else "<tr><th>Browser</th><th>Site</th><th>URL</th><th>Target</th><th>Keyword</th><th>Status</th><th>Message</th><th>Duration</th><th>Captcha Encountered</th></tr>"
@@ -207,16 +206,13 @@ class RunLogger:
     Total attempts: {summary['totalAttempts']}
   </p>
 
-  <h2>Target links</h2>
-  <ul>{target_url_rows}</ul>
-
   <h2>Summary by status</h2>
   <ul>{status_rows}</ul>
 
   <h2>Summary by browser</h2>
   <ul>{browser_rows}</ul>
 
-  <h2>Summary by target link</h2>
+  <h2>By target link</h2>
   <ul>{target_breakdown_rows}</ul>
 
   <h2>Full log</h2>

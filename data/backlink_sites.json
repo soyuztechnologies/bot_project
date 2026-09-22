@@ -1,189 +1,600 @@
 [
   {
-    "id": "pingmyurls",
-    "name": "pingmyurls",
-    "url": "https://pingmyurls.com",
+    "id": "site24x7_ping_test",
+    "name": "Site24x7 Ping Test",
+    "url": "https://www.site24x7.com/ping-test.html",
     "enabled": true,
     "input_type": "single",
     "input": {
-      "primary_xpath": "/html/body/div[2]/div[4]/form/table/tbody/tr/td[1]/div/input",
-      "fallbacks": [
-        "//form//input[@type='text']",
-        "//form//input[not(@type) or @type='text' or @type='url']",
-        "//input[contains(@name,'url') or contains(@id,'url')]"
-      ]
+      "primary_xpath": "//input[@placeholder='www.example.com']",
+      "fallbacks": ["//form//input[@type='text' or @type='url']", "//input[contains(@placeholder,'example.com')]"]
     },
     "submit": {
-      "primary_xpath": "/html/body/div[2]/div[4]/form/table/tbody/tr/td[2]/div/input",
-      "fallbacks": [
-        "//form//input[@type='submit']",
-        "//form//input[@type='button']",
-        "//form//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]"
-      ]
+      "primary_xpath": "//button[contains(translate(normalize-space(.),'PING NOW','ping now'),'ping now')]",
+      "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping')]", "//input[contains(translate(@value,'PING','ping'),'ping')]"]
     },
     "result": {
-      "primary_xpath": "/html/body/div[2]/div[4]/div[2]/table/tbody/tr[2]/td[3]/img",
-      "fallbacks": [
-        "//table//tr[2]/td[3]//img",
-        "//table//tr[position()>1]/td[3]",
-        "//div[contains(@class,'result')]//table"
-      ],
-      "success_hint": "status image shows text 'ping'",
-      "wait_seconds": 25
+      "primary_xpath": "//*[contains(translate(.,'RESULT','result'),'result') or contains(translate(.,'PACKET','packet'),'packet')]",
+      "fallbacks": ["//table", "//*[contains(translate(.,'PING','ping'),'ping')]"],
+      "success_hint": "Ping test page rendered a result after submission",
+      "wait_seconds": 45
     },
-    "notes": "Table with 2 cols - url & status, status is an image showing text 'ping'."
+    "success_without_result": true
   },
   {
-    "id": "pingmylinks",
-    "name": "pingmylinks",
+    "id": "pingdom_tools",
+    "name": "Pingdom Tools",
+    "url": "https://tools.pingdom.com/",
+    "enabled": true,
+    "input_type": "single",
+    "input": {
+      "primary_xpath": "//input[@placeholder='www.example.com']",
+      "fallbacks": ["//form//input[@type='text' or @type='url']", "//input[contains(@placeholder,'example.com')]"]
+    },
+    "submit": {
+      "primary_xpath": "//input[contains(@class,'test-button')]",
+      "fallbacks": ["//button[contains(translate(.,'START','start'),'start') or contains(translate(.,'TEST','test'),'test')]", "//input[@type='submit' or @type='button']"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'PERFORMANCE','performance'),'performance') or contains(translate(.,'LOAD TIME','load time'),'load time')]",
+      "fallbacks": ["//table", "//*[contains(translate(.,'RESULT','result'),'result')]"],
+      "success_hint": "Pingdom rendered a test result after submission",
+      "wait_seconds": 60
+    },
+    "success_without_result": true
+  },
+  {
+    "id": "prepostseo_ping_multiple_urls",
+    "name": "PrepostSEO Ping Multiple URLs",
+    "url": "https://www.prepostseo.com/ping-multiple-urls-online",
+    "enabled": true,
+    "input_type": "textarea_bulk",
+    "input": {
+      "primary_xpath": "//*[@id='urls']",
+      "fallbacks": ["//form//textarea", "//textarea"]
+    },
+    "submit_step1": {
+      "primary_xpath": "//*[@id='stepOne']",
+      "fallbacks": ["//span[contains(translate(.,'PING NOW','ping now'),'ping now')]", "//button[contains(translate(.,'PING','ping'),'ping')]"]
+    },
+    "submit_step2": {
+      "primary_xpath": "//*[@id='pingConfirm']",
+      "fallbacks": ["//span[contains(translate(.,'START','start'),'start ping')]", "//button[contains(translate(.,'START','start'),'start')]"]
+    },
+    "result": {
+      "primary_xpath": "//table//tr[1]/td[2]",
+      "fallbacks": ["//table[contains(@class,'table')]//td[2]", "//div[contains(@class,'result')]//table", "//table"],
+      "success_hint": "Result table rendered after ping submission",
+      "wait_seconds": 60
+    }
+  },
+  {
+    "id": "pingmylinks_add_url",
+    "name": "PingMyLinks Add URL",
     "url": "https://www.pingmylinks.com/addurl/",
     "enabled": true,
     "input_type": "single",
     "input": {
-      "primary_xpath": "/html/body/div[1]/div[3]/form/table/tbody/tr/td[1]/div/input",
-      "fallbacks": [
-        "//form//input[@type='text']",
-        "//form//input[not(@type) or @type='text' or @type='url']",
-        "//input[contains(@name,'url') or contains(@id,'url')]"
-      ]
+      "primary_xpath": "//*[@id='fMain']//*[@id='furl']",
+      "fallbacks": ["//form//input[@type='text']", "//form//input[not(@type) or @type='text' or @type='url']", "//input[contains(@name,'url') or contains(@id,'url')]"]
     },
     "submit": {
-      "primary_xpath": "/html/body/div[1]/div[3]/form/table/tbody/tr/td[2]/div/input",
-      "fallbacks": [
-        "//form//input[@type='submit']",
-        "//form//input[@type='button']",
-        "//form//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]"
-      ]
+      "primary_xpath": "//*[@id='fMain']//input[@name='button']",
+      "fallbacks": ["//form//input[@type='submit']", "//form//input[@type='button']", "//form//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]"]
     },
     "result": {
-      "primary_xpath": "/html/body/div[1]/div[3]/div[2]/table/tbody/tr[2]/td[3]/img",
-      "fallbacks": [
-        "//table//tr[2]/td[3]//img",
-        "//table//tr[position()>1]/td[3]",
-        "//div[contains(@class,'result')]//table"
-      ],
-      "success_hint": "status image shows text 'ok'",
+      "primary_xpath": "//table//tr[position()>1]/td[3]",
+      "fallbacks": ["//table//tr[position()>1]/td[3]//img", "//div[contains(@class,'result')]//table", "//table"],
+      "success_hint": "Result table status rendered after submission",
       "wait_seconds": 25
-    },
-    "notes": "Table with 2 cols - url & status, status is an image showing text 'ok'."
+    }
   },
   {
-    "id": "prepostseo",
-    "name": "prepostseo",
-    "url": "https://www.prepostseo.com/ping-multiple-urls-online",
-    "enabled": true,
-    "input_type": "textarea_bulk",
-    "max_urls_per_submit": 10,
-    "input": {
-      "primary_xpath": "/html/body/main/div[3]/div[1]/div/div[1]/div[1]/div[1]/div/form/div[2]/div/div/textarea",
-      "fallbacks": [
-        "//form//textarea",
-        "//textarea"
-      ]
-    },
-    "submit_step1": {
-      "primary_xpath": "/html/body/main/div[3]/div[1]/div/div[1]/div[1]/div[1]/div/p[3]/span",
-      "label": "pingNow",
-      "fallbacks": [
-        "//span[contains(translate(.,'PINGNOW','pingnow'),'ping now')]",
-        "//button[contains(translate(.,'PING','ping'),'ping')]",
-        "//p//span[contains(translate(.,'PING','ping'),'ping')]"
-      ]
-    },
-    "submit_step2": {
-      "primary_xpath": "/html/body/main/div[3]/div[1]/div/div[1]/div[1]/div[1]/div/p[4]/span[7]",
-      "label": "startPinging button (after clicking pingnow)",
-      "fallbacks": [
-        "//span[contains(translate(.,'START','start'),'start ping')]",
-        "//button[contains(translate(.,'START','start'),'start')]"
-      ]
-    },
-    "result": {
-      "primary_xpath": "/html/body/main/div[3]/div[1]/div/div[1]/div[1]/div[2]/div/div/table/tbody/tr[1]/td[2]/div/strong[2]",
-      "fallbacks": [
-        "//table//tr[1]/td[2]",
-        "//table[contains(@class,'table')]//td[2]",
-        "//div[contains(@class,'result')]//table"
-      ],
-      "success_hint": "Table with 2 cols - webpage & status, status inside div box with text",
-      "wait_seconds": 60
-    },
-    "notes": "Textarea supports up to 10 urls. Click pingNow, then startPinging button. We submit 1 url per session for uniformity."
-  },
-  {
-    "id": "duplichecker",
-    "name": "duplichecker",
-    "url": "https://www.duplichecker.com/search-engine-pinging-website-tool.php",
+    "id": "pingmyurls",
+    "name": "PingMyUrls",
+    "url": "https://pingmyurls.com/",
     "enabled": true,
     "input_type": "single",
     "input": {
-      "primary_xpath": "/html/body/div[7]/div/div[1]/div/div[1]/form/div/div[1]/div[1]/div[1]/input",
-      "fallbacks": [
-        "//form//input[@type='text']",
-        "//form//input[not(@type) or @type='text' or @type='url']",
-        "//input[contains(@name,'url') or contains(@id,'url') or contains(@placeholder,'URL') or contains(@placeholder,'url')]"
-      ]
+      "primary_xpath": "//*[@id='fMain']//*[@id='furl']",
+      "fallbacks": ["//form//input[@type='text']", "//form//input[not(@type) or @type='text' or @type='url']", "//input[contains(@name,'url') or contains(@id,'url')]"]
     },
     "submit": {
-      "primary_xpath": "/html/body/div[7]/div/div[1]/div/div[1]/form/div/div[5]/input",
-      "label": "Ping now",
-      "fallbacks": [
-        "//form//input[@type='submit']",
-        "//form//button[contains(translate(.,'PING','ping'),'ping')]",
-        "//input[contains(@value,'Ping') or contains(@value,'ping')]"
-      ]
+      "primary_xpath": "//*[@id='fMain']//input[@name='button']",
+      "fallbacks": ["//form//input[@type='submit']", "//form//input[@type='button']", "//form//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]"]
     },
     "result": {
-      "primary_xpath": "/html/body/div[7]/div/div[1]/div/div[3]/div[6]/div[2]/span/div[1]/div[2]/div",
-      "fallbacks": [
-        "//div[contains(text(),'Success') or contains(text(),'success') or contains(text(),'Pinged') or contains(text(),'pinged')]",
-        "//div[contains(@class,'result') or contains(@class,'success')]"
-      ],
-      "success_hint": "div with success text inside it",
-      "wait_seconds": 40
-    },
-    "notes": "Result is a div with success text."
+      "primary_xpath": "//table//tr[position()>1]/td[3]",
+      "fallbacks": ["//table//tr[position()>1]/td[3]//img", "//div[contains(@class,'result')]//table", "//table"],
+      "success_hint": "Result table status rendered after submission",
+      "wait_seconds": 25
+    }
   },
   {
-    "id": "free_backlinks",
-    "name": "free-backlinks",
-    "url": "https://free-backlinks.net/ping-my-url.html",
+    "id": "pingfarm",
+    "name": "PingFarm",
+    "url": "http://pingfarm.com/",
+    "enabled": true,
+    "fields": [
+      {"primary_xpath": "//textarea[@name='urls']", "fallbacks": ["//form//textarea", "//textarea"], "value_from": "url"},
+      {"primary_xpath": "//input[@name='title']", "fallbacks": ["//form//input[contains(@name,'title')]", "//form//input[@type='text'][2]"], "value_from": "keyword"}
+    ],
+    "submit": {
+      "primary_xpath": "//input[@value='MASS PING!']",
+      "fallbacks": ["//input[contains(translate(@value,'PING','ping'),'ping')]", "//button[contains(translate(.,'PING','ping'),'ping')]"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'PINGED','pinged'),'pinged') or contains(translate(.,'SUCCESS','success'),'success')]",
+      "fallbacks": ["//table", "//body"],
+      "success_hint": "PingFarm rendered completion text after mass ping",
+      "wait_seconds": 45
+    }
+  },
+  {
+    "id": "pingomatic",
+    "name": "Ping-O-Matic",
+    "url": "http://pingomatic.com/",
+    "enabled": true,
+    "fields": [
+      {"primary_xpath": "//*[@id='title']", "fallbacks": ["//input[@name='title']", "//form//input[@type='text'][1]"], "value_from": "keyword"},
+      {"primary_xpath": "//*[@id='blogurl']", "fallbacks": ["//input[@name='blogurl' or contains(@name,'url')]", "//form//input[@type='text'][2]"], "value_from": "url"}
+    ],
+    "checks": [
+      {"primary_xpath": "//*[@id='chk_blogs']", "fallbacks": ["//input[@type='checkbox' and contains(@id,'blogs')]"]},
+      {"primary_xpath": "//*[@id='chk_feedburner']", "fallbacks": ["//input[@type='checkbox' and contains(@id,'feedburner')]"]}
+    ],
+    "submit_js": "document.getElementById('pingform').submit();",
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'PING','ping'),'ping') and (contains(translate(.,'SENT','sent'),'sent') or contains(translate(.,'THANK','thank'),'thank') or contains(translate(.,'COMPLETE','complete'),'complete'))]",
+      "fallbacks": ["//body"],
+      "success_hint": "Ping-O-Matic returned a post-submit response page",
+      "wait_seconds": 45
+    },
+    "success_without_result": true
+  },
+  {
+    "id": "free_backlinks_ping_url",
+    "name": "Free-Backlinks.net Ping URL",
+    "url": "http://free-backlinks.net/ping-my-url.html",
     "enabled": true,
     "input_type": "url_plus_title",
     "input": {
-      "primary_xpath": "/html/body/div/div[2]/div/form/input[1]",
-      "label": "url to ping",
-      "fallbacks": [
-        "//form//input[1]",
-        "//form//input[@type='text' or @type='url'][1]",
-        "//form//input[contains(@name,'url') or contains(@placeholder,'URL') or contains(@placeholder,'url')]"
-      ]
+      "primary_xpath": "//form//input[1]",
+      "fallbacks": ["//form//input[@type='text' or @type='url'][1]", "//form//input[contains(@name,'url') or contains(@placeholder,'URL') or contains(@placeholder,'url')]"]
     },
     "title": {
-      "primary_xpath": "/html/body/div/div[2]/div/form/input[2]",
-      "label": "Title of url",
-      "fallbacks": [
-        "//form//input[2]",
-        "//form//input[contains(@name,'title') or contains(@placeholder,'Title') or contains(@placeholder,'title')]"
-      ]
+      "primary_xpath": "//form//input[2]",
+      "fallbacks": ["//form//input[contains(@name,'title') or contains(@placeholder,'Title') or contains(@placeholder,'title')]"]
     },
     "submit": {
       "primary_xpath": "//form//input[@type='submit']",
-      "fallbacks": [
-        "//form//button[@type='submit']",
-        "//form//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]",
-        "//form//input[@type='button']"
-      ]
+      "fallbacks": ["//form//button[@type='submit']", "//form//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]", "//form//input[@type='button']"]
     },
     "result": {
-      "primary_xpath": "/html/body/div/div[2]/div/br[2]",
-      "fallbacks": [
-        "//div[contains(text(),'400') or contains(text(),'500') or contains(text(),'200') or contains(text(),'Success') or contains(text(),'success') or contains(text(),'Ping')]",
-        "//div[2]/div"
-      ],
-      "success_hint": "Text contains status code/result like 400, 0, 500",
+      "primary_xpath": "//div[contains(text(),'400') or contains(text(),'500') or contains(text(),'200') or contains(text(),'Success') or contains(text(),'success') or contains(text(),'Ping')]",
+      "fallbacks": ["//body"],
+      "success_hint": "Result text contains status code or ping result",
       "wait_seconds": 30
+    }
+  },
+  {
+    "id": "prepostseo_backlinks_maker",
+    "name": "PrepostSEO Backlinks Maker",
+    "url": "https://www.prepostseo.com/backlinks-maker",
+    "enabled": true,
+    "fields": [
+      {"primary_xpath": "//*[@id='inputURL']", "fallbacks": ["//*[@id='myurl']", "//input[contains(@name,'url') or contains(@id,'url')]", "//form//input[@type='text' or @type='url']"], "value_from": "url"}
+    ],
+    "submit": {
+      "primary_xpath": "//*[@id='checkBrokenLinks']",
+      "fallbacks": ["//*[@id='checkButton']", "//button[contains(translate(.,'MAKE','make'),'make') or contains(translate(.,'CHECK','check'),'check')]", "//input[@type='submit' or @type='button']"]
     },
-    "notes": "Needs both URL and Title. Result text contains status code like 400, 0, 500."
+    "result": {
+      "primary_xpath": "//table",
+      "fallbacks": ["//*[contains(translate(.,'BACKLINK','backlink'),'backlink')]", "//div[contains(@class,'result')]"],
+      "success_hint": "Backlink maker rendered a result table",
+      "wait_seconds": 60
+    }
+  },
+  {
+    "id": "naklov_online_ping",
+    "name": "Naklov Online Ping Website Tool",
+    "url": "https://naklov.com/en/seo-tools/online-ping-website-tool",
+    "enabled": true,
+    "fields": [
+      {"primary_xpath": "//*[@id='myurl']", "fallbacks": ["//input[contains(@id,'url') or contains(@name,'url')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='blogNameData']", "fallbacks": ["//input[contains(@id,'blogName') or contains(@name,'blog')]"], "value_from": "keyword"},
+      {"primary_xpath": "//*[@id='myBlogUpdateUrlData']", "fallbacks": ["//input[contains(@id,'UpdateUrl') or contains(@name,'update')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='myBlogRSSFeedUrlData']", "fallbacks": ["//input[contains(@id,'RSS') or contains(@name,'rss') or contains(@name,'feed')]"], "value_from": "feed"}
+    ],
+    "submit": {"primary_xpath": "//*[@id='checkButton']", "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]", "//input[@type='submit' or @type='button']"]},
+    "result": {"primary_xpath": "//*[contains(translate(.,'THANKS FOR THE PING','thanks for the ping'),'thanks for the ping')]", "fallbacks": ["//table", "//*[contains(translate(.,'SUCCESS','success'),'success')]"], "success_hint": "Online ping tool returned success text or a result table", "wait_seconds": 60}
+  },
+  {
+    "id": "seoqueen_online_ping",
+    "name": "SEOQueen Online Ping Website Tool",
+    "url": "https://www.seoqueen.com/seo-tools/online-ping-website-tool",
+    "enabled": true,
+    "fields": [
+      {"primary_xpath": "//*[@id='myurl']", "fallbacks": ["//input[contains(@id,'url') or contains(@name,'url')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='blogNameData']", "fallbacks": ["//input[contains(@id,'blogName') or contains(@name,'blog')]"], "value_from": "keyword"},
+      {"primary_xpath": "//*[@id='myBlogUpdateUrlData']", "fallbacks": ["//input[contains(@id,'UpdateUrl') or contains(@name,'update')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='myBlogRSSFeedUrlData']", "fallbacks": ["//input[contains(@id,'RSS') or contains(@name,'rss') or contains(@name,'feed')]"], "value_from": "feed"}
+    ],
+    "submit": {"primary_xpath": "//*[@id='checkButton']", "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]", "//input[@type='submit' or @type='button']"]},
+    "result": {"primary_xpath": "//*[contains(translate(.,'THANKS FOR THE PING','thanks for the ping'),'thanks for the ping')]", "fallbacks": ["//table", "//*[contains(translate(.,'SUCCESS','success'),'success')]"], "success_hint": "Online ping tool returned success text or a result table", "wait_seconds": 60}
+  },
+  {
+    "id": "masspingtool",
+    "name": "MassPingTool",
+    "url": "https://masspingtool.com/",
+    "enabled": true,
+    "input_type": "textarea_bulk",
+    "input": {
+      "primary_xpath": "//textarea[@placeholder='Enter URLs here']",
+      "fallbacks": ["//form//textarea", "//textarea"]
+    },
+    "submit": {
+      "primary_xpath": "//button[contains(translate(.,'MASS PING','mass ping'),'mass ping')]",
+      "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping')]", "//input[contains(translate(@value,'PING','ping'),'ping')]"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'SUCCESS','success'),'success') or contains(translate(.,'PINGED','pinged'),'pinged')]",
+      "fallbacks": ["//table", "//body"],
+      "success_hint": "Mass ping result rendered after submission",
+      "wait_seconds": 60
+    }
+  },
+  {
+    "id": "wmtools_mass_ping",
+    "name": "WMTools Mass Ping",
+    "url": "https://wmtools.me/mass-ping",
+    "enabled": true,
+    "input_type": "textarea_bulk",
+    "input": {
+      "primary_xpath": "//textarea[@placeholder='https://wmtools.me']",
+      "fallbacks": ["//form//textarea", "//textarea"]
+    },
+    "submit": {
+      "primary_xpath": "//button[contains(@class,'primary') and contains(translate(normalize-space(.),'PING','ping'),'ping')]",
+      "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping')]", "//input[contains(translate(@value,'PING','ping'),'ping')]"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'SUCCESS','success'),'success') or contains(translate(.,'PINGED','pinged'),'pinged')]",
+      "fallbacks": ["//table", "//body"],
+      "success_hint": "Mass ping result rendered after submission",
+      "wait_seconds": 60
+    }
+  },
+  {
+    "id": "nextbigtechnology_online_ping",
+    "name": "Next Big Technology Online Ping Website Tool",
+    "url": "https://nextbigtechnology.com/seo-check/online-ping-website-tool",
+    "enabled": true,
+    "fields": [
+      {"primary_xpath": "//*[@id='myurl']", "fallbacks": ["//input[contains(@id,'url') or contains(@name,'url')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='blogNameData']", "fallbacks": ["//input[contains(@id,'blogName') or contains(@name,'blog')]"], "value_from": "keyword"},
+      {"primary_xpath": "//*[@id='myBlogUpdateUrlData']", "fallbacks": ["//input[contains(@id,'UpdateUrl') or contains(@name,'update')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='myBlogRSSFeedUrlData']", "fallbacks": ["//input[contains(@id,'RSS') or contains(@name,'rss') or contains(@name,'feed')]"], "value_from": "feed"}
+    ],
+    "submit": {"primary_xpath": "//*[@id='checkButton']", "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]", "//input[@type='submit' or @type='button']"]},
+    "result": {"primary_xpath": "//*[contains(translate(.,'THANKS FOR THE PING','thanks for the ping'),'thanks for the ping')]", "fallbacks": ["//table", "//*[contains(translate(.,'SUCCESS','success'),'success')]"], "success_hint": "Online ping tool returned success text or a result table", "wait_seconds": 60}
+  },
+  {
+    "id": "nextbigtechnology_backlink_maker",
+    "name": "Next Big Technology Backlink Maker",
+    "url": "https://nextbigtechnology.com/seo-check/backlink-maker",
+    "enabled": true,
+    "fields": [{"primary_xpath": "//*[@id='myurl']", "fallbacks": ["//input[contains(@id,'url') or contains(@name,'url')]", "//form//input[@type='text' or @type='url']"], "value_from": "url"}],
+    "submit": {"primary_xpath": "//*[@id='checkButton']", "fallbacks": ["//button[contains(translate(.,'CHECK','check'),'check') or contains(translate(.,'SUBMIT','submit'),'submit')]", "//input[@type='submit' or @type='button']"]},
+    "result": {"primary_xpath": "//table", "fallbacks": ["//*[contains(translate(.,'BACKLINK','backlink'),'backlink')]", "//div[contains(@class,'result')]"], "success_hint": "Backlink maker rendered a result table", "wait_seconds": 60}
+  },
+  {
+    "id": "seowagon_online_ping",
+    "name": "SEO Wagon Online Ping Website Tool",
+    "url": "https://seowagon.com/online-ping-website-tool",
+    "enabled": true,
+    "fields": [
+      {"primary_xpath": "//*[@id='myurl']", "fallbacks": ["//input[contains(@id,'url') or contains(@name,'url')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='blogNameData']", "fallbacks": ["//input[contains(@id,'blogName') or contains(@name,'blog')]"], "value_from": "keyword"},
+      {"primary_xpath": "//*[@id='myBlogUpdateUrlData']", "fallbacks": ["//input[contains(@id,'UpdateUrl') or contains(@name,'update')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='myBlogRSSFeedUrlData']", "fallbacks": ["//input[contains(@id,'RSS') or contains(@name,'rss') or contains(@name,'feed')]"], "value_from": "feed"}
+    ],
+    "submit": {"primary_xpath": "//*[@id='checkButton']", "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]", "//input[@type='submit' or @type='button']"]},
+    "result": {"primary_xpath": "//*[contains(translate(.,'THANKS FOR THE PING','thanks for the ping'),'thanks for the ping')]", "fallbacks": ["//table", "//*[contains(translate(.,'SUCCESS','success'),'success')]"], "success_hint": "Online ping tool returned success text or a result table", "wait_seconds": 60}
+  },
+  {
+    "id": "seowagon_backlink_maker",
+    "name": "SEO Wagon Backlink Maker",
+    "url": "https://seowagon.com/backlink-maker",
+    "enabled": true,
+    "fields": [{"primary_xpath": "//*[@id='myurl']", "fallbacks": ["//input[contains(@id,'url') or contains(@name,'url')]", "//form//input[@type='text' or @type='url']"], "value_from": "url"}],
+    "submit": {"primary_xpath": "//*[@id='checkButton']", "fallbacks": ["//button[contains(translate(.,'CHECK','check'),'check') or contains(translate(.,'SUBMIT','submit'),'submit')]", "//input[@type='submit' or @type='button']"]},
+    "result": {"primary_xpath": "//table", "fallbacks": ["//*[contains(translate(.,'BACKLINK','backlink'),'backlink')]", "//div[contains(@class,'result')]"], "success_hint": "Backlink maker rendered a result table", "wait_seconds": 60}
+  },
+  {
+    "id": "seotoolscentre_online_ping",
+    "name": "SEO Tools Centre Online Ping Website Tool",
+    "url": "https://seotoolscentre.com/online-ping-website-tool",
+    "enabled": true,
+    "fields": [
+      {"primary_xpath": "//*[@id='myurl']", "fallbacks": ["//input[contains(@id,'url') or contains(@name,'url')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='blogNameData']", "fallbacks": ["//input[contains(@id,'blogName') or contains(@name,'blog')]"], "value_from": "keyword"},
+      {"primary_xpath": "//*[@id='myBlogUpdateUrlData']", "fallbacks": ["//input[contains(@id,'UpdateUrl') or contains(@name,'update')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='myBlogRSSFeedUrlData']", "fallbacks": ["//input[contains(@id,'RSS') or contains(@name,'rss') or contains(@name,'feed')]"], "value_from": "feed"}
+    ],
+    "submit": {"primary_xpath": "//*[@id='checkButton']", "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]", "//input[@type='submit' or @type='button']"]},
+    "result": {"primary_xpath": "//*[contains(translate(.,'THANKS FOR THE PING','thanks for the ping'),'thanks for the ping')]", "fallbacks": ["//table", "//*[contains(translate(.,'SUCCESS','success'),'success')]"], "success_hint": "Online ping tool returned success text or a result table", "wait_seconds": 60}
+  },
+  {
+    "id": "simplifiedseotools_online_ping",
+    "name": "Simplified SEO Tools Online Ping Website Tool",
+    "url": "https://simplifiedseotools.com/online-ping-website-tool",
+    "enabled": true,
+    "fields": [
+      {"primary_xpath": "//*[@id='myurl']", "fallbacks": ["//input[contains(@id,'url') or contains(@name,'url')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='blogNameData']", "fallbacks": ["//input[contains(@id,'blogName') or contains(@name,'blog')]"], "value_from": "keyword"},
+      {"primary_xpath": "//*[@id='myBlogUpdateUrlData']", "fallbacks": ["//input[contains(@id,'UpdateUrl') or contains(@name,'update')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='myBlogRSSFeedUrlData']", "fallbacks": ["//input[contains(@id,'RSS') or contains(@name,'rss') or contains(@name,'feed')]"], "value_from": "feed"}
+    ],
+    "submit": {"primary_xpath": "//*[@id='checkButton']", "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]", "//input[@type='submit' or @type='button']"]},
+    "result": {"primary_xpath": "//*[contains(translate(.,'THANKS FOR THE PING','thanks for the ping'),'thanks for the ping')]", "fallbacks": ["//table", "//*[contains(translate(.,'SUCCESS','success'),'success')]"], "success_hint": "Online ping tool returned success text or a result table", "wait_seconds": 60}
+  },
+  {
+    "id": "simplifiedseotools_backlink_maker",
+    "name": "Simplified SEO Tools Backlink Maker",
+    "url": "https://simplifiedseotools.com/backlink-maker",
+    "enabled": true,
+    "fields": [{"primary_xpath": "//*[@id='myurl']", "fallbacks": ["//input[contains(@id,'url') or contains(@name,'url')]", "//form//input[@type='text' or @type='url']"], "value_from": "url"}],
+    "submit": {"primary_xpath": "//*[@id='checkButton']", "fallbacks": ["//button[contains(translate(.,'CHECK','check'),'check') or contains(translate(.,'SUBMIT','submit'),'submit')]", "//input[@type='submit' or @type='button']"]},
+    "result": {"primary_xpath": "//table", "fallbacks": ["//*[contains(translate(.,'BACKLINK','backlink'),'backlink')]", "//div[contains(@class,'result')]"], "success_hint": "Backlink maker rendered a result table", "wait_seconds": 60}
+  },
+  {
+    "id": "quickranktools_online_ping",
+    "name": "Quick Rank Tools Online Ping Website Tool",
+    "url": "https://www.quickranktools.com/online-ping-website-tool",
+    "enabled": true,
+    "fields": [
+      {"primary_xpath": "//*[@id='myurl']", "fallbacks": ["//input[contains(@id,'url') or contains(@name,'url')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='blogNameData']", "fallbacks": ["//input[contains(@id,'blogName') or contains(@name,'blog')]"], "value_from": "keyword"},
+      {"primary_xpath": "//*[@id='myBlogUpdateUrlData']", "fallbacks": ["//input[contains(@id,'UpdateUrl') or contains(@name,'update')]"], "value_from": "url"},
+      {"primary_xpath": "//*[@id='myBlogRSSFeedUrlData']", "fallbacks": ["//input[contains(@id,'RSS') or contains(@name,'rss') or contains(@name,'feed')]"], "value_from": "feed"}
+    ],
+    "submit": {"primary_xpath": "//*[@id='checkButton']", "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]", "//input[@type='submit' or @type='button']"]},
+    "result": {"primary_xpath": "//*[contains(translate(.,'THANKS FOR THE PING','thanks for the ping'),'thanks for the ping')]", "fallbacks": ["//table", "//*[contains(translate(.,'SUCCESS','success'),'success')]"], "success_hint": "Online ping tool returned success text or a result table", "wait_seconds": 60}
+  },
+  {
+    "id": "quickranktools_backlink_maker",
+    "name": "Quick Rank Tools Backlink Maker",
+    "url": "https://www.quickranktools.com/backlink-maker",
+    "enabled": true,
+    "fields": [{"primary_xpath": "//*[@id='myurl']", "fallbacks": ["//input[contains(@id,'url') or contains(@name,'url')]", "//form//input[@type='text' or @type='url']"], "value_from": "url"}],
+    "submit": {"primary_xpath": "//*[@id='checkButton']", "fallbacks": ["//button[contains(translate(.,'CHECK','check'),'check') or contains(translate(.,'SUBMIT','submit'),'submit')]", "//input[@type='submit' or @type='button']"]},
+    "result": {"primary_xpath": "//table", "fallbacks": ["//*[contains(translate(.,'BACKLINK','backlink'),'backlink')]", "//div[contains(@class,'result')]"], "success_hint": "Backlink maker rendered a result table", "wait_seconds": 60}
+  },
+  {
+    "id": "wormly_remote_ping_test",
+    "name": "Wormly Remote Ping Test",
+    "url": "https://www.wormly.com/test-remote-ping",
+    "enabled": true,
+    "fields": [
+      {"primary_xpath": "//*[@id='sensor-1-1-host']", "fallbacks": ["//input[contains(@id,'host') or contains(@name,'host')]", "//form//input[@type='text' or @type='url']"], "value_from": "url_no_scheme"}
+    ],
+    "submit": {
+      "primary_xpath": "//*[@id='cs_test']",
+      "fallbacks": ["//button[contains(translate(.,'TEST','test'),'test') or contains(translate(.,'PING','ping'),'ping')]", "//input[@type='submit' or @type='button']"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'RESULT','result'),'result') or contains(translate(.,'PING','ping'),'ping')]",
+      "fallbacks": ["//table", "//body"],
+      "success_hint": "Remote ping test rendered a result after submission",
+      "wait_seconds": 60
+    },
+    "success_without_result": true
+  },
+  {
+    "id": "bulkping",
+    "name": "BulkPing.com",
+    "url": "https://www.bulkping.com/",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//label[contains(translate(.,'SITE NAME','site name'),'site name')]/following::input[1]",
+        "fallbacks": ["//input[@placeholder='My Blog']", "//form//input[@type='text'][1]"],
+        "value_from": "keyword"
+      },
+      {
+        "primary_xpath": "//label[contains(translate(.,'URLS TO PING','urls to ping'),'urls to ping')]/following::textarea[1]",
+        "fallbacks": ["//textarea", "//form//textarea"],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//button[contains(translate(.,'PING 25 SEARCH ENGINES NOW','ping 25 search engines now'),'ping 25 search engines now')]",
+      "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping')]", "//input[contains(translate(@value,'PING','ping'),'ping')]"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'SUCCESS','success'),'success') or contains(translate(.,'PINGED','pinged'),'pinged') or contains(translate(.,'RESULT','result'),'result')]",
+      "fallbacks": ["//table", "//body"],
+      "success_hint": "BulkPing rendered a post-submit result",
+      "wait_seconds": 60
+    },
+    "success_without_result": true
+  },
+  {
+    "id": "backlinkmaker_seowebchecker",
+    "name": "SEOWebChecker Backlink Maker",
+    "url": "https://backlinkmaker.seowebchecker.com/",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//input[contains(@placeholder,'example.com') or contains(@placeholder,'https://example.com')]",
+        "fallbacks": ["//form//input[@type='url' or @type='text']", "//input[contains(@name,'url') or contains(@id,'url')]"],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//button[contains(translate(.,'GENERATE BACKLINKS','generate backlinks'),'generate backlinks')]",
+      "fallbacks": ["//button[contains(translate(.,'GENERATE','generate'),'generate')]", "//input[@type='submit' or @type='button']"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'GENERATED BACKLINKS','generated backlinks'),'generated backlinks') or contains(translate(.,'BACKLINKS OPPORTUNITY','backlinks opportunity'),'backlinks opportunity')]",
+      "fallbacks": ["//table", "//body"],
+      "success_hint": "Backlink opportunity list rendered",
+      "wait_seconds": 60
+    }
+  },
+  {
+    "id": "fastseofix_request_indexing",
+    "name": "Fast SEO Fix Request Indexing",
+    "url": "https://www.fastseofix.com/tools/request-indexing",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//input[contains(@placeholder,'yourwebsite.com') or contains(@placeholder,'sitemap.xml')]",
+        "fallbacks": ["//form//input[@type='url' or @type='text']", "//input[contains(@name,'url') or contains(@id,'url')]"],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//button[contains(translate(.,'SUBMIT TO GOOGLE','submit to google'),'submit to google')]",
+      "fallbacks": ["//button[contains(translate(.,'SUBMIT','submit'),'submit')]", "//input[@type='submit' or @type='button']"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'SUBMITTED','submitted'),'submitted') or contains(translate(.,'SUCCESS','success'),'success') or contains(translate(.,'INDEX','index'),'index')]",
+      "fallbacks": ["//body"],
+      "success_hint": "Request indexing tool returned a response",
+      "wait_seconds": 45
+    },
+    "success_without_result": true
+  },
+  {
+    "id": "websitepingseo_quick_ping",
+    "name": "WebSitePingSEO Quick URL Ping",
+    "url": "https://websitepingseo.com/",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//input[contains(@placeholder,'yourwebsite.com/page')]",
+        "fallbacks": ["//form//input[@type='url' or @type='text']", "//input[contains(@name,'url') or contains(@id,'url')]"],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//button[contains(translate(.,'PING NOW','ping now'),'ping now')]",
+      "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping')]", "//input[contains(translate(@value,'PING','ping'),'ping')]"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'SUCCESS','success'),'success') or contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'RESULT','result'),'result')]",
+      "fallbacks": ["//table", "//body"],
+      "success_hint": "Quick URL ping returned a response",
+      "wait_seconds": 60
+    },
+    "success_without_result": true
+  },
+  {
+    "id": "pingomatics",
+    "name": "PingOMatics",
+    "url": "https://www.pingomatics.com/",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//input[1]",
+        "fallbacks": ["//form//input[@type='text'][1]", "//input[@type='text'][1]"],
+        "value_from": "url"
+      },
+      {
+        "primary_xpath": "//input[2]",
+        "fallbacks": ["//form//input[@type='text'][2]", "//input[@type='text'][2]"],
+        "value_from": "keyword"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//input[contains(translate(@value,'SUBMIT','submit'),'submit') or contains(translate(@value,'PING','ping'),'ping')]",
+      "fallbacks": ["//button[contains(translate(.,'SUBMIT','submit'),'submit') or contains(translate(.,'PING','ping'),'ping')]", "//input[@type='submit' or @type='button']"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'SUBMISSION','submission'),'submission') or contains(translate(.,'FINALIZE','finalize'),'finalize') or contains(translate(.,'PING','ping'),'ping')]",
+      "fallbacks": ["//body"],
+      "success_hint": "PingOMatics returned a response after submission",
+      "wait_seconds": 60
+    },
+    "success_without_result": true
+  },
+  {
+    "id": "seowebchecker_ping_url",
+    "name": "SEOWebChecker Ping URL",
+    "url": "https://seowebchecker.com/ping-url/",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//input[contains(@placeholder,'yourwebsite.com') or contains(@placeholder,'https://yourwebsite.com')]",
+        "fallbacks": ["//form//input[@type='url' or @type='text']", "//input[contains(@name,'url') or contains(@id,'url')]"],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//button[contains(translate(.,'PING URL NOW','ping url now'),'ping url now')]",
+      "fallbacks": ["//button[contains(translate(.,'PING','ping'),'ping')]", "//input[contains(translate(@value,'PING','ping'),'ping')]"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'TOTAL SUCCESSFUL PINGS','total successful pings'),'total successful pings') or contains(translate(.,'SUCCESS','success'),'success')]",
+      "fallbacks": ["//table", "//body"],
+      "success_hint": "Live URL ping status rendered",
+      "wait_seconds": 60
+    }
+  },
+  {
+    "id": "promotoai_backlink_maker",
+    "name": "Promoto AI Backlink Maker",
+    "url": "https://promotoai.com/tools/backlink-maker",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//input[contains(@placeholder,'example.com') or contains(@aria-label,'Domain') or contains(@name,'domain')]",
+        "fallbacks": ["//form//input[@type='url' or @type='text']", "//input[@type='url' or @type='text']"],
+        "value_from": "host"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//button[contains(translate(.,'GENERATE','generate'),'generate')]",
+      "fallbacks": ["//input[contains(translate(@value,'GENERATE','generate'),'generate')]", "//button[@type='submit']"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'COMPLETION','completion'),'completion') or contains(translate(.,'BACKLINK','backlink'),'backlink') or contains(translate(.,'WAIT FOR','wait for'),'wait for')]",
+      "fallbacks": ["//table", "//body"],
+      "success_hint": "Backlink maker returned a generated-result response",
+      "wait_seconds": 60
+    },
+    "success_without_result": true
+  },
+  {
+    "id": "hawkwebtools_backlinker",
+    "name": "Hawk Web Tools Backlinker",
+    "url": "https://hawkwebtools.com/backlinker/",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//input[contains(@name,'url') or contains(@id,'url')]",
+        "fallbacks": ["//form//input[@type='url' or @type='text'][1]", "//input[@type='url' or @type='text'][1]"],
+        "value_from": "url"
+      },
+      {
+        "primary_xpath": "//input[contains(@name,'keyword') or contains(@id,'keyword')]",
+        "fallbacks": ["//form//input[@type='text'][2]", "//input[@type='text'][2]"],
+        "value_from": "keyword"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//input[contains(translate(@value,'SUBMIT','submit'),'submit') or contains(translate(@value,'GENERATE','generate'),'generate')]",
+      "fallbacks": ["//button[contains(translate(.,'SUBMIT','submit'),'submit') or contains(translate(.,'GENERATE','generate'),'generate')]", "//input[@type='submit' or @type='button']"]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'BACKLINK','backlink'),'backlink') or contains(translate(.,'SUBMISSION','submission'),'submission') or contains(translate(.,'SUCCESS','success'),'success')]",
+      "fallbacks": ["//table", "//body"],
+      "success_hint": "Keyword backlinker returned a generated-result response",
+      "wait_seconds": 60
+    },
+    "success_without_result": true
   }
 ]

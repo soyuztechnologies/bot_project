@@ -5,6 +5,7 @@ Replaces site-specific python functions by dynamically interpreting site configu
 
 import logging
 import time
+from urllib.parse import urlparse
 
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.common.by import By
@@ -169,6 +170,34 @@ def _title_for(target) -> str:
     return f"{target.get('url', '')[:80]}"
 
 
+def _target_values(target) -> dict:
+    url = str(target.get("url") or "")
+    title = _title_for(target)
+    keyword = str(target.get("keyword") or title or url)
+    parsed = urlparse(url if "://" in url else f"https://{url}")
+    host = parsed.netloc or parsed.path.split("/", 1)[0]
+    url_no_scheme = url.replace("https://", "", 1).replace("http://", "", 1).rstrip("/")
+    return {
+        "url": url,
+        "title": title,
+        "keyword": keyword,
+        "host": host,
+        "url_no_scheme": url_no_scheme,
+        "feed": f"{url.rstrip('/')}/feed",
+    }
+
+
+def _field_value(field, target) -> str:
+    values = _target_values(target)
+    if "value" in field:
+        try:
+            return str(field.get("value", "")).format(**values)
+        except Exception:
+            return str(field.get("value", ""))
+    key = field.get("value_from", "url")
+    return str(values.get(key, values["url"]))
+
+
 def generic_submit(driver, site, target, config, stop_event=None, session_logger=None):
     url = target.get("url", "")
     title = _title_for(target)
@@ -186,17 +215,43 @@ def generic_submit(driver, site, target, config, stop_event=None, session_logger
 
     input_type = site.get("input_type", "single")
     
-    # Fill Input
-    inp_cfg = site.get("input", {})
-    if inp_cfg:
-        inp = su.find_element(driver, inp_cfg.get("primary_xpath"), inp_cfg.get("fallbacks"), timeout=15, stop_event=stop_event)
-        su.human_type(inp, url, config, stop_event)
+    fields = site.get("fields") or []
+    if fields:
+        for field in fields:
+            field_box = su.find_element(
+                driver,
+                field.get("primary_xpath"),
+                field.get("fallbacks"),
+                timeout=int(field.get("timeout", 15)),
+                stop_event=stop_event,
+            )
+            su.human_type(field_box, _field_value(field, target), config, stop_event)
+    else:
+        # Fill Input
+        inp_cfg = site.get("input", {})
+        if inp_cfg:
+            inp = su.find_element(driver, inp_cfg.get("primary_xpath"), inp_cfg.get("fallbacks"), timeout=15, stop_event=stop_event)
+            su.human_type(inp, url, config, stop_event)
 
-    # Fill Title (if url_plus_title)
-    if input_type == "url_plus_title" and site.get("title"):
-        title_cfg = site.get("title", {})
-        title_box = su.find_element(driver, title_cfg.get("primary_xpath"), title_cfg.get("fallbacks"), timeout=15, stop_event=stop_event)
-        su.human_type(title_box, title, config, stop_event)
+        # Fill Title (if url_plus_title)
+        if input_type == "url_plus_title" and site.get("title"):
+            title_cfg = site.get("title", {})
+            title_box = su.find_element(driver, title_cfg.get("primary_xpath"), title_cfg.get("fallbacks"), timeout=15, stop_event=stop_event)
+            su.human_type(title_box, title, config, stop_event)
+
+    for check_cfg in site.get("checks") or []:
+        checkbox = su.find_element(
+            driver,
+            check_cfg.get("primary_xpath"),
+            check_cfg.get("fallbacks"),
+            timeout=int(check_cfg.get("timeout", 10)),
+            stop_event=stop_event,
+        )
+        try:
+            if not checkbox.is_selected():
+                su.safe_click(driver, checkbox, stop_event)
+        except Exception:
+            su.safe_click(driver, checkbox, stop_event)
 
     # Submit Steps
     submit_keys = ["submit_step1", "submit_step2", "submit"]
@@ -215,6 +270,22 @@ def generic_submit(driver, site, target, config, stop_event=None, session_logger
                     session_logger.warning(f"[{site['id']}] {step_key} button not found: {e}", extra={"action": f"BACKLINK_{step_key.upper()}", "status": "FAILED", "url": url})
                 raise
 
+    if site.get("submit_js"):
+        driver.execute_script(site["submit_js"])
+        time.sleep(2)
+        pause_if_captcha(driver, config, stop_event, session_logger)
+
+    # Mandatory wait to allow AJAX ping requests to complete
+    try:
+        mandatory_wait = int(site.get("mandatory_wait", 10))
+    except (ValueError, TypeError):
+        mandatory_wait = 10
+
+    if mandatory_wait > 0:
+        if session_logger:
+            session_logger.info(f"[{site['id']}] Waiting {mandatory_wait}s for submission to process...", extra={"action": "BACKLINK_WAITING", "status": "RUNNING", "url": url})
+        time.sleep(mandatory_wait)
+
     # Wait for result
     found, text, used = su.wait_for_result(driver, site.get("result"), stop_event, session_logger)
     
@@ -222,6 +293,10 @@ def generic_submit(driver, site, target, config, stop_event=None, session_logger
     success = False
     if found:
         success = True
+    elif site.get("success_without_result", False):
+        success = True
+        text = "Submitted; no configured result element was detected before timeout."
+        used = "success_without_result"
         
     return {
         "success": success, 

@@ -509,6 +509,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
     current_search_keyword = original_keyword
     fallback_used = False
     fallback_attempted = False
+    captcha_engines = []
     status = None
     start_time = time.time()
 
@@ -1191,6 +1192,13 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         final_browser_mode = build_browser_mode(config, selected_browser)
         captcha_encountered = len(captcha_engines) > 0
 
+        with _STATS_LOCK:
+            for cat in ["success", "failed", "interrupted"]:
+                for s in stats.get(cat, []):
+                    if s.get("keyword") == original_keyword and s.get("engine") == engine_name:
+                        s["browser"] = selected_browser
+                        s["captcha_encountered"] = str(captcha_encountered)
+
         _safe_update_run(run_id, session_end_time, status, success_count, failure_count, retry_count, fallback_used=fallback_used, search_keyword=current_search_keyword, search_engine=engine_name, browser_mode=final_browser_mode, captcha_encountered=captcha_encountered)
 
 
@@ -1226,13 +1234,14 @@ def _session_worker(job_queue, config, stop_event, stats, search_engines=None, a
                     pass
 
 
-def _build_jobs(keywords, search_engines, engine_names):
+def _build_jobs(keywords, config, search_engines, engine_names):
     jobs = []
+    iterations = config.get("sessions", {}).get("iterations", 1)
  
-    for keyword in keywords:
-        # Assign a random search engine to each keyword for less predictable behavior.
-        engine_name = random.choice(engine_names)
-        jobs.append((keyword, engine_name, search_engines[engine_name]))
+    for _ in range(iterations):
+        for keyword in keywords:
+            for engine_name in engine_names:
+                jobs.append((keyword, engine_name, search_engines[engine_name]))
  
     # Shuffle the jobs to further randomize the order of execution across workers.
     random.shuffle(jobs)
@@ -1252,7 +1261,7 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
         return {"total": 0, "success": [], "failed": [], "interrupted": []}
 
     try:
-        jobs = _build_jobs(keywords, search_engines, engine_names)
+        jobs = _build_jobs(keywords, config, search_engines, engine_names)
     except Exception as e:
         logger.error(f"Failed to build jobs: {e}", exc_info=True)
         return {"total": 0, "success": [], "failed": [], "interrupted": []}

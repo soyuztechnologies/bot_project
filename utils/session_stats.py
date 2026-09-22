@@ -112,7 +112,7 @@ class SessionStats:
             return True
         return False
 
-    def record_keyword_success(self, keyword, engine="unknown", thread_id=None, url=None, duration_ms=None):
+    def record_keyword_success(self, keyword, engine="unknown", thread_id=None, url=None, duration_ms=None, browser=None, captcha_encountered=None):
         """Record per-keyword success for tick/cross summary (like main.py)."""
         try:
             # Prevent exact duplicate (same keyword+engine+thread) from double-count
@@ -125,11 +125,15 @@ class SessionStats:
                 entry["url"] = str(url)
             if duration_ms is not None:
                 entry["durationMs"] = duration_ms
+            if browser is not None:
+                entry["browser"] = str(browser)
+            if captcha_encountered is not None:
+                entry["captcha_encountered"] = str(captcha_encountered)
             self.success.append(entry)
         except Exception:
             pass
 
-    def record_keyword_failed(self, keyword, engine="unknown", thread_id=None, url=None, duration_ms=None, error=None):
+    def record_keyword_failed(self, keyword, engine="unknown", thread_id=None, url=None, duration_ms=None, error=None, browser=None, captcha_encountered=None):
         """Record per-keyword failure for tick/cross summary."""
         try:
             if self._is_duplicate(self.failed, keyword, engine, thread_id):
@@ -143,11 +147,15 @@ class SessionStats:
                 entry["durationMs"] = duration_ms
             if error is not None:
                 entry["error"] = str(error)
+            if browser is not None:
+                entry["browser"] = str(browser)
+            if captcha_encountered is not None:
+                entry["captcha_encountered"] = str(captcha_encountered)
             self.failed.append(entry)
         except Exception:
             pass
 
-    def record_keyword_interrupted(self, keyword, engine="unknown", thread_id=None, url=None, duration_ms=None):
+    def record_keyword_interrupted(self, keyword, engine="unknown", thread_id=None, url=None, duration_ms=None, browser=None, captcha_encountered=None):
         """Record per-keyword interruption for tick/cross summary."""
         try:
             if self._is_duplicate(self.interrupted, keyword, engine, thread_id):
@@ -162,6 +170,10 @@ class SessionStats:
                 entry["url"] = str(url)
             if duration_ms is not None:
                 entry["durationMs"] = duration_ms
+            if browser is not None:
+                entry["browser"] = str(browser)
+            if captcha_encountered is not None:
+                entry["captcha_encountered"] = str(captcha_encountered)
             self.interrupted.append(entry)
         except Exception:
             pass

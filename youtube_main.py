@@ -179,7 +179,8 @@ def main():
     config = None
     keywords = None
     search_engines = None
-    youtube_stats = None
+    from utils.session_stats import SessionStats
+    youtube_stats = SessionStats()
     completed = None
     interrupted = False
     unexpected_error = None
@@ -354,13 +355,12 @@ def main():
         #             )  # VPN DISABLED - commented out
         #         except Exception:  # VPN DISABLED - commented out
         #             pass  # VPN DISABLED - commented out
- 
         result = start_parallel_sessions(
             keywords,
             config,
             search_engines,
+            stats=youtube_stats,
         )
- 
         # Handle both return types: bool (legacy) and SessionStats (current)
         if hasattr(result, "print_summary") or hasattr(result, "total_sessions"):
             youtube_stats = result
@@ -481,7 +481,7 @@ def main():
                 json_path = reporter.write_json()
                 html_path = reporter.write_html()
                 if config:
-                    send_report_email(config, reporter.summary(), html_path, json_path)
+                    send_report_email(config, reporter.summary(), reporter.results, html_path, json_path)
         except Exception as e:
             logger.error(f"Failed to generate report or send email: {e}", exc_info=True)
 

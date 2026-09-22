@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-def summary_lines(summary):
+def summary_lines(summary, results):
     status_lines = "\n".join(f"  {status}: {count}" for status, count in summary["byStatus"].items())
     
     browser_lines = []
@@ -16,7 +16,19 @@ def summary_lines(summary):
         browser_lines.append(f"  {browser}: {stats['total']} attempted ({parts})")
     browser_lines_str = "\n".join(browser_lines)
     
-    target_lines = "\n".join(f"  {url}: {count}" for url, count in summary["byTarget"].items())
+    target_lines_list = []
+    successful_by_target = {}
+    for r in results:
+        if r.get("status") in ("success", "submitted"):
+            tgt = r.get("target")
+            if tgt:
+                successful_by_target[tgt] = successful_by_target.get(tgt, 0) + 1
+
+    for url, total_count in summary["byTarget"].items():
+        success_count = successful_by_target.get(url, 0)
+        target_lines_list.append(f"  {url}: {success_count} successful")
+    
+    target_lines = "\n".join(target_lines_list)
 
     return f"""Started:  {summary['startedAt']}
 Finished: {summary['finishedAt']}
@@ -31,7 +43,7 @@ By browser:
 By target link:
 {target_lines}"""
 
-def send_report_email(config, summary, html_path, json_path):
+def send_report_email(config, summary, results, html_path, json_path):
     email_config = config.get("email", {})
     if not email_config.get("enabled", False):
         logger.info("Report email disabled (email.enabled=false) — skipping.")
@@ -57,7 +69,7 @@ def send_report_email(config, summary, html_path, json_path):
     msg['Subject'] = subject
     msg['From'] = from_email
     msg['To'] = to_email
-    msg.set_content(summary_lines(summary))
+    msg.set_content(summary_lines(summary, results))
 
     try:
         with open(html_path, 'rb') as f:
