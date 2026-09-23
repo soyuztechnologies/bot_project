@@ -33,7 +33,7 @@ class RunLogger:
         if started_at:
             self.started_at = started_at
         else:
-            self.started_at = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+            self.started_at = datetime.now(timezone.utc)
         
         self.automation_type = automation_type
         
@@ -112,10 +112,10 @@ class RunLogger:
                 continue
             by_target[r["target"]] = by_target.get(r["target"], 0) + 1
 
-        finished_at = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+        finished_at = datetime.now(timezone.utc)
         return {
-            "startedAt": self.started_at.strftime("%d %b %Y, %I:%M:%S %p IST"),
-            "finishedAt": finished_at.strftime("%d %b %Y, %I:%M:%S %p IST"),
+            "startedAt": self.started_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "finishedAt": finished_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "targetUrls": self.target_urls,
             "totalAttempts": len(self.results),
             "byStatus": by_status,

@@ -355,10 +355,14 @@ def main():
         #             )  # VPN DISABLED - commented out
         #         except Exception:  # VPN DISABLED - commented out
         #             pass  # VPN DISABLED - commented out
+        # Get engine names from config or default to google
+        engine_names = config.get("search", {}).get("engines", ["google"])
+
         result = start_parallel_sessions(
             keywords,
             config,
             search_engines,
+            engine_names,
             stats=youtube_stats,
         )
         # Handle both return types: bool (legacy) and SessionStats (current)

@@ -30,6 +30,21 @@ def summary_lines(summary, results):
     
     target_lines = "\n".join(target_lines_list)
 
+    detailed_lines_list = []
+    for r in results:
+        browser = r.get("browser", "unknown")
+        engine = r.get("engine", r.get("site", "unknown"))
+        status = r.get("status", "unknown")
+        captcha = r.get("captcha_encountered", "False")
+        keyword = r.get("keyword", "")
+        target = r.get("target", "")
+        url = r.get("url", "")
+        url_text = f" ({url})" if url else ""
+        
+        detailed_lines_list.append(f"- [{browser}] [{engine}] [{status}] [Captcha: {captcha}] {keyword} -> {target}{url_text}")
+    
+    detailed_lines = "\n".join(detailed_lines_list)
+
     return f"""Started:  {summary['startedAt']}
 Finished: {summary['finishedAt']}
 Total attempts: {summary['totalAttempts']}
@@ -41,7 +56,10 @@ By browser:
 {browser_lines_str}
 
 By target link:
-{target_lines}"""
+{target_lines}
+
+Detailed Session Target Links:
+{detailed_lines}"""
 
 def send_report_email(config, summary, results, html_path, json_path):
     email_config = config.get("email", {})

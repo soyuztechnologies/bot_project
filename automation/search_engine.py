@@ -291,6 +291,26 @@ def search_keyword(
     )
  
     # ---------------------------------------------------------
+    # DuckDuckGo Fast-Path (Avoid POST form anomaly)
+    # ---------------------------------------------------------
+    if engine.get("isDuckDuckGo"):
+        direct_url = build_search_url(engine, keyword)
+        if direct_url:
+            if session_logger:
+                session_logger.info(f"DuckDuckGo detected: bypassing POST form to avoid anomaly, using direct GET URL.", extra={'action': 'KEYWORD_SEARCH', 'status': 'RUNNING'})
+            print(f"[DUCKDUCKGO] Bypassing POST form; navigating directly to {direct_url}")
+            try:
+                driver.get(direct_url)
+                random_sleep(
+                    config["timing"]["sleepMin"],
+                    config["timing"]["sleepMax"],
+                    stop_event,
+                )
+                return
+            except WebDriverException as e:
+                raise NavigationError(f"Direct URL fallback failed for DDG: {_short_err(e)}", keyword=keyword, cause=e) from e
+ 
+    # ---------------------------------------------------------
     # Find search box
     # ---------------------------------------------------------
  
@@ -1397,6 +1417,7 @@ def find_target_website(
     open_target_mode = engine.get("openTarget", "direct")
     max_pages = max(1, int(max_pages or 1))
     last_page = 0
+    ddg_reloaded = False
  
     for page in range(max_pages):
         last_page = page
@@ -1429,6 +1450,26 @@ def find_target_website(
                 except Exception:
                     pass
             links = []
+
+        # DuckDuckGo: when no results are present (throttle/anomaly),
+        # reloading the GET request once often clears the block.
+        if engine.get("isDuckDuckGo") and not links and not ddg_reloaded and page == 0:
+            if session_logger:
+                try:
+                    session_logger.warning("DuckDuckGo served 0 results; reloading page once to bypass throttle.", extra={'action': 'WEBSITE_SEARCH', 'status': 'RETRYING'})
+                except Exception:
+                    pass
+            print("[DUCKDUCKGO] No results yet; reloading DDG search page once...")
+            try:
+                driver.refresh()
+                random_sleep(2, 4, stop_event)
+                ddg_reloaded = True
+                try:
+                    links = wait_for_elements(driver, link_locator, timeout=10)
+                except Exception:
+                    links = []
+            except Exception as reload_err:
+                print(f"[DUCKDUCKGO] Reload failed: {reload_err}")
 
         for link in links:
             if stop_event and stop_event.is_set():

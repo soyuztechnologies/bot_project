@@ -94,22 +94,8 @@ class SessionStats:
             return default
  
     def _is_duplicate(self, lst, keyword, engine, thread_id=None):
-        """Check duplicate by (keyword, thread_id) — engine is ignored for dedup to avoid double-count per worker.
-        Same keyword on same thread is duplicate even if engine differs (youtube vs duckduckgo)."""
-        kw = str(keyword)
-        tid = str(thread_id) if thread_id is not None else None
-        for d in lst:
-            if str(d.get("keyword","")) != kw:
-                continue
-            # If thread_id provided, require same thread to be considered duplicate
-            if tid is not None and d.get("thread_id") is not None:
-                if str(d.get("thread_id")) != tid:
-                    continue
-                return True
-            # If no thread_id, fallback to keyword+engine (legacy)
-            if tid is None and str(d.get("engine","")) != str(engine):
-                continue
-            return True
+        # Deduplication disabled: Allow multiple iterations of the same keyword on the same engine/thread
+        # to be counted properly in the stats.
         return False
 
     def record_keyword_success(self, keyword, engine="unknown", thread_id=None, url=None, duration_ms=None, browser=None, captcha_encountered=None):

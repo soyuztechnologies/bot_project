@@ -808,28 +808,25 @@ def _final_browser_mode(config, selected_browser):
         return None
 
 def run_session(
-    keywords,
+    keyword,
     config,
     search_engines,
     stop_event,
     stats,
+    flow="youtube_first",
+    engine_name="youtube",
 ):
     """
-    Run one complete YouTube automation session.
+    Run one complete YouTube automation session for a single keyword.
     Supports per-keyword SessionLoggerAdapter with detailed logging
-    for both YOUTUBE_FIRST and SEARCH_ENGINE_FIRST flows,
-    while preserving robust exception handling, per-keyword stats,
-    captcha handling, headless handling, and interrupt handling.
+    for both YOUTUBE_FIRST and SEARCH_ENGINE_FIRST flows.
     """
 
     driver = None
     session_success = True
-    current_keyword = None
-    # Last engine actually attempted (for accurate interrupted attribution;
-    # falls back to selected_search_engine when nothing attempted yet).
+    current_keyword = keyword
     last_attempted_engine = None
 
-    # database state: one automation_run per keyword.
     run_ids = {}
     retry_trackers = {}
 
@@ -843,65 +840,22 @@ def run_session(
     except Exception:
         selected_browser = "chrome"
 
-    # DuckDuckGo is only reliable on Chrome; drop it for other browsers.
-    try:
-        _configured_engines = list((config.get("search", {}) or {}).get("engines", []) or [])
-        _allowed_engines = filter_engines_for_browser(
-            _configured_engines,
-            search_engines,
-            selected_browser,
-        )
-    except Exception:
-        _allowed_engines = []
+    selected_search_engine = engine_name
 
     try:
-        if _allowed_engines:
-            selected_search_engine = str(random.choice(_allowed_engines)).strip().lower()
+        if flow == "youtube_first":
+            engine_config = {}
         else:
-            # DDG is the only configured engine and it's blocked on this browser.
-            # Attempt it anyway as best-effort (fail-fast thanks to captcha detection)
-            # but strongly recommend adding google/yahoo to config.
-            print(
-                f"[{thread_name}] WARNING: Configured engine(s) {_configured_engines} "
-                f"are blocked on browser '{selected_browser}'. "
-                f"DuckDuckGo only works reliably on Chrome. "
-                f"Add 'google' and/or 'yahoo' to search.engines to fix this."
-            )
-            logger.warning(
-                f"[{thread_name}] No compatible search engine for browser "
-                f"'{_configured_engines}' configured engines {_configured_engines} "
-                f"blocked on '{selected_browser}'. Running DDG as last resort.",
-                extra={"action": "SESSION_START", "status": "WARNING"},
-            )
-            try:
-                selected_search_engine = str(random.choice(_configured_engines)).strip().lower()
-            except Exception:
-                selected_search_engine = select_search_engine(config)
-    except Exception as sel_err:
-        logger.warning(
-            f"[{thread_name}] Search engine selection failed: {sel_err}",
-            extra={"action": "SESSION_START", "status": "FAILED"},
-        )
-        stats.record_failure()
-        return
-
-    flow = random.choice([
-            "youtube_first",
-            "search_engine_first",
-    ])
-
-    try:
-
-        engine_config = search_engines.get(selected_search_engine)
-        if engine_config is None:
-            # case-insensitive fallback
-            for k, v in (search_engines or {}).items():
-                if str(k).strip().lower() == str(selected_search_engine).strip().lower():
-                    selected_search_engine = k
-                    engine_config = v
-                    break
-        if engine_config is None:
-            raise KeyError(selected_search_engine)
+            engine_config = search_engines.get(selected_search_engine)
+            if engine_config is None:
+                # case-insensitive fallback
+                for k, v in (search_engines or {}).items():
+                    if str(k).strip().lower() == str(selected_search_engine).strip().lower():
+                        selected_search_engine = k
+                        engine_config = v
+                        break
+            if engine_config is None:
+                raise KeyError(selected_search_engine)
 
     except KeyError:
 
@@ -1088,9 +1042,10 @@ def run_session(
             return
 
         # =====================================================
-        # PROCESS KEYWORDS
+        # PROCESS KEYWORD
         # =====================================================
 
+        keywords = [current_keyword]
         for keyword_index, keyword in enumerate(keywords):
 
             current_keyword = keyword
@@ -1374,7 +1329,9 @@ def run_session(
             # Search Engine Fallback Order
             # -------------------------------------------------
 
-            fallback_engines = config["search"]["engines"]
+            # USER REQUEST: Comment out fallback engine usage logic for accurate report
+            # fallback_engines = config["search"]["engines"]
+            fallback_engines = [selected_search_engine] # Only use the primary selected engine
             try:
                 # Skip engines incompatible with the current browser
                 # (e.g. DuckDuckGo on Edge/Firefox/Opera/Brave) when alternatives exist.
@@ -2349,85 +2306,123 @@ def run_session(
                 _unregister_driver(driver)
 
 
-def _session_worker(keywords, config, search_engines, stop_event, stats,):
+import queue
+
+def _build_jobs(keywords, config, search_engines, engine_names):
+    jobs = []
+    iterations = config.get("sessions", {}).get("iterations", 1)
+    
+    for _ in range(iterations):
+        for keyword in keywords:
+            # 1 job for youtube_first
+            jobs.append((keyword, "youtube_first", "youtube"))
+            
+            # 1 job per configured engine for search_engine_first
+            for engine_name in engine_names:
+                jobs.append((keyword, "search_engine_first", engine_name))
+                
+    random.shuffle(jobs)
+    return jobs
+
+def _session_worker(job_queue, config, search_engines, stop_event, stats):
     """
-    Worker thread that runs one browser session.
-    Isolated: a worker crash must not kill other workers.
+    Worker thread that pulls jobs from a queue and runs one browser session per job.
+    Isolated: a worker crash must not kill other workers or drop remaining jobs.
     """
+    worker_name = threading.current_thread().name
+    print(f"Worker Started : {worker_name}")
 
-    print(f"Worker Started : {threading.current_thread().name}")
+    while not stop_event.is_set():
+        job = None
+        try:
+            try:
+                job = job_queue.get_nowait()
+            except queue.Empty:
+                return
+                
+            keyword, flow, engine_name = job
+            try:
+                run_session(
+                    keyword,
+                    config,
+                    search_engines,
+                    stop_event,
+                    stats,
+                    flow=flow,
+                    engine_name=engine_name,
+                )
+            except Exception as error:
+                logger.error(
+                    f"Unhandled worker error in {worker_name} for '{keyword}': {error}",
+                    exc_info=True,
+                    extra={"action": "SESSION_BUG", "status": "FAILED", "error_message": str(error)},
+                )
+                try:
+                    stats.record_failure()
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"Worker loop error in {worker_name}: {e}", exc_info=True)
+        finally:
+            if job is not None:
+                try:
+                    job_queue.task_done()
+                except Exception:
+                    pass
 
-    try:
-        run_session(
-            keywords,
-            config,
-            search_engines,
-            stop_event,
-            stats,
-        )
-    except Exception as error:
-        logger.error(
-            f"Unhandled worker error in {threading.current_thread().name}: {error}",
-            exc_info=True,
-            extra={"action": "SESSION_BUG", "status": "FAILED", "error_message": str(error)},
-        )
-
-def start_parallel_sessions(keywords, config, search_engines, stats=None):
+def start_parallel_sessions(keywords, config, search_engines, engine_names=None, stats=None):
     """
     Start multiple YouTube sessions in parallel.
     Robust: timeout join loop for Ctrl+C, stats.print_summary in finally.
-    Each keyword is processed exactly once (round-robin split across workers
-    so browsers are still reused). Returns SessionStats.
+    Each job is processed exactly once using a concurrent queue.
     """
 
     if stats is None:
         stats = SessionStats()
 
-    keywords = list(keywords or [])
     if not keywords:
         return stats
         
+    engine_names = engine_names or ["google"]
+
     try:
-        iterations = int(config.get("sessions", {}).get("iterations", 1))
-        num_engines = len(config.get("search", {}).get("engines", ["google"]))
-        multiplier = iterations * num_engines
-        if multiplier > 1:
-            keywords = keywords * multiplier
-    except Exception:
-        pass
+        jobs = _build_jobs(keywords, config, search_engines, engine_names)
+    except Exception as e:
+        logger.error(f"Failed to build jobs: {e}", exc_info=True)
+        return stats
 
     try:
         requested = int(config.get("sessions", {}).get("parallel", 1))
     except Exception:
         requested = 1
-    max_workers = max(1, min(requested, len(keywords)))
+    max_workers = max(1, min(requested, len(jobs))) if jobs else 0
+    
+    if max_workers == 0:
+        return stats
 
     stop_event = threading.Event()
-
-    # Round-robin split: each keyword goes to exactly one worker.
-    shuffled = list(keywords)
-    random.shuffle(shuffled)
-    chunks = [shuffled[i::max_workers] for i in range(max_workers)]
-    chunks = [c for c in chunks if c]
+    job_queue = queue.Queue()
+    
+    for job in jobs:
+        job_queue.put(job)
 
     workers = []
 
-    for i, chunk in enumerate(chunks):
-
-     workers.append(
-        threading.Thread(
-            target=_session_worker,
-            args=(
-                chunk,
-                config,
-                search_engines,
-                stop_event,
-                stats,
-            ),
-            daemon=True,
-            name=f"Thread-{i + 1}",
+    for i in range(max_workers):
+        workers.append(
+            threading.Thread(
+                target=_session_worker,
+                args=(
+                    job_queue,
+                    config,
+                    search_engines,
+                    stop_event,
+                    stats,
+                ),
+                daemon=True,
+                name=f"Thread-{i + 1}",
+            )
         )
-    )
 
     interrupted = False
     unexpected_error = None
@@ -2437,13 +2432,11 @@ def start_parallel_sessions(keywords, config, search_engines, stats=None):
         for worker in workers:
             worker.start()
 
-        # Use timeout join loop so Ctrl+C (KeyboardInterrupt) is delivered on Windows
-        # Plain worker.join() without timeout blocks signal handling
-        while any(w.is_alive() for w in workers):
-            for w in workers:
-                w.join(timeout=0.5)
+        # Block until all jobs are processed, checking browser health periodically
+        while job_queue.unfinished_tasks > 0:
             if stop_event.is_set():
                 break
+            time.sleep(0.5)
 
         result = not stop_event.is_set()
 

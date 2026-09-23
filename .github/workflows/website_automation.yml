@@ -9,6 +9,10 @@ jobs:
   run-automation:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    strategy:
+      matrix:
+        browser: [chrome, edge, firefox]
+      fail-fast: false
 
     steps:
       - name: Check out repo
@@ -51,6 +55,10 @@ jobs:
           sbase install edgedriver
           sbase install geckodriver
 
+      - name: Configure Browser
+        run: |
+          python -c "import json; f=open('config.json','r'); d=json.load(f); f.close(); d['browser']['distribution']={'${{ matrix.browser }}':100}; f=open('config.json','w'); json.dump(d,f); f.close()"
+
       - name: Run Website Automation
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
@@ -61,6 +69,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: website-report
+          name: website-report-${{ matrix.browser }}
           path: logs/
           retention-days: 30
