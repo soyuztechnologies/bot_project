@@ -8,8 +8,8 @@
   
 
     "distribution": {
-        "chrome" : 80,
-        "edge" : 20,
+        "chrome" : 100,
+        "edge" : 0,
         "brave" : 0,
         "firefox" : 0,
         "opera" : 0    
@@ -47,14 +47,14 @@
 
   "search": {
     "engines": [ "google","bing","yahoo", "duckduckgo"],
-    "maxPages": 20
+    "maxPages": 10
   },
 
   "website": {
     "domain": "anubhavtrainings.com",
     "extra_keyword": "anubhav training",
     "internal_links": {
-      "enabled": true,
+      "enabled": false,
       "max_to_visit": 3,
       "selectors": ["//wix-dropdown-menu//a"]
     }

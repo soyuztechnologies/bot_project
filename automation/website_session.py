@@ -509,6 +509,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
     current_search_keyword = original_keyword
     fallback_used = False
     fallback_attempted = False
+    captcha_engines = []
     status = None
     start_time = time.time()
 
@@ -576,7 +577,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 except Exception as fb_e:
                     session_logger.error(f"Browser startup failed ({original_requested_browser}): {e} | Fallback '{fallback_browser}' also failed: {fb_e}", exc_info=True, extra={'action': 'BROWSER_START_FAILED', 'status': 'FAILED', 'error_message': str(fb_e)})
                     with _STATS_LOCK:
-                        if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                        if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
                             stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
                     failure_count = 1
                     status = "FAILED"
@@ -584,7 +585,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
             else:
                 session_logger.error(f"Browser startup failed ({selected_browser}): {e}", exc_info=True, extra={'action': 'BROWSER_START_FAILED', 'status': 'FAILED', 'error_message': str(e)})
                 with _STATS_LOCK:
-                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                    if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
                 failure_count = 1
                 status = "FAILED"
@@ -603,7 +604,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 pass
             with _STATS_LOCK:
                 # avoid duplicate
-                if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
                     stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
             failure_count = 1
             status = "FAILED"
@@ -616,7 +617,9 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         # After all engines exhausted with original keyword, try fallback keyword across all engines
         # If still CAPTCHA on all, count as FAILED/not found and close browser cleanly
         # -------------------------------------------------
-        fallback_order = _get_fallback_engine_order(config, search_engines, all_engine_names, engine_name, engine)
+        # USER REQUEST: Comment out fallback engine usage logic for accurate report
+        # fallback_order = _get_fallback_engine_order(config, search_engines, all_engine_names, engine_name, engine)
+        fallback_order = [(engine_name, engine)] # Only use the primary selected engine
         try:
             # Skip engines incompatible with the current browser
             # (e.g. DuckDuckGo on Edge/Firefox/Opera/Brave) when alternatives exist.
@@ -685,7 +688,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 except Exception:
                     pass
                 with _STATS_LOCK:
-                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                    if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
                 failure_count = 1
                 status = "FAILED"
@@ -725,7 +728,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                     except Exception:
                         pass
                     with _STATS_LOCK:
-                        if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                        if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
                             stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
                     failure_count = 1
                     status = "FAILED"
@@ -745,7 +748,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 except Exception:
                     pass
                 with _STATS_LOCK:
-                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                    if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
                 failure_count = 1
                 status = "FAILED"
@@ -778,7 +781,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                         status = "INTERRUPTED"
                         return
                     with _STATS_LOCK:
-                        if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                        if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
                             stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
                     failure_count = 1
                     status = "FAILED"
@@ -797,7 +800,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 except Exception:
                     pass
                 with _STATS_LOCK:
-                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                    if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
                 failure_count = 1
                 status = "FAILED"
@@ -877,7 +880,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                             session_logger.warning(f"Fallback open failed on {current_engine_name}: {e}", extra={'action': 'ENGINE_OPEN', 'status': 'FAILED', 'engine': current_engine_name})
                             if not _is_browser_alive(driver):
                                 with _STATS_LOCK:
-                                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                                    if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
                                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
                                 failure_count = 1
                                 status = "FAILED"
@@ -1031,7 +1034,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
             with _STATS_LOCK:
                 # Don't count as success if interrupted during visit
                 if stop_event.is_set():
-                    if not any(d.get('keyword') == original_keyword for d in stats.get("interrupted", [])):
+                    if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats.get("interrupted", [])):
                         stats["interrupted"].append({"keyword": original_keyword, "engine": engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
                 else:
                     stats["success"].append({"keyword": original_keyword, "engine": engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
@@ -1071,8 +1074,8 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 if stop_event.is_set():
                     status = "INTERRUPTED"
                     return
-                if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
-                    if not any(d.get('keyword') == original_keyword for d in stats.get("interrupted", [])):
+                if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
+                    if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats.get("interrupted", [])):
                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
 
     except (BrowserError, SearchEngineError, CaptchaDetectedError, TargetNotFoundError, ConfigError) as error:
@@ -1080,7 +1083,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         if not stop_event.is_set():
             try:
                 with _STATS_LOCK:
-                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                    if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
             except Exception:
                 pass
@@ -1098,7 +1101,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         if not stop_event.is_set():
             try:
                 with _STATS_LOCK:
-                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                    if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
             except Exception:
                 pass
@@ -1116,7 +1119,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         if not stop_event.is_set():
             try:
                 with _STATS_LOCK:
-                    if not any(d.get('keyword') == original_keyword for d in stats["failed"]):
+                    if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats["failed"]):
                         stats["failed"].append({"keyword": original_keyword, "engine": engine_name})
             except Exception:
                 pass
@@ -1191,6 +1194,13 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         final_browser_mode = build_browser_mode(config, selected_browser)
         captcha_encountered = len(captcha_engines) > 0
 
+        with _STATS_LOCK:
+            for cat in ["success", "failed", "interrupted"]:
+                for s in stats.get(cat, []):
+                    if s.get("keyword") == original_keyword and s.get("engine") == engine_name:
+                        s["browser"] = selected_browser
+                        s["captcha_encountered"] = str(captcha_encountered)
+
         _safe_update_run(run_id, session_end_time, status, success_count, failure_count, retry_count, fallback_used=fallback_used, search_keyword=current_search_keyword, search_engine=engine_name, browser_mode=final_browser_mode, captcha_encountered=captcha_encountered)
 
 
@@ -1226,13 +1236,14 @@ def _session_worker(job_queue, config, stop_event, stats, search_engines=None, a
                     pass
 
 
-def _build_jobs(keywords, search_engines, engine_names):
+def _build_jobs(keywords, config, search_engines, engine_names):
     jobs = []
+    iterations = config.get("sessions", {}).get("iterations", 1)
  
-    for keyword in keywords:
-        # Assign a random search engine to each keyword for less predictable behavior.
-        engine_name = random.choice(engine_names)
-        jobs.append((keyword, engine_name, search_engines[engine_name]))
+    for _ in range(iterations):
+        for keyword in keywords:
+            for engine_name in engine_names:
+                jobs.append((keyword, engine_name, search_engines[engine_name]))
  
     # Shuffle the jobs to further randomize the order of execution across workers.
     random.shuffle(jobs)
@@ -1252,7 +1263,7 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
         return {"total": 0, "success": [], "failed": [], "interrupted": []}
 
     try:
-        jobs = _build_jobs(keywords, search_engines, engine_names)
+        jobs = _build_jobs(keywords, config, search_engines, engine_names)
     except Exception as e:
         logger.error(f"Failed to build jobs: {e}", exc_info=True)
         return {"total": 0, "success": [], "failed": [], "interrupted": []}

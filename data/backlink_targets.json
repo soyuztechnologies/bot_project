@@ -1,92 +1,62 @@
 [
   {
+    "url": "https://www.anubhavtrainings.com/scp-cloud-platform-training",
+    "title": "SAP Cloud Platform Training - Anubhav Trainings",
+    "keyword": "sap cloud platform training anubhav",
+    "category": "scp-cloud-platform"
+  },
+  {
+    "url": "https://www.anubhavtrainings.com/restful-programming-training",
+    "title": "RESTful Programming Training - Anubhav Trainings",
+    "keyword": "restful programming training anubhav",
+    "category": "restful-programming"
+  },
+  {
+    "url": "https://www.anubhavtrainings.com/ui5-and-odata-training",
+    "title": "SAP UI5 and OData Training - Anubhav Trainings",
+    "keyword": "sap ui5 odata training anubhav",
+    "category": "ui5-odata"
+  },
+  {
+    "url": "https://www.anubhavtrainings.com/aoh-cds-amdp-training",
+    "title": "ABAP on HANA CDS AMDP Training - Anubhav Trainings",
+    "keyword": "abap on hana cds amdp training anubhav",
+    "category": "aoh-cds-amdp"
+  },
+  {
+    "url": "https://www.youtube.com/@AnubhavOberoy",
+    "title": "Anubhav Oberoy YouTube Channel",
+    "keyword": "anubhav oberoy youtube channel",
+    "category": "youtube-channel"
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=YjjxzlbjJI8&list=PLcxqFaocb9WLaza2kOjkUCDIQGbzNos6p&pp=0gcJCbwFa94AFGB0sAgC",
+    "title": "Anubhav Trainings YouTube SAP Training Video",
+    "keyword": "anubhav trainings sap training youtube",
+    "category": "youtube-video"
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=Os_6MY2rRMs&list=PLcxqFaocb9WIQJ-kptyPuiMSVWZVd2ff_&pp=sAgC",
+    "title": "Anubhav Trainings YouTube SAP Training Video",
+    "keyword": "anubhav trainings sap course youtube",
+    "category": "youtube-video"
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=Vv5cwDaSMGs&list=PLcxqFaocb9WI4sgqho6CQ7rkbjOu6-1rj&pp=0gcJCbwFa94AFGB0sAgC",
+    "title": "Anubhav Trainings YouTube SAP Training Video",
+    "keyword": "anubhav trainings sap tutorial youtube",
+    "category": "youtube-video"
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=I0LJ29Yy2OI&list=PLcxqFaocb9WKT5jVLtxp7U6AKo5NJ50WY&pp=sAgC",
+    "title": "Anubhav Trainings YouTube SAP Training Video",
+    "keyword": "anubhav trainings sap learning youtube",
+    "category": "youtube-video"
+  },
+  {
     "url": "https://www.anubhavtrainings.com/",
     "title": "Anubhav Trainings - SAP Training",
     "keyword": "anubhav trainings sap training",
     "category": "site-home"
-  },
-  {
-    "url": "https://www.anubhavtrainings.com/btp-gen-ai-training",
-    "title": "SAP BTP Generative AI Training - Anubhav Trainings",
-    "keyword": "sap gen ai training anubhav",
-    "category": "genai"
-  },
-  {
-    "url": "https://www.anubhavtrainings.com/scp-cloud-platform-training",
-    "title": "SAP BTP CAP Training - Anubhav Trainings",
-    "keyword": "sap cap btp training anubhav",
-    "category": "cap"
-  },
-  {
-    "url": "https://www.anubhavtrainings.com/anubhav-next-batchs",
-    "title": "Anubhav Trainings Next Batches - UI5 Fiori Gen AI BTP",
-    "keyword": "anubhav trainings ui5 fiori batch",
-    "category": "site-batches"
-  },
-  {
-    "url": "https://www.youtube.com/channel/UCzEPlO_nyhiE1MkZiufl9iw",
-    "title": "Anubhav Trainings official channel",
-    "keyword": "anubhav trainings youtube channel",
-    "category": "youtube-channel"
-  },
-  {
-    "url": "https://www.youtube.com/playlist?list=PLcxqFaocb9WLaza2kOjkUCDIQGbzNos6p",
-    "title": "SAP BTP CAP Training Playlist - Anubhav Trainings",
-    "keyword": "sap btp cap playlist anubhav",
-    "category": "cap"
-  },
-  {
-    "url": "https://www.youtube.com/watch?v=IYCF6pYejfo",
-    "title": "Build intelligent SAP apps with GenAI - Anubhav Trainings",
-    "keyword": "sap genai ai core launchpad training",
-    "category": "genai"
-  },
-  {
-    "url": "https://www.youtube.com/watch?v=zw6xkMoisuc",
-    "title": "SAP Generative AI What is AI vs Gen AI - Anubhav Trainings",
-    "keyword": "sap generative ai basics anubhav",
-    "category": "genai"
-  },
-  {
-    "url": "https://www.youtube.com/c/AnubhavOberoy",
-    "title": "Anubhav Oberoy YouTube - UI5 AOC AOH SAC DS",
-    "keyword": "anubhav oberoy ui5 abap sac",
-    "category": "youtube-channel"
-  },
-  {
-    "url": "https://www.youtube.com/results?search_query=anubhav+trainings+sap+ui5+fiori",
-    "title": "SAP UI5 Fiori Training - Anubhav Trainings",
-    "keyword": "sap ui5 fiori training anubhav",
-    "category": "ui5"
-  },
-  {
-    "url": "https://www.youtube.com/results?search_query=anubhav+trainings+abap+on+cloud",
-    "title": "ABAP on Cloud Training - Anubhav Trainings",
-    "keyword": "abap on cloud aoc training anubhav",
-    "category": "aoc"
-  },
-  {
-    "url": "https://www.youtube.com/results?search_query=anubhav+trainings+abap+on+hana",
-    "title": "ABAP on HANA Training - Anubhav Trainings",
-    "keyword": "abap on hana aoh training anubhav",
-    "category": "aoh"
-  },
-  {
-    "url": "https://www.youtube.com/results?search_query=anubhav+trainings+sap+analytics+cloud",
-    "title": "SAP Analytics Cloud SAC Training - Anubhav Trainings",
-    "keyword": "sap analytics cloud sac training anubhav",
-    "category": "sac"
-  },
-  {
-    "url": "https://www.youtube.com/results?search_query=anubhav+trainings+sap+datasphere",
-    "title": "SAP Datasphere DS Training - Anubhav Trainings",
-    "keyword": "sap datasphere training anubhav",
-    "category": "ds"
-  },
-  {
-    "url": "https://www.youtube.com/results?search_query=anubhav+trainings+claude+ai+sap",
-    "title": "Claude AI SAP Training - Anubhav Trainings",
-    "keyword": "claude ai sap training anubhav",
-    "category": "claude"
   }
 ]

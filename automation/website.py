@@ -46,8 +46,8 @@ def visit_website(driver, config: dict, stop_event=None, session_logger=None) ->
         return
     try:
         timing = config.get("timing", {})
-        sleep_min = timing.get("sleepMin", 2)
-        sleep_max = timing.get("sleepMax", 4)
+        sleep_min = 15
+        sleep_max = 20
         scroll_min = timing.get("scrollMin", 2)
         scroll_max = timing.get("scrollMax", 5)
 

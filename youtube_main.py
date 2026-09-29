@@ -179,7 +179,8 @@ def main():
     config = None
     keywords = None
     search_engines = None
-    youtube_stats = None
+    from utils.session_stats import SessionStats
+    youtube_stats = SessionStats()
     completed = None
     interrupted = False
     unexpected_error = None
@@ -354,13 +355,16 @@ def main():
         #             )  # VPN DISABLED - commented out
         #         except Exception:  # VPN DISABLED - commented out
         #             pass  # VPN DISABLED - commented out
- 
+        # Get engine names from config or default to google
+        engine_names = config.get("search", {}).get("engines", ["google"])
+
         result = start_parallel_sessions(
             keywords,
             config,
             search_engines,
+            engine_names,
+            stats=youtube_stats,
         )
- 
         # Handle both return types: bool (legacy) and SessionStats (current)
         if hasattr(result, "print_summary") or hasattr(result, "total_sessions"):
             youtube_stats = result
@@ -476,12 +480,12 @@ def main():
                 from utils.mailer import send_report_email
                 # youtube config target is just targetChannel but we can leave target_urls empty or set to channel
                 target_urls = [config.get("youtube", {}).get("targetChannel", "")]
-                reporter = RunLogger(target_urls=target_urls, started_at=start_time)
+                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="YouTube")
                 reporter.set_results_from_stats(youtube_stats, config)
                 json_path = reporter.write_json()
                 html_path = reporter.write_html()
                 if config:
-                    send_report_email(config, reporter.summary(), html_path, json_path)
+                    send_report_email(config, reporter.summary(), reporter.results, html_path, json_path)
         except Exception as e:
             logger.error(f"Failed to generate report or send email: {e}", exc_info=True)
 

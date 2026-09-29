@@ -3,12 +3,16 @@ name: Website Automation
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 20 * * *' # every night at 02:00 IST
+    - cron: '30 19 * * *' # every night at 01:00 AM IST
 
 jobs:
   run-automation:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 360
+    strategy:
+      matrix:
+        browser: [chrome, edge, firefox]
+      fail-fast: false
 
     steps:
       - name: Check out repo
@@ -23,11 +27,37 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install SeleniumBase browsers
+      - name: Install System Browsers
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y google-chrome-stable firefox
+          
+          # Edge
+          curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg
+          sudo install -o root -g root -m 644 microsoft.gpg /etc/apt/trusted.gpg.d/
+          sudo sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/repos/edge stable main" > /etc/apt/sources.list.d/microsoft-edge-dev.list'
+          sudo rm microsoft.gpg
+          
+          # Brave
+          sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main" | sudo tee /etc/apt/sources.list.d/brave-browser-release.list
+          
+          # Opera
+          wget -qO- https://deb.opera.com/archive.key | sudo gpg --dearmor | sudo tee /usr/share/keyrings/opera.gpg > /dev/null
+          echo deb [arch=amd64 signed-by=/usr/share/keyrings/opera.gpg] https://deb.opera.com/opera-stable/ stable non-free | sudo tee /etc/apt/sources.list.d/opera.list
+          
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y microsoft-edge-stable brave-browser opera-stable
+
+      - name: Install SeleniumBase drivers
         run: |
           sbase install chromedriver
           sbase install edgedriver
           sbase install geckodriver
+
+      - name: Configure Browser
+        run: |
+          python -c "import json; f=open('config.json','r'); d=json.load(f); f.close(); d['browser']['distribution']={'${{ matrix.browser }}':100}; f=open('config.json','w'); json.dump(d,f); f.close()"
 
       - name: Run Website Automation
         env:
@@ -39,6 +69,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: website-report
+          name: website-report-${{ matrix.browser }}
           path: logs/
           retention-days: 30
