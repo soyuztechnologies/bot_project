@@ -375,6 +375,46 @@ button,select{font:inherit}.app-shell{display:flex;min-height:100vh}.sidebar{wid
     padding: 14px 4px 4px;
 }
 
+/* Primary Website / YouTube action, positioned before the sidebar navigation. */
+.sidebar-automation-action {
+    padding: 18px 16px 10px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.sidebar-automation-action .generate-btn {
+    min-height: 42px;
+}
+
+.sidebar-automation-action .generate-status {
+    min-height: 27px;
+}
+
+.automation-action-icon {
+    display: inline-flex;
+    width: 17px;
+    height: 17px;
+    flex: 0 0 17px;
+}
+
+.automation-action-icon svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.automation-action-icon.youtube svg {
+    fill: currentColor;
+    stroke: none;
+}
+
+.automation-action-icon.youtube path {
+    fill: #59647a;
+}
+
 .generate-btn {
     border: 0;
     width: 100%;
