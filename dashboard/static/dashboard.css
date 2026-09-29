@@ -411,8 +411,12 @@ button,select{font:inherit}.app-shell{display:flex;min-height:100vh}.sidebar{wid
     stroke: none;
 }
 
-.automation-action-icon.youtube path {
-    fill: #59647a;
+.automation-action-icon.youtube .youtube-mark {
+    fill: #ff0033;
+}
+
+.automation-action-icon.youtube .youtube-play {
+    fill: #ffffff;
 }
 
 .generate-btn {
@@ -493,6 +497,30 @@ button,select{font:inherit}.app-shell{display:flex;min-height:100vh}.sidebar{wid
     color: #aeb9cc;
     border-color: #3a4356;
     background: #161c27;
+}
+
+.captcha-status {
+    display: inline-flex;
+    min-width: 92px;
+    min-height: 24px;
+    padding: 0 8px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.captcha-status.detected {
+    color: #ff7b8f;
+    background: #2d141b;
+}
+
+.captcha-status.clear {
+    color: #57d6a5;
+    background: #10261e;
 }
 
 .bl-url {

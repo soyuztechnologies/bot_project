@@ -276,6 +276,8 @@ def _serialise_run(r):
         "browser_mode": r.get("browser_mode"),
         "target": r.get("target"),
         "search_engine": r.get("search_engine"),
+        "captcha_encountered": str(r.get("captcha_encountered", "")).strip().lower()
+        in {"1", "true", "yes", "y"},
         "started_at": _iso(started),
         "finished_at": _iso(finished),
         "status": r.get("status"),

@@ -3114,7 +3114,7 @@ function renderRuns(
         tbody.innerHTML = `
             <tr>
                 <td
-                    colspan="9"
+                    colspan="10"
                     class="empty-state"
                 >
                     No ${escapeHtml(
@@ -3196,6 +3196,21 @@ function renderRuns(
                     const engine =
                         run.search_engine ??
                         "—";
+
+                    const captchaValue =
+                        run.captcha_encountered ??
+                        run.captcha ??
+                        false;
+
+                    const captchaDetected =
+                        captchaValue === true ||
+                        ["1", "true", "yes", "y"].includes(
+                            String(captchaValue).trim().toLowerCase()
+                        );
+
+                    const captchaTitle = captchaDetected
+                        ? `CAPTCHA detected for: ${keyword}`
+                        : `No CAPTCHA for: ${keyword}`;
 
 
                     /*
@@ -3296,6 +3311,15 @@ function renderRuns(
                                 ${escapeHtml(
                                     engine
                                 )}
+                            </td>
+
+                            <td>
+                                <span
+                                    class="captcha-status ${captchaDetected ? "detected" : "clear"}"
+                                    title="${escapeHtml(captchaTitle)}"
+                                >
+                                    ${captchaDetected ? "⚠ Detected" : "No CAPTCHA"}
+                                </span>
                             </td>
 
 
@@ -6866,7 +6890,7 @@ function syncAutomationStartUI(job = {}) {
     const name = getAutomationName(mode);
     const running = Boolean(job.running);
     const websiteIcon = `<span class="automation-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3.8 3 14.2 0 18M12 3c-3 3.8-3 14.2 0 18"></path></svg></span>`;
-    const youtubeIcon = `<span class="automation-action-icon youtube" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M21.58 7.19a2.99 2.99 0 0 0-2.1-2.12C17.62 4.57 12 4.57 12 4.57s-5.62 0-7.48.5a2.99 2.99 0 0 0-2.1 2.12A31.31 31.31 0 0 0 2 12a31.31 31.31 0 0 0 .42 4.81 2.99 2.99 0 0 0 2.1 2.12c1.86.5 7.48.5 7.48.5s5.62 0 7.48-.5a2.99 2.99 0 0 0 2.1-2.12A31.31 31.31 0 0 0 22 12a31.31 31.31 0 0 0-.42-4.81Z"></path><path d="m10 15.5 5-3.5-5-3.5Z"></path></svg></span>`;
+    const youtubeIcon = `<span class="automation-action-icon youtube" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path class="youtube-mark" d="M21.58 7.19a2.99 2.99 0 0 0-2.1-2.12C17.62 4.57 12 4.57 12 4.57s-5.62 0-7.48.5a2.99 2.99 0 0 0-2.1 2.12A31.31 31.31 0 0 0 2 12a31.31 31.31 0 0 0 .42 4.81 2.99 2.99 0 0 0 2.1 2.12c1.86.5 7.48.5 7.48.5s5.62 0 7.48-.5a2.99 2.99 0 0 0 2.1-2.12A31.31 31.31 0 0 0 22 12a31.31 31.31 0 0 0-.42-4.81Z"></path><path class="youtube-play" d="m10 15.5 5-3.5-5-3.5Z"></path></svg></span>`;
     const icon = mode === "YOUTUBE" ? youtubeIcon : websiteIcon;
     state.automationJobs[mode] = job;
 
