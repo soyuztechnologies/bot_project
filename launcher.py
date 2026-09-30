@@ -17,16 +17,17 @@ logger = logging.getLogger(__name__)
  
 def main():
  
-    print("\n" + "=" * 50)
+    print("\n" + "-" * 50)
     print("        SEO AUTOMATION BOT")
-    print("=" * 50)
+    print("-" * 50)
     print("1. Website Automation")
     print("2. YouTube Automation")
     print("3. Generate Backlinks")
-    print("=" * 50)
+    print("-" * 50)
+    print("Enter your choice (1, 2 or 3): ", end="", flush=True)
 
     try:
-        choice = input("Enter your choice (1, 2 or 3): ").strip()
+        choice = input().strip()
     except (EOFError, KeyboardInterrupt):
         print("\nInput cancelled by user.")
         logger.info("Launcher interrupted during input.")
