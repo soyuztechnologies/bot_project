@@ -1,12 +1,12 @@
 # SEO Automation Dashboard
 
-Web dashboard (Flask) for watching the SEO Automation Bot: recent runs, live logs per run, per-site backlink results, and start/stop buttons for all three automations.
+Web dashboard (Flask) for monitoring the SEO Automation Bot: recent runs, per-run live logs, per-site backlink results, and start/stop controls for all three automations.
 
 Three modes: **SEARCH** (website automation), **YOUTUBE**, **BACKLINK**.
 
 ---
 
-## 1. Run it
+## 1. Running the dashboard
 
 From the **project root** (`bot_project/`):
 
@@ -20,7 +20,7 @@ Then open in your browser:
 http://127.0.0.1:5050
 ```
 
-With Docker instead:
+Via Docker:
 
 ```bash
 docker compose up -d dashboard
@@ -36,13 +36,13 @@ DASHBOARD_HOST=0.0.0.0 DASHBOARD_PORT=5050 python dashboard/app.py
 
 ---
 
-## 2. What you can do in the UI
+## 2. Features
 
-- **Overview** — recent automation runs with status, counts and durations.
-- **Mode switch** — flip between SEARCH / YOUTUBE / BACKLINK. If you switch while on Live Logs, the view stays on Live Logs and loads the latest run of the newly selected mode.
-- **Live Logs** — pick a run, see its events as a timeline (`timestamp, level, action, status, keyword, engine, url, error`). Auto-refreshes while open.
-- **Backlinks view** — per-site submission table from the `backlinks` collection: `site_id, target_url, status, result_text`. Summary + per-site breakdown included.
-- **Run jobs from the UI** — start/stop Website, YouTube and Backlink jobs (they run `main.py` / `youtube_main.py` / `backlink_main.py` in the background). Only one backlink job at a time; stopping kills its process tree.
+- **Overview** — recent automation runs with status, counts, and durations.
+- **Mode switch** — switch between SEARCH / YOUTUBE / BACKLINK. Switching modes while on Live Logs keeps the Live Logs view and loads the latest run of the newly selected mode.
+- **Live Logs** — select a run to inspect its events as a timeline (`timestamp, level, action, status, keyword, engine, url, error`). Refreshes automatically while open.
+- **Backlinks view** — per-site submission table sourced from the `backlinks` collection (`site_id, target_url, status, result_text`), with summary and per-site breakdowns.
+- **Job controls** — start and stop Website, YouTube, and Backlink jobs from the UI (executed as `main.py` / `youtube_main.py` / `backlink_main.py` background processes). Backlink jobs are limited to one concurrent run; stopping terminates the process tree.
 
 ---
 
