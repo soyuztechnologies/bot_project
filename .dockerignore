@@ -1,16 +1,23 @@
 # Virtual environment
 .venv/
- 
+
 # Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
- 
+
+# Secrets / local state (fresh clone gets these via setup.bat)
+.env
+logs/
+*.log
+
 # Docker files
 Dockerfile
 .dockerignore
- 
+docker-compose.yml
+setup.bat
+
 # Git
 .git/
 .gitignore

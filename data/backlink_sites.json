@@ -1196,33 +1196,145 @@
     "id": "duplichecker_search_engine_pinging",
     "name": "DupliChecker Search Engine Pinging Website Tool",
     "url": "https://www.duplichecker.com/search-engine-pinging-website-tool.php",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//input[@id='url']",
+        "fallbacks": [
+          "//form[contains(@action,'search-engine-pinging')]//input[@name='url']",
+          "//input[@name='url' and contains(@placeholder,'Enter URL')]",
+          "//form//input[@type='text'][@required]"
+        ],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//input[@id='chk_broken_link']",
+      "fallbacks": [
+        "//input[@value='Ping URL Now']",
+        "//form[contains(@action,'search-engine-pinging')]//input[@type='submit']",
+        "//input[contains(@class,'check_res_button')][@type='submit']"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'PINGED','pinged'),'pinged') or contains(translate(.,'SUCCESSFULLY','successfully'),'successfully')]",
+      "fallbacks": [
+        "//div[contains(@class,'result') or contains(@class,'success')]"
+      ],
+      "success_hint": "DupliChecker ping tool rendered a pinged/success confirmation after posting the url",
+      "wait_seconds": 60
+    },
+    "success_without_result": true,
+    "notes": "Verified live 2026-09-30: the tool form posts back to the same URL with a per-load _token; the reCAPTCHA on this page belongs to the separate feedback modal, not the ping form. The footer already contains a static table, so a bare //table result check is deliberately not used; success_without_result records an explicit caveat if no confirmation text renders."
   },
   {
     "id": "w3era_backlink_maker",
     "name": "W3Era Backlink Maker",
     "url": "https://www.w3era.com/seo-tools/backlink-maker/",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//input[@name='url']",
+        "fallbacks": [
+          "//input[contains(@placeholder,'Enter url')]",
+          "//form//input[@type='text' or @type='url'][1]"
+        ],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//button[./span[@class='tool-analyzed' and normalize-space()='Check']]",
+      "fallbacks": [
+        "//button[contains(.,'Check') and not(contains(.,'Sign Up'))]",
+        "//button[contains(translate(.,'CHECK','check'),'check')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'BACKLINKS FOR','backlinks for'),'backlinks for') and not(self::input) and not(self::button)]",
+      "fallbacks": [
+        "//*[contains(translate(.,'GENERATED SUCCESSFULLY','generated successfully'),'generated successfully')]"
+      ],
+      "success_hint": "W3Era backlink maker rendered a generated-links result block",
+      "wait_seconds": 60
+    },
+    "success_without_result": true,
+    "mandatory_wait": 15,
+    "notes": "Verified live 2026-09-30: React SPA; the tool input is the only <input name=\"url\"> on the page and the Check button is scoped to its own span so the page's lead-capture forms are never touched. The page already contains a static comparison table, so a bare //table result check is deliberately not used; success_without_result records an explicit caveat if no result block renders."
   },
   {
     "id": "kwebby_backlink_maker",
     "name": "Kwebby Backlink Maker",
     "url": "https://kwebby.com/backlink-maker",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//input[@placeholder='https://yourwebsite.com']",
+        "fallbacks": [
+          "//input[contains(@placeholder,'yourwebsite')]",
+          "//form//input[not(@type='email')][1]"
+        ],
+        "value_from": "url"
+      },
+      {
+        "primary_xpath": "//input[@placeholder='My Awesome Tool']",
+        "fallbacks": [
+          "//input[contains(@placeholder,'Awesome Tool')]"
+        ],
+        "value_from": "title"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//input[@placeholder='https://yourwebsite.com']/following::button[1]",
+      "fallbacks": [
+        "//button[contains(@class,'px-10') and contains(@class,'py-4')]",
+        "//button[contains(translate(.,'GENERATE','generate'),'generate') or contains(translate(.,'SUBMIT','submit'),'submit')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//table",
+      "fallbacks": [
+        "//*[contains(translate(.,'BACKLINKS ARE READY','backlinks are ready'),'backlinks are ready')]"
+      ],
+      "success_hint": "Kwebby backlink maker rendered a generated-links table",
+      "wait_seconds": 60
+    },
+    "success_without_result": true,
+    "mandatory_wait": 20,
+    "notes": "Verified live 2026-09-30: Next.js tool; the inputs carry no id or name so they are addressed by placeholder, and the submit control is the icon button immediately following them (no tool <form> tag exists - the only <form> on the page is the footer newsletter). No static <table> exists pre-submit, so //table is a safe completion signal; success_without_result records an explicit caveat otherwise."
   },
   {
     "id": "nimtools_backlink_maker",
     "name": "NimTools Backlink Maker",
     "url": "https://nimtools.com/backlink-maker",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='myurl']",
+        "fallbacks": [
+          "//input[contains(@id,'url') or contains(@name,'url')]",
+          "//form[contains(@class,'card-2')]//input[@type='text']"
+        ],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//*[@id='checkButton']",
+      "fallbacks": [
+        "//a[contains(translate(.,'SUBMIT','submit'),'submit')]",
+        "//button[contains(translate(.,'CHECK','check'),'check') or contains(translate(.,'SUBMIT','submit'),'submit')]",
+        "//input[@type='submit' or @type='button']"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[@id='resultBox']",
+      "fallbacks": [
+        "//*[@id='resultBox']//table",
+        "//*[contains(translate(.,'SUCCESS','success'),'success') and not(self::script)]"
+      ],
+      "success_hint": "NimTools backlink maker rendered its #resultBox result table",
+      "wait_seconds": 60
+    },
+    "notes": "Verified live 2026-09-30: same resold #myurl/#checkButton template already used by the naklov/seoqueen/nextbigtechnology entries. #resultBox is display:none until the AJAX run finishes, so it is a safe completion signal. The page also embeds login/register forms; selectors are pinned to the tool form."
   },
   {
     "id": "unmiss_backlink_maker",
@@ -1230,78 +1342,506 @@
     "url": "https://unmiss.com/backlink-maker",
     "enabled": false,
     "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "note": "Held for manual verification 2026-09-30: unmiss.com redirects to seotools.pro/backlink-maker, a client-rendered Vite SPA whose static markup exposes no stable form selectors, and its free-tool runs require a live Cloudflare Turnstile token (sitekey 0x4AAAAAACzBCzqzAdn81Ysr in useTurnstile chunk). Cannot be automated safely; left disabled deliberately."
   },
   {
     "id": "kwebby_youtube_backlinks_generator",
     "name": "Kwebby YouTube Backlinks Generator",
     "url": "https://kwebby.com/youtube-backlinks-generator",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "target_url_contains": [
+      "youtube.com",
+      "youtu.be"
+    ],
+    "fields": [
+      {
+        "primary_xpath": "//input[contains(@placeholder,'youtube.com/watch')]",
+        "fallbacks": [
+          "//input[contains(@placeholder,'/shorts/')]",
+          "//form//input[not(@type='email')][1]"
+        ],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//input[contains(@placeholder,'youtube.com/watch')]/following::button[1]",
+      "fallbacks": [
+        "//button[contains(translate(.,'GENERATE','generate'),'generate') or contains(translate(.,'SUBMIT','submit'),'submit')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//table",
+      "fallbacks": [
+        "//*[contains(translate(.,'BACKLINKS ARE READY','backlinks are ready'),'backlinks are ready')]"
+      ],
+      "success_hint": "Kwebby YouTube generator rendered a list of video backlinks",
+      "wait_seconds": 60
+    },
+    "success_without_result": true,
+    "mandatory_wait": 20,
+    "notes": "Verified live 2026-09-30. YouTube-only tool: the single input expects a youtube.com/watch or /shorts/ URL, so target_url_contains keeps website targets out (see site_accepts_target in automation/backlink/engine.py). No static <table> exists pre-submit, so //table is a safe completion signal."
   },
   {
     "id": "nimtools_youtube_backlinks_generator",
     "name": "NimTools YouTube Backlinks Generator",
     "url": "https://nimtools.com/youtube-backlinks-generator",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "target_url_contains": [
+      "youtube.com",
+      "youtu.be"
+    ],
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='myurl']",
+        "fallbacks": [
+          "//input[contains(@id,'url') or contains(@name,'url')]",
+          "//form[contains(@class,'card-2')]//input[@type='text']"
+        ],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//*[@id='checkButton']",
+      "fallbacks": [
+        "//a[contains(translate(.,'SUBMIT','submit'),'submit')]",
+        "//button[contains(translate(.,'CHECK','check'),'check') or contains(translate(.,'SUBMIT','submit'),'submit')]",
+        "//input[@type='submit' or @type='button']"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[@id='resultBox']",
+      "fallbacks": [
+        "//*[@id='resultBox']//table",
+        "//*[contains(translate(.,'SUCCESS','success'),'success') and not(self::script)]"
+      ],
+      "success_hint": "NimTools YouTube generator rendered its #resultBox result table",
+      "wait_seconds": 60
+    },
+    "notes": "Verified live 2026-09-30. YouTube-only tool (prompt reads 'Enter the Youtube Video Link'), same #myurl/#checkButton template as the nimtools backlink maker. Gated with target_url_contains so it only receives YouTube targets."
   },
   {
     "id": "ping_my_url_net",
     "name": "Ping-My-URL.net",
     "url": "https://ping-my-url.net/",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='furl']",
+        "fallbacks": [
+          "//form[@id='fMain']//input[@name='furl']",
+          "//input[contains(@id,'url') or contains(@name,'furl')]"
+        ],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//form[@id='fMain']//input[contains(@class,'frmSubmit')]",
+      "fallbacks": [
+        "//input[@value='Submit' and contains(@class,'frmSubmit')]",
+        "//input[contains(translate(@value,'PING','ping'),'ping') or contains(translate(@value,'SUBMIT','submit'),'submit')]",
+        "//button[contains(translate(.,'PING','ping'),'ping') or contains(translate(.,'SUBMIT','submit'),'submit')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[@id='bltbl']",
+      "fallbacks": [
+        "//*[@id='message']",
+        "//*[contains(@class,'messageok')]",
+        "//*[contains(translate(.,'BUILD COMPLETE','build complete'),'build complete')]"
+      ],
+      "success_hint": "Ping-My-URL.net injected its #bltbl result table and Build Complete message",
+      "wait_seconds": 90
+    },
+    "notes": "Verified live 2026-09-30. Legacy jQuery form (#fMain): the input is pre-filled with the literal text 'Enter URL...' but human_type clears before typing. #bltbl is only injected into the DOM after the AJAX run, and #message is empty until then, so neither can false-positive; the static #ajaxResults heading is deliberately not used."
   },
   {
     "id": "pingfarm_index",
     "name": "PingFarm",
     "url": "http://www.pingfarm.com/index.php",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//textarea[@name='urls']",
+        "fallbacks": [
+          "//form[@name='form1']//textarea",
+          "//form//textarea"
+        ],
+        "value_from": "url"
+      },
+      {
+        "primary_xpath": "//input[@name='title']",
+        "fallbacks": [
+          "//form[@name='form1']//input[@name='title']",
+          "//form//input[contains(@name,'title')]"
+        ],
+        "value_from": "keyword"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//input[@value='MASS PING!']",
+      "fallbacks": [
+        "//form[@name='form1']//input[@type='submit']",
+        "//input[contains(translate(@value,'PING','ping'),'ping')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'PINGED','pinged'),'pinged') or contains(translate(.,'SUCCESS','success'),'success')]",
+      "fallbacks": [
+        "//table",
+        "//body"
+      ],
+      "success_hint": "PingFarm rendered completion text after mass ping",
+      "wait_seconds": 45
+    },
+    "notes": "Verified live 2026-09-30: plain-HTML POST form (textarea[name=urls], input[name=title], MASS PING!). Same backend as the already-enabled pingfarm entry (pingfarm.com) - kept as a separate entry per the added-sites list, so both submit to the same service."
   },
   {
     "id": "speedwebtest_backlink_generator",
     "name": "SpeedWebTest Backlink Generator",
     "url": "https://speedwebtest.com/backlink-generator/",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='url']",
+        "fallbacks": [
+          "//input[contains(@placeholder,'yourdomain')]"
+        ],
+        "value_from": "url"
+      },
+      {
+        "primary_xpath": "//*[@id='keyword']",
+        "fallbacks": [
+          "//input[contains(@placeholder,'web hosting')]"
+        ],
+        "value_from": "keyword"
+      },
+      {
+        "primary_xpath": "//*[@id='brand']",
+        "fallbacks": [
+          "//input[contains(@placeholder,'Your Brand')]"
+        ],
+        "value_from": "title"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//*[@id='genBtn']",
+      "fallbacks": [
+        "//button[contains(translate(.,'GENERATE BACKLINKS','generate backlinks'),'generate backlinks')]",
+        "//button[contains(translate(.,'GENERATE','generate'),'generate')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[@id='successBar']",
+      "fallbacks": [
+        "//*[@id='results']/div",
+        "//*[contains(.,'backlinks successfully') and not(self::script)]"
+      ],
+      "success_hint": "SpeedWebTest showed its success bar ('AI generated 9 backlinks successfully') and result cards",
+      "wait_seconds": 75
+    },
+    "notes": "Verified live 2026-09-30: three distinct ids (url/keyword/brand), a category <select> left at its default, and <button id=\"genBtn\">. #successBar carries class 'hidden' until generation finishes so it cannot false-positive; #results grid is empty until then."
   },
   {
     "id": "allmytools_backlink_generator",
     "name": "AllMyTools Backlink Generator",
     "url": "https://allmytools.tech/tools/backlink-generator",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='bg-url-input']",
+        "fallbacks": [
+          "//input[contains(@placeholder,'example.com')]",
+          "//form//input[@type='url' or @type='text']"
+        ],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//button[normalize-space()='Generate Backlinks']",
+      "fallbacks": [
+        "//button[contains(translate(.,'GENERATE BACKLINKS','generate backlinks'),'generate backlinks')]",
+        "//input[@type='submit' or @type='button']"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[@id='bg-results-tbody']/tr[not(@id='bg-empty-row')]",
+      "fallbacks": [
+        "//*[@id='bg-copy-btn']",
+        "//*[@id='bg-download-btn']"
+      ],
+      "success_hint": "AllMyTools appended real rows to #bg-results-tbody (replacing the 'No backlinks generated yet' placeholder row)",
+      "wait_seconds": 90
+    },
+    "notes": "Verified live 2026-09-30: the results table always exists but initially contains only the #bg-empty-row placeholder, so the primary check requires a non-placeholder row. A bare //table check is deliberately not used. The #bg-count-slider (1-5) is left at its default."
   },
   {
     "id": "a2z_youtube_backlinks_generator",
     "name": "A2Z Tools YouTube Backlinks Generator",
     "url": "https://a2z.tools/youtube-backlinks-generator",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "target_url_contains": [
+      "youtube.com",
+      "youtu.be"
+    ],
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='ybVideo']",
+        "fallbacks": [
+          "//form[@id='ybForm']//input[@name='v']",
+          "//input[contains(@placeholder,'youtube.com/watch')]"
+        ],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//*[@id='ybGo']",
+      "fallbacks": [
+        "//form[@id='ybForm']//button[contains(translate(.,'GENERATE BACKLINKS','generate backlinks'),'generate backlinks')]",
+        "//button[contains(translate(.,'GENERATE','generate'),'generate')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[@id='ybResults']",
+      "fallbacks": [
+        "//*[@id='ybResults']//table",
+        "//*[@id='ybResultsTitle']"
+      ],
+      "success_hint": "A2Z YouTube generator unhid its #ybResults section ('Backlinks for ...')",
+      "wait_seconds": 75
+    },
+    "notes": "Verified live 2026-09-30. YouTube-only tool with a dedicated #ybForm/#ybVideo/#ybGo form; scoped to #ybForm because the page also hosts a comment/trust form. #ybResults carries the hidden attribute until the run finishes so it cannot false-positive. Gated with target_url_contains."
   },
   {
     "id": "webping",
     "name": "WebPing",
     "url": "https://www.webping.io/",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='target']",
+        "fallbacks": [
+          "//form[@id='ping-form']//input[@name='target']",
+          "//input[contains(@placeholder,'example.com')]"
+        ],
+        "value_from": "host"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//form[@id='ping-form']//button",
+      "fallbacks": [
+        "//button[normalize-space()='Ping']",
+        "//button[contains(translate(.,'PING','ping'),'ping')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[@id='basic-panel']",
+      "fallbacks": [
+        "//*[@id='basic-panel']//table",
+        "//*[contains(translate(.,'PACKETS TRANSMITTED','packets transmitted'),'packets transmitted')]"
+      ],
+      "success_hint": "WebPing unhid its basic results panel after the ping run",
+      "wait_seconds": 60
+    },
+    "notes": "Verified live 2026-09-30: ICMP/latency ping diagnostic (same family as the already-enabled site24x7/pingdom/wormly entries). The input expects a host or IP, so value_from host strips the scheme/path. #basic-panel carries class 'hidden' until the run finishes; the #terminal-out placeholder text is deliberately not used."
   },
   {
     "id": "bulkseosolutions_ping_website",
     "name": "Bulk SEO Solutions Ping Website Tool",
     "url": "https://www.bulkseosolutions.com/ping-website-tool",
-    "enabled": false,
-    "manual_review": true,
-    "note": "Added for manual verification; XPath automation configuration not yet defined."
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='domain']",
+        "fallbacks": [
+          "//form//input[@name='domain']",
+          "//form//input[@type='text'][@required]"
+        ],
+        "value_from": "host"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//button[contains(translate(.,'CHECK PING','check ping'),'check ping')]",
+      "fallbacks": [
+        "//form//button[@type='submit']",
+        "//input[@type='submit']"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[contains(translate(.,'PING RESULT','ping result'),'ping result') or contains(translate(.,'RESPONSE TIME','response time'),'response time')]",
+      "fallbacks": [
+        "//*[contains(translate(.,'REACHABILITY','reachability'),'reachability')]"
+      ],
+      "success_hint": "BulkSEO Solutions rendered its ping result block after posting the domain",
+      "wait_seconds": 60
+    },
+    "success_without_result": true,
+    "mandatory_wait": 20,
+    "notes": "Verified live 2026-09-30: server-side POST ping test (same family as the already-enabled ping diagnostics). The input expects a bare domain, so value_from host strips the scheme/path. The page already contains static comparison tables, so a bare //table result check is deliberately not used; success_without_result records an explicit caveat if no result block renders."
+  },
+  {
+    "id": "naklov_backlink_maker",
+    "name": "Naklov Backlink Maker",
+    "url": "https://naklov.com/en/seo-tools/backlink-maker",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='myurl']",
+        "fallbacks": [
+          "//input[contains(@id,'url') or contains(@name,'url')]",
+          "//form//input[@type='text'][1]"
+        ],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//*[@id='checkButton']",
+      "fallbacks": [
+        "//a[contains(translate(.,'SUBMIT','submit'),'submit')]",
+        "//button[contains(translate(.,'CHECK','check'),'check') or contains(translate(.,'SUBMIT','submit'),'submit')]",
+        "//input[@type='submit' or @type='button']"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[@id='resultBox']",
+      "fallbacks": [
+        "//*[@id='results']",
+        "//*[@id='resultBox']//table"
+      ],
+      "success_hint": "Naklov backlink maker rendered its #resultBox/#results result block",
+      "wait_seconds": 60
+    },
+    "notes": "Verified live 2026-09-30: same resold #myurl/#checkButton template as the already-enabled naklov_online_ping entry. #resultBox is display:none until the AJAX run finishes. The page's only reCAPTCHA belongs to the separate 'Get in touch' contact form, not the tool, so it is safe to automate."
+  },
+  {
+    "id": "a2z_backlink_maker",
+    "name": "A2Z Tools Backlink Generator",
+    "url": "https://a2z.tools/backlink-maker",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='bmDomain']",
+        "fallbacks": [
+          "//form[@id='bmForm']//input[@name='domain']",
+          "//input[contains(@placeholder,'example.com')]"
+        ],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//*[@id='bmGo']",
+      "fallbacks": [
+        "//form[@id='bmForm']//button[contains(translate(.,'GENERATE BACKLINKS','generate backlinks'),'generate backlinks')]",
+        "//button[contains(translate(.,'GENERATE','generate'),'generate')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[@id='bmResults']",
+      "fallbacks": [
+        "//*[@id='bmResults']//table",
+        "//*[@id='bmResultsTitle']"
+      ],
+      "success_hint": "A2Z backlink generator unhid its #bmResults section ('Backlinks for ...')",
+      "wait_seconds": 75
+    },
+    "notes": "Verified live 2026-09-30: same tool template as the already-enabled a2z_youtube_backlinks_generator, but for website domains (#bmForm/#bmDomain/#bmGo, results in hidden #bmResults). The hint accepts a domain or any page; the full target URL is submitted. No CAPTCHA on the tool form."
+  },
+  {
+    "id": "keycdn_ping",
+    "name": "KeyCDN Ping Test",
+    "url": "https://tools.keycdn.com/ping",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='hostname']",
+        "fallbacks": [
+          "//form[@id='pingForm']//input[@name='hostname']",
+          "//input[contains(@placeholder,'example.com')]"
+        ],
+        "value_from": "host"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//*[@id='pingBtn']",
+      "fallbacks": [
+        "//form[@id='pingForm']//button[contains(.,'Test')]",
+        "//button[contains(translate(.,'TEST','test'),'test')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//tr[starts-with(@id,'pingResult')]",
+      "fallbacks": [
+        "//*[@id='pingResult']/div/table",
+        "//*[contains(translate(.,'PACKETS TRANSMITTED','packets transmitted'),'packets transmitted')]"
+      ],
+      "success_hint": "KeyCDN filled its per-location #pingResult rows after the multi-location ping run",
+      "wait_seconds": 90
+    },
+    "notes": "Verified live 2026-09-30: multi-location ping diagnostic (same family as the already-enabled site24x7/pingdom/wormly/webping entries). The input expects an IP or hostname, so value_from host strips the scheme/path. The #pingResult rows are empty until each location answers, so they cannot false-positive. No CAPTCHA."
+  },
+  {
+    "id": "keycdn_speed",
+    "name": "KeyCDN Website Speed Test",
+    "url": "https://tools.keycdn.com/speed",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='url']",
+        "fallbacks": [
+          "//form[@id='speedForm']//input[@name='url']",
+          "//input[contains(@placeholder,'https://www.example.com')]"
+        ],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//*[@id='speedBtn']",
+      "fallbacks": [
+        "//form[@id='speedForm']//button[contains(.,'Test')]",
+        "//button[contains(translate(.,'TEST','test'),'test')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[@id='speedResult']/*",
+      "fallbacks": [
+        "//*[@id='speedResult']//table",
+        "//*[contains(translate(.,'FULLY LOADED','fully loaded'),'fully loaded')]"
+      ],
+      "success_hint": "KeyCDN rendered its #speedResult breakdown after the full-page speed test",
+      "wait_seconds": 120
+    },
+    "notes": "Verified live 2026-09-30: full-page speed test from 10 global locations (same KeyCDN tools family as keycdn_ping). The input takes a full URL. #speedResult is an empty div until the run completes. Runs can take a while, hence the longer wait. No CAPTCHA."
+  },
+  {
+    "id": "seowebchecker_ping_google",
+    "name": "SEO WebChecker Ping Google",
+    "url": "https://seowebchecker.com/ping-google/",
+    "enabled": true,
+    "fields": [
+      {
+        "primary_xpath": "//*[@id='url']",
+        "fallbacks": [
+          "//form[@id='search']//input[@name='url']",
+          "//input[contains(@placeholder,'yourwebsite.com')]"
+        ],
+        "value_from": "url"
+      }
+    ],
+    "submit": {
+      "primary_xpath": "//*[@id='btn-submit']",
+      "fallbacks": [
+        "//form[@id='search']//button[contains(.,'Ping')]",
+        "//button[contains(translate(.,'PING','ping'),'ping')]"
+      ]
+    },
+    "result": {
+      "primary_xpath": "//*[@id='results']",
+      "fallbacks": [
+        "//*[@id='results']//table",
+        "//*[contains(.,'URL Pinging Results') and not(self::script)]"
+      ],
+      "success_hint": "SEO WebChecker unhid its #results section ('URL Pinging Results') after pinging Google domains",
+      "wait_seconds": 90
+    },
+    "notes": "Verified live 2026-09-30: pings the submitted URL across Google domains for faster crawling (same site family as the already-enabled seowebchecker_ping_url entry). #results has display:none until the run finishes so it cannot false-positive. No CAPTCHA on the tool form."
   }
 ]

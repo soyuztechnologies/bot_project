@@ -919,9 +919,11 @@ if __name__ == "__main__":
 
     # debug=False intentionally avoids Flask's development
     # reloader while we diagnose dashboard stability.
+    # Host/port are env-overridable so the dashboard can also run inside
+    # docker (DASHBOARD_HOST=0.0.0.0); defaults keep laptop behaviour.
     app.run(
-        host="127.0.0.1",
-        port=5050,
+        host=os.getenv("DASHBOARD_HOST", "127.0.0.1"),
+        port=int(os.getenv("DASHBOARD_PORT", "5050")),
         debug=False,
         threaded=True,
     )

@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from automation.backlink.backlink_session import start_parallel_backlink_sessions
+from automation.backlink.engine import site_accepts_target
 from utils.database import check_db_connection, close_connection_pool, initialize_database, DatabaseHandler
 from utils.exceptions import ConfigError, ConfigFileNotFoundError, ConfigInvalidError, ValidationError, wrap_unexpected
 from utils.logger import setup_logger
@@ -172,16 +173,22 @@ def main(argv=None):
         if args.max_targets and args.max_targets > 0:
             targets = targets[: args.max_targets]
 
+        planned_jobs = sum(1 for s in enabled for t in targets if site_accepts_target(s, t))
+
         logger.info(f"Project Path      : {BASE_DIR}")
         logger.info(f"Backlink Sites    : {', '.join(s.get('id') for s in enabled)}")
         logger.info(f"Targets           : {len(targets)}")
         logger.info(f"Parallel Sessions : {parallel} (batches of {parallel})")
-        logger.info(f"Planned Jobs      : {len(enabled) * len(targets)}")
+        logger.info(f"Planned Jobs      : {planned_jobs}")
 
         if args.list:
             print("\nBacklink sites:")
             for s in enabled:
-                print(f"  - {s.get('id'):<15} {s.get('url')}")
+                accepted = sum(1 for t in targets if site_accepts_target(s, t))
+                if accepted == len(targets):
+                    print(f"  - {s.get('id'):<15} {s.get('url')}")
+                else:
+                    print(f"  - {s.get('id'):<15} {s.get('url')}  (target filter: {accepted}/{len(targets)})")
             print(f"\nTargets ({len(targets)}):")
             for t in targets:
                 print(f"  - [{t.get('category','')}] {t.get('url')}  (keyword: {t.get('keyword','')})")
@@ -189,8 +196,8 @@ def main(argv=None):
 
         if args.dry_run:
             logger.info("Dry-run: config + DB OK, browsers not started.")
-            print(f"\nDry-run OK: {len(enabled)} site(s) x {len(targets)} target(s) = {len(enabled)*len(targets)} jobs. DB reachable check done above.")
-            return {"total": len(enabled) * len(targets), "success": [], "failed": [], "interrupted": []}
+            print(f"\nDry-run OK: {len(enabled)} site(s) x {len(targets)} target(s) = {planned_jobs} jobs after target filters. DB reachable check done above.")
+            return {"total": planned_jobs, "success": [], "failed": [], "interrupted": []}
 
         # vpn_config = config.get("vpn", {})  # VPN DISABLED - commented out
         # if vpn_config.get("enabled", False):  # VPN DISABLED - commented out

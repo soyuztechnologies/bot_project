@@ -18,6 +18,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+from automation.backlink.engine import site_accepts_target
 from automation.backlink.handlers import get_handler
 from automation.backlink.selenium_utils import is_browser_alive
 from browser.browser import close_browser, setup_browser
@@ -363,19 +364,18 @@ def start_parallel_backlink_sessions(sites, targets, config):
         parallel = 5
     parallel = max(1, parallel)
 
-    total_jobs = len(sites) * len(targets)
+    all_jobs = [(site, t) for t in targets for site in sites if site_accepts_target(site, t)]
+
+    total_jobs = len(all_jobs)
     stats["total"] = total_jobs
     stop_event = threading.Event()
     logger.info(
-        f"Backlink run: {len(sites)} site(s) x {len(targets)} target(s) = {total_jobs} jobs | {parallel} parallel/batch",
+        f"Backlink run: {len(sites)} site(s) x {len(targets)} target(s) = {total_jobs} job(s) after target filters | {parallel} parallel/batch",
         extra={"action": "BACKLINK_RUN_START", "status": "RUNNING"},
     )
 
     interrupted = False
     try:
-        # Create all (site, target) combinations
-        all_jobs = [(site, t) for t in targets for site in sites]
-        
         logger.info(f"Processing {len(all_jobs)} jobs in batches of {parallel}")
         for batch_no, batch in enumerate(chunked(all_jobs, parallel), start=1):
             if stop_event.is_set():
@@ -434,11 +434,10 @@ def start_parallel_backlink_sessions(sites, targets, config):
             # Mark anything not yet accounted as interrupted
             try:
                 accounted = {(d.get("keyword"), d.get("engine")) for d in stats["success"] + stats["failed"] + stats["interrupted"]}
-                for site in sites:
-                    for t in targets:
-                        key = (t.get("url"), site.get("id"))
-                        if key not in accounted:
-                            stats["interrupted"].append({"keyword": key[0], "engine": key[1], "target": key[0]})
+                for site, t in all_jobs:
+                    key = (t.get("url"), site.get("id"))
+                    if key not in accounted:
+                        stats["interrupted"].append({"keyword": key[0], "engine": key[1], "target": key[0]})
             except Exception:
                 pass
         try:

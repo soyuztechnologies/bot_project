@@ -198,6 +198,34 @@ def _field_value(field, target) -> str:
     return str(values.get(key, values["url"]))
 
 
+def site_accepts_target(site, target) -> bool:
+    """Whether `site` can accept `target`'s URL.
+
+    Some tools only make sense for a subset of the target list -- e.g. the
+    YouTube backlink generators reject a plain website URL outright. Without a
+    filter the runner builds a full site x target cross-product, so those tools
+    would burn a browser session per impossible job.
+
+    A site narrows what it receives with either key:
+      target_url_contains  allowlist; target URL must contain one of these
+      target_url_excludes  denylist; target URL must contain none of these
+    A site declaring neither accepts every target.
+    """
+    url = str((target or {}).get("url") or "").strip().lower()
+    if not url:
+        return False
+
+    contains = site.get("target_url_contains") or []
+    if contains and not any(str(c).strip().lower() in url for c in contains):
+        return False
+
+    excludes = site.get("target_url_excludes") or []
+    if excludes and any(str(x).strip().lower() in url for x in excludes):
+        return False
+
+    return True
+
+
 def generic_submit(driver, site, target, config, stop_event=None, session_logger=None):
     url = target.get("url", "")
     title = _title_for(target)

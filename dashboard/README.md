@@ -1,281 +1,117 @@
-SEO Automation Dashboard
+# SEO Automation Dashboard
 
-Web-based dashboard for monitoring the SEO Automation project. It provides an interface for viewing automation runs, execution status, statistics, and detailed logs for Website/Search and YouTube automation.
+Web dashboard (Flask) for watching the SEO Automation Bot: recent runs, live logs per run, per-site backlink results, and start/stop buttons for all three automations.
 
-Features
+Three modes: **SEARCH** (website automation), **YOUTUBE**, **BACKLINK**.
 
-Switch between SEARCH (Website Automation) and YOUTUBE.
+---
 
-View recent automation runs and their status.
+## 1. Run it
 
-Open Live Logs for a selected run.
+From the **project root** (`bot_project/`):
 
-View timestamp, level, action, event status, keyword, search engine, URL, error message, and metadata for log events.
+```bash
+python dashboard/app.py
+```
 
-Automatically refresh dashboard data.
+Then open in your browser:
 
-Refresh the selected run's logs while Live Logs is open.
+```text
+http://127.0.0.1:5050
+```
 
-Check backend health.
+With Docker instead:
 
-Folder Structure
+```bash
+docker compose up -d dashboard
+# open http://localhost:5050
+```
 
+Host/port can be overridden without code changes via environment variables
+(defaults keep laptop behaviour):
+
+```bash
+DASHBOARD_HOST=0.0.0.0 DASHBOARD_PORT=5050 python dashboard/app.py
+```
+
+---
+
+## 2. What you can do in the UI
+
+- **Overview** — recent automation runs with status, counts and durations.
+- **Mode switch** — flip between SEARCH / YOUTUBE / BACKLINK. If you switch while on Live Logs, the view stays on Live Logs and loads the latest run of the newly selected mode.
+- **Live Logs** — pick a run, see its events as a timeline (`timestamp, level, action, status, keyword, engine, url, error`). Auto-refreshes while open.
+- **Backlinks view** — per-site submission table from the `backlinks` collection: `site_id, target_url, status, result_text`. Summary + per-site breakdown included.
+- **Run jobs from the UI** — start/stop Website, YouTube and Backlink jobs (they run `main.py` / `youtube_main.py` / `backlink_main.py` in the background). Only one backlink job at a time; stopping kills its process tree.
+
+---
+
+## 3. Backend API
+
+| Method + path | Purpose |
+|---|---|
+| `GET /` | Dashboard page |
+| `GET /api/dashboard?mode=SEARCH\|YOUTUBE\|BACKLINK` | Overview data (runs, stats) for a mode + date range |
+| `GET /api/logs/<run_id>` | Chronological log events for one run |
+| `GET /api/backlinks` | Backlink summary, per-site table, recent submissions |
+| `POST /api/backlinks/generate` | Start a backlink job in the background (optional `sites` filter, same as CLI `--sites`) |
+| `POST /api/backlinks/stop` | Stop the running backlink job |
+| `GET /api/backlinks/status` | Current backlink job state |
+| `POST /api/automation/start` | Start a website/YouTube job |
+| `POST /api/automation/stop` | Stop a website/YouTube job |
+| `GET /api/automation/status` | Current website/YouTube job state |
+| `GET /api/health` | Backend + database health |
+
+Log records contain: `timestamp, level, keyword, search_engine/engine, action, event_status, url, error_message, message, metadata`.
+
+---
+
+## 4. Database (MongoDB)
+
+Same database as the bot — configured via project-root `config.json` (`database.current_db`: `atlas` or `local`) + `.env` (`MONGO_URI_ATLAS` / `MONGO_URI_LOCAL`).
+
+Collections used:
+
+- **`automation_runs`** — one doc per run: `run_id, automation_type, keyword, browser_mode, started_at, finished_at, status, success/failure counts`.
+- **`automation_logs`** — individual events, linked by `run_id`.
+- **`backlinks`** — one doc per site × URL submission: `site_id, target_url, status, result_text, result_xpath`.
+
+---
+
+## 5. Folder structure
+
+```text
 dashboard/
-├── index.html
-├── dashboard.js
-├── dashboard.css
+├── app.py                  # Flask backend + all /api routes (port 5050)
+├── templates/
+│   └── index.html          # dashboard page
+├── static/
+│   ├── dashboard.js        # frontend logic
+│   └── dashboard.css
+├── dashboard_requirements.txt
 └── README.md
-
-The exact filenames may vary depending on the project structure.
-
-Backend APIs
-
-The dashboard communicates with the Flask backend.
-
-Dashboard Data
-
-GET /api/dashboard
-
-Used to load dashboard data for the selected automation type and date range.
-
-Supported automation types:
-
-SEARCH
-YOUTUBE
-
-Run Logs
-
-GET /api/logs/<run_id>
-
-Returns the chronological log events for a specific automation run.
-
-Log records contain fields such as:
-
-log_id
-timestamp
-level
-keyword
-search_engine
-action
-event_status
-url
-error_message
-metadata
-message
-
-Health Check
-
-GET /api/health
-
-Used to check application/backend health.
-
-How Live Logs Work
-
-Select automation
-       │
-       ▼
-Load dashboard data
-       │
-       ▼
-Get recent runs
-       │
-       ▼
-Select active/latest run
-       │
-       ▼
-GET /api/logs/<run_id>
-       │
-       ▼
-Render log timeline
-       │
-       ▼
-Periodic refresh
-
-When switching between Website/Search and YouTube while already on Live Logs, the dashboard should remain on the Live Logs view, select the latest/active run for the newly selected automation, load its logs, and continue refreshing them.
-
-Running the Dashboard
-
-Start the Flask backend from the project root:
-
-python app.py
-
-Then open the dashboard in your browser. For a local setup, this is commonly:
-
-http://127.0.0.1:5000
-
-Use the host and port configured by app.py.
-
-Database
-
-The dashboard depends on PostgreSQL through the Flask backend.
-
-The main tables used for automation monitoring are:
-
-automation_runs
-automation_logs
-
-automation_runs stores execution information such as:
-
-run_id
-
-automation_type
-
-original_keyword
-
-search_keyword
-
-browser_mode
-
-started_at
-
-finished_at
-
-status
-
-success_count
-
-failure_count
-
-retry_count
-
-automation_logs stores individual events linked to an automation run_id.
-
-Make sure PostgreSQL is running and the application's database configuration is correct before starting the dashboard.
-
-Local Office Deployment
-
-The dashboard can run independently on each office laptop.
-
-Office Laptop
-├── SEO Automation Project
-├── Local PostgreSQL
-├── Flask Dashboard
-└── Browser
-    └── http://127.0.0.1:5000
-
-Each laptop can therefore have its own automation data, runs, and logs.
-
-For a new laptop:
-
-Install Python.
-
-Install PostgreSQL.
-
-Clone/copy the SEO Automation project.
-
-Create and activate the Python virtual environment.
-
-Install project dependencies.
-
-Configure the local PostgreSQL connection.
-
-Start PostgreSQL.
-
-Start the Flask application.
-
-Open the dashboard in the browser.
-
-Troubleshooting
-
-Dashboard is empty
-
-Check:
-
-Flask is running.
-
-PostgreSQL is running.
-
-Database credentials/configuration are correct.
-
-The selected automation has runs in the selected date range.
-
-Browser developer tools do not show API errors.
-
-Live Logs show no entries
-
-Check:
-
-A valid run is selected.
-
-The run_id exists in automation_runs.
-
-Logs exist in automation_logs for that run.
-
-/api/logs/<run_id> returns data.
-
-New logs are not appearing
-
-Check:
-
-Auto refresh is running.
-
-The selected run ID is valid.
-
-The automation is writing events to automation_logs.
-
-The browser is successfully calling the logs API.
-
-YouTube logs are missing
-
-Verify that the YouTube automation uses the same run_id when creating the automation run and writing its log events.
-
-Development Notes
-
-Keep automation type values consistent:
-
-SEARCH
-YOUTUBE
-
-Live Logs are always associated with a run_id. Do not hard-code run IDs in the frontend.
-
-When changing dashboard code, test both automation modes and verify:
-
-Overview
-
-Recent runs
-
-Live Logs
-
-Automation switching
-
-Live log refresh
-
-YouTube logs
-
-Error handling
-
-Security
-
-Keep database credentials and secrets outside frontend JavaScript.
-
-Do not commit passwords, API keys, or .env files to source control.
-
-Do not expose the local Flask server publicly without appropriate authentication and network security.
-
-Quick Checklist
-
-Flask backend starts successfully.
-
-PostgreSQL connection works.
-
-Overview loads.
-
-SEARCH mode works.
-
-YOUTUBE mode works.
-
-Recent runs appear.
-
-Live Logs run selector works.
-
-Selected run logs load.
-
-Log timeline displays correctly.
-
-Auto refresh works.
-
-Switching automation while on Live Logs keeps the Live Logs view.
-
-YouTube logs are visible.
-
-Errors are displayed clearly.
+```
+
+---
+
+## 6. Troubleshooting
+
+| Problem | Check |
+|---|---|
+| Dashboard empty | Flask running? MongoDB reachable (see `/api/health`)? Runs exist in the selected mode + date range? |
+| Live Logs show nothing | A valid run is selected; its `run_id` exists in `automation_runs`; `GET /api/logs/<run_id>` returns data |
+| New logs not appearing | Auto-refresh on? The automation is still writing to `automation_logs`? |
+| Backlinks view empty | No `backlink_main.py` run yet — start one from the UI or CLI |
+| Start-job fails | Another job of the same kind already running? Check `.../status` endpoints |
+| Port already in use | Change port: `DASHBOARD_PORT=5051 python dashboard/app.py` |
+
+---
+
+## 7. Notes for developers
+
+- Keep automation-type values exactly `SEARCH`, `YOUTUBE`, `BACKLINK` everywhere.
+- Live Logs are always keyed by `run_id` — never hard-code run IDs in the frontend.
+- After changing dashboard code, test all three modes: overview, recent runs, live logs, mode switching, job start/stop, error display.
+- Secrets stay out of frontend JS: no passwords, API keys or `.env` content in `static/` or `templates/`. Never commit `.env`.
+- The job **stop** buttons use Windows `taskkill`; on Linux/Docker the backend falls back to process-tree termination — stopping still works, but verify it on your platform once.
+- Do not expose the Flask server publicly without authentication and proper network security.
