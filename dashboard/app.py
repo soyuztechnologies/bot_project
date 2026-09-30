@@ -276,6 +276,8 @@ def _serialise_run(r):
         "browser_mode": r.get("browser_mode"),
         "target": r.get("target"),
         "search_engine": r.get("search_engine"),
+        "captcha_encountered": str(r.get("captcha_encountered", "")).strip().lower()
+        in {"1", "true", "yes", "y"},
         "started_at": _iso(started),
         "finished_at": _iso(finished),
         "status": r.get("status"),
@@ -768,6 +770,112 @@ def backlinks_status():
         return jsonify({"job": _serialise_job()})
     except Exception as error:
         return jsonify({"error": str(error)}), 500
+
+
+# --- Website / YouTube automation jobs (runs main.py or youtube_main.py) ---
+# Each automation has its own process and state, so switching the dashboard
+# context never starts or stops the other automation by accident.
+_automation_job_lock = threading.RLock()
+_automation_jobs = {
+    "SEARCH": {"running": False, "started_at": None, "finished_at": None,
+               "returncode": None, "output_tail": "", "error": None,
+               "stop_requested": False},
+    "YOUTUBE": {"running": False, "started_at": None, "finished_at": None,
+                "returncode": None, "output_tail": "", "error": None,
+                "stop_requested": False},
+}
+_automation_processes = {"SEARCH": None, "YOUTUBE": None}
+
+
+def _automation_mode(value):
+    return "SEARCH" if str(value or "").upper() == "SEARCH" else "YOUTUBE"
+
+
+def _automation_job(mode):
+    with _automation_job_lock:
+        return dict(_automation_jobs[mode])
+
+
+def _stop_automation_process(mode):
+    with _automation_job_lock:
+        proc = _automation_processes[mode]
+    if proc is None or proc.poll() is not None:
+        return False
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                           capture_output=True, timeout=20)
+        else:
+            proc.terminate()
+    except Exception as exc:
+        print(f"[DASHBOARD {mode} STOP WARN] {exc!r}")
+    return True
+
+
+def _run_automation_job(mode, cmd):
+    started = _utcnow()
+    try:
+        proc = subprocess.Popen(cmd, cwd=str(BASE_DIR), stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True)
+        with _automation_job_lock:
+            _automation_processes[mode] = proc
+        print(f"[DASHBOARD {mode} JOB] pid={proc.pid}")
+        try:
+            output, _ = proc.communicate(timeout=6 * 3600)
+        except subprocess.TimeoutExpired:
+            _stop_automation_process(mode)
+            output, _ = proc.communicate()
+        with _automation_job_lock:
+            job = _automation_jobs[mode]
+            stopped = job["stop_requested"]
+            job.update({
+                "running": False, "finished_at": _utcnow().isoformat(),
+                "returncode": proc.returncode, "output_tail": (output or "")[-6000:],
+                "error": "Stopped by user." if stopped else (
+                    None if proc.returncode == 0 else f"{cmd[1]} exited with code {proc.returncode}"),
+                "stop_requested": False,
+            })
+    except Exception as exc:
+        with _automation_job_lock:
+            _automation_jobs[mode].update({"running": False, "finished_at": _utcnow().isoformat(),
+                                            "returncode": -1, "error": str(exc), "stop_requested": False})
+    finally:
+        with _automation_job_lock:
+            _automation_processes[mode] = None
+    print(f"[DASHBOARD {mode} JOB] finished in {(_utcnow() - started).total_seconds():.1f}s")
+
+
+@app.post("/api/automation/start")
+def automation_start():
+    mode = _automation_mode((request.get_json(silent=True) or {}).get("automation"))
+    script = "main.py" if mode == "SEARCH" else "youtube_main.py"
+    with _automation_job_lock:
+        job = _automation_jobs[mode]
+        if job["running"]:
+            return jsonify({"error": f"{mode} automation is already running.", "job": dict(job)}), 409
+        job.update({"running": True, "started_at": _utcnow().isoformat(), "finished_at": None,
+                    "returncode": None, "output_tail": "", "error": None, "stop_requested": False})
+    threading.Thread(target=_run_automation_job, args=(mode, [sys.executable, script]),
+                     daemon=True, name=f"{mode}AutomationJob").start()
+    return jsonify({"status": "started", "job": _automation_job(mode)}), 202
+
+
+@app.post("/api/automation/stop")
+def automation_stop():
+    mode = _automation_mode((request.get_json(silent=True) or {}).get("automation"))
+    with _automation_job_lock:
+        job = _automation_jobs[mode]
+        if not job["running"]:
+            return jsonify({"status": "idle", "job": dict(job)})
+        job["stop_requested"] = True
+    return jsonify({"status": "stopping", "job": _automation_job(mode),
+                    "stopped": _stop_automation_process(mode)}), 202
+
+
+@app.get("/api/automation/status")
+def automation_status():
+    mode = _automation_mode(request.args.get("automation"))
+    return jsonify({"job": _automation_job(mode)})
 
 
 # =========================================================

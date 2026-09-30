@@ -375,6 +375,50 @@ button,select{font:inherit}.app-shell{display:flex;min-height:100vh}.sidebar{wid
     padding: 14px 4px 4px;
 }
 
+/* Primary Website / YouTube action, positioned before the sidebar navigation. */
+.sidebar-automation-action {
+    padding: 18px 16px 10px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.sidebar-automation-action .generate-btn {
+    min-height: 42px;
+}
+
+.sidebar-automation-action .generate-status {
+    min-height: 27px;
+}
+
+.automation-action-icon {
+    display: inline-flex;
+    width: 17px;
+    height: 17px;
+    flex: 0 0 17px;
+}
+
+.automation-action-icon svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.automation-action-icon.youtube svg {
+    fill: currentColor;
+    stroke: none;
+}
+
+.automation-action-icon.youtube .youtube-mark {
+    fill: #ff0033;
+}
+
+.automation-action-icon.youtube .youtube-play {
+    fill: #ffffff;
+}
+
 .generate-btn {
     border: 0;
     width: 100%;
@@ -453,6 +497,30 @@ button,select{font:inherit}.app-shell{display:flex;min-height:100vh}.sidebar{wid
     color: #aeb9cc;
     border-color: #3a4356;
     background: #161c27;
+}
+
+.captcha-status {
+    display: inline-flex;
+    min-width: 92px;
+    min-height: 24px;
+    padding: 0 8px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.captcha-status.detected {
+    color: #ff7b8f;
+    background: #2d141b;
+}
+
+.captcha-status.clear {
+    color: #57d6a5;
+    background: #10261e;
 }
 
 .bl-url {

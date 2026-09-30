@@ -3114,7 +3114,7 @@ function renderRuns(
         tbody.innerHTML = `
             <tr>
                 <td
-                    colspan="9"
+                    colspan="10"
                     class="empty-state"
                 >
                     No ${escapeHtml(
@@ -3196,6 +3196,21 @@ function renderRuns(
                     const engine =
                         run.search_engine ??
                         "—";
+
+                    const captchaValue =
+                        run.captcha_encountered ??
+                        run.captcha ??
+                        false;
+
+                    const captchaDetected =
+                        captchaValue === true ||
+                        ["1", "true", "yes", "y"].includes(
+                            String(captchaValue).trim().toLowerCase()
+                        );
+
+                    const captchaTitle = captchaDetected
+                        ? `CAPTCHA detected for: ${keyword}`
+                        : `No CAPTCHA for: ${keyword}`;
 
 
                     /*
@@ -3296,6 +3311,15 @@ function renderRuns(
                                 ${escapeHtml(
                                     engine
                                 )}
+                            </td>
+
+                            <td>
+                                <span
+                                    class="captcha-status ${captchaDetected ? "detected" : "clear"}"
+                                    title="${escapeHtml(captchaTitle)}"
+                                >
+                                    ${captchaDetected ? "⚠ Detected" : "No CAPTCHA"}
+                                </span>
                             </td>
 
 
@@ -6844,6 +6868,108 @@ function initializeBacklinksUI() {
     else {
         setTimeout(boot, 0);
     }
+})();
+
+
+/* =========================================================
+   CONTEXT-AWARE WEBSITE / YOUTUBE START BUTTON
+   The selected top toggle decides which script is started:
+   SEARCH -> main.py, YOUTUBE -> youtube_main.py.
+   ========================================================= */
+state.automationJobs = { SEARCH: { running: false }, YOUTUBE: { running: false } };
+state.automationPollTimer = null;
+
+function selectedAutomationMode() {
+    return getApiAutomation(state.automation);
+}
+
+function syncAutomationStartUI(job = {}) {
+    const button = $("startAutomationBtn");
+    const status = $("startAutomationStatus");
+    const mode = selectedAutomationMode();
+    const name = getAutomationName(mode);
+    const running = Boolean(job.running);
+    const websiteIcon = `<span class="automation-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3.8 3 14.2 0 18M12 3c-3 3.8-3 14.2 0 18"></path></svg></span>`;
+    const youtubeIcon = `<span class="automation-action-icon youtube" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path class="youtube-mark" d="M21.58 7.19a2.99 2.99 0 0 0-2.1-2.12C17.62 4.57 12 4.57 12 4.57s-5.62 0-7.48.5a2.99 2.99 0 0 0-2.1 2.12A31.31 31.31 0 0 0 2 12a31.31 31.31 0 0 0 .42 4.81 2.99 2.99 0 0 0 2.1 2.12c1.86.5 7.48.5 7.48.5s5.62 0 7.48-.5a2.99 2.99 0 0 0 2.1-2.12A31.31 31.31 0 0 0 22 12a31.31 31.31 0 0 0-.42-4.81Z"></path><path class="youtube-play" d="m10 15.5 5-3.5-5-3.5Z"></path></svg></span>`;
+    const icon = mode === "YOUTUBE" ? youtubeIcon : websiteIcon;
+    state.automationJobs[mode] = job;
+
+    if (button) {
+        button.disabled = false;
+        button.classList.toggle("busy", running);
+        button.innerHTML = running
+            ? `${icon} Stop ${name} Automation`
+            : `${icon} Start ${name} Automation`;
+    }
+    if (status) {
+        status.textContent = running
+            ? `Running ${name} automation… press Stop to halt it.`
+            : job.finished_at
+                ? (job.error ? `Last ${name} run: ${job.error}` : `Last ${name} run finished successfully.`)
+                : `Ready to start ${name} automation.`;
+    }
+}
+
+async function pollAutomationJobStatus() {
+    if (state.automationPollTimer) clearInterval(state.automationPollTimer);
+    const poll = async () => {
+        const mode = selectedAutomationMode();
+        try {
+            const response = await fetch(`/api/automation/status?automation=${mode}`, { cache: "no-store" });
+            if (!response.ok) return;
+            const job = (await response.json()).job || {};
+            syncAutomationStartUI(job);
+            if (!job.running && state.automationPollTimer) {
+                clearInterval(state.automationPollTimer);
+                state.automationPollTimer = null;
+                await refreshSelectedAutomation();
+            }
+        } catch (error) { console.error("[DASHBOARD] Automation status poll failed:", error); }
+    };
+    await poll();
+    if (state.automationJobs[selectedAutomationMode()]?.running) {
+        state.automationPollTimer = setInterval(poll, 5000);
+    }
+}
+
+async function startOrStopSelectedAutomation() {
+    const mode = selectedAutomationMode();
+    const job = state.automationJobs[mode] || {};
+    const button = $("startAutomationBtn");
+    if (button) button.disabled = true;
+    try {
+        const endpoint = job.running ? "/api/automation/stop" : "/api/automation/start";
+        const response = await fetch(endpoint, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ automation: mode })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.status !== 409 && !response.ok) throw new Error(data.error || "Automation request failed.");
+        syncAutomationStartUI(data.job || { running: !job.running });
+        await pollAutomationJobStatus();
+    } catch (error) {
+        const status = $("startAutomationStatus");
+        if (status) status.textContent = `Could not start automation: ${error.message}`;
+        if (button) button.disabled = false;
+    }
+}
+
+(function initializeAutomationStartButton() {
+    const boot = () => {
+        const button = $("startAutomationBtn");
+        if (button && button.dataset.automationStartBound !== "true") {
+            button.dataset.automationStartBound = "true";
+            button.addEventListener("click", startOrStopSelectedAutomation);
+        }
+        // Covers every existing toggle implementation without changing it.
+        document.querySelectorAll(".automation-switch-btn").forEach(toggle => {
+            toggle.addEventListener("click", () => setTimeout(pollAutomationJobStatus, 0));
+        });
+        pollAutomationJobStatus();
+    };
+    document.readyState === "loading"
+        ? document.addEventListener("DOMContentLoaded", boot, { once: true })
+        : boot();
 })();
 
 /* =========================================================
