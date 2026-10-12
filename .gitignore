@@ -1,6 +1,9 @@
 # Environment variables
 .env
 
+# Proxy credentials (never commit real proxies)
+data/proxies.json
+
 # Python virtual environment
 .venv/
 

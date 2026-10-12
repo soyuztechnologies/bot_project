@@ -53,7 +53,7 @@ def visit_website(driver, config: dict, stop_event=None, session_logger=None) ->
 
         random_sleep(sleep_min, sleep_max, stop_event)
 
-        for _ in range(2):
+        for _ in range(3):
             if stop_event and stop_event.is_set():
                 return
             try:

@@ -4,11 +4,13 @@ browser.py
 Browser setup and lifecycle helpers.
 """
  
+import logging
 import os
 import shutil
 import subprocess
 import sys
 import threading
+import time
  
 from selenium.common.exceptions import WebDriverException
 from seleniumbase import Driver
@@ -126,10 +128,18 @@ def get_chromium_args():
     ]
  
  
-def setup_browser(config, browser_name):
+def setup_browser(config, browser_name, proxy_url=None):
     """
     Start and configure a browser instance.
     Caller (run_session) handles fallback to 'chrome' if this fails.
+
+    Args:
+        config: project configuration dict.
+        browser_name: chrome / edge / firefox / opera / brave.
+        proxy_url: optional proxy for IP bouncing. Format accepted by
+            SeleniumBase Driver: "SERVER:PORT", "USER:PASS@SERVER:PORT",
+            or full URL "http(s)://USER:PASS@HOST:PORT" / "socks5://...".
+            None/empty = direct connection.
     """
 
     browser_name = str(browser_name).lower().strip()
@@ -151,108 +161,152 @@ def setup_browser(config, browser_name):
         os.path.join(os.getcwd(), "browser_profiles"),
     )
 
-    # uuid avoids collisions from recycled OS thread IDs + stale lock files
-    profile_path = os.path.join(
-        profile_root,
-        f"{browser_name}_{thread_id}_{_uuid.uuid4().hex[:8]}",
-    )
-
-    try:
-        os.makedirs(profile_path, exist_ok=True)
-    except OSError as e:
-        err = BrowserStartupError(f"Failed to create profile dir {profile_path}: {e}", browser=browser_name, cause=e)
-        raise err from e
-
-    with _BROWSER_START_LOCK:
+    # uuid avoids collisions from recycled OS thread IDs + stale lock files.
+    # Startup is retried with a FRESH profile per attempt: transient failures
+    # like "cannot connect to chrome at 127.0.0.1:9222 / chrome not reachable"
+    # almost always succeed on a clean second attempt.
+    _start_logger = logging.getLogger(__name__)
+    _startup_attempts = 3
+    last_error = None
+    driver = None
+    profile_path = ""
+    for attempt in range(1, _startup_attempts + 1):
+        profile_path = os.path.join(
+            profile_root,
+            f"{browser_name}_{thread_id}_{_uuid.uuid4().hex[:8]}",
+        )
 
         try:
-            if browser_name == "chrome":
+            os.makedirs(profile_path, exist_ok=True)
+        except OSError as e:
+            last_error = BrowserStartupError(f"Failed to create profile dir {profile_path}: {e}", browser=browser_name, cause=e)
+            continue
 
-                driver = Driver(
-                    browser="chrome",
-                    uc=True,
-                    user_data_dir=profile_path,
-                    headless=headless,
-                    chromium_arg=get_chromium_args(),
-                )
+        # --- IP bouncing: per-session proxy (None = direct connection) ---
+        proxy_kwargs: dict = {}
+        try:
+            _proxy = (proxy_url or "").strip() if isinstance(proxy_url, str) else proxy_url
+            if _proxy:
+                proxy_kwargs["proxy"] = _proxy
+                # Authenticated proxies in parallel threads need isolated
+                # auth extensions, otherwise threads share one proxy.zip.
+                if "@" in str(_proxy):
+                    proxy_kwargs["multi_proxy"] = True
+        except Exception:
+            proxy_kwargs = {}
 
-            elif browser_name == "edge":
+        with _BROWSER_START_LOCK:
 
-                driver = Driver(
-                    browser="edge",
-                    uc=False,
-                    user_data_dir=profile_path,
-                    headless=headless,
-                    chromium_arg=get_chromium_args(),
-                )
+            try:
+                if browser_name == "chrome":
 
-            elif browser_name == "firefox":
+                    driver = Driver(
+                        browser="chrome",
+                        uc=True,
+                        user_data_dir=profile_path,
+                        headless=headless,
+                        chromium_arg=get_chromium_args(),
+                        **proxy_kwargs,
+                    )
 
-                driver = Driver(
-                    browser="firefox",
-                    uc=False,
-                    headless=headless,
-                    user_data_dir=profile_path,
-                    firefox_pref="media.volume_scale=0.0",
-                )
+                elif browser_name == "edge":
 
-            elif browser_name == "opera":
+                    driver = Driver(
+                        browser="edge",
+                        uc=False,
+                        user_data_dir=profile_path,
+                        headless=headless,
+                        chromium_arg=get_chromium_args(),
+                        **proxy_kwargs,
+                    )
 
-                driver = Driver(
-                    browser="opera",
-                    uc=False,
-                    user_data_dir=profile_path,
-                    headless=headless,
-                    chromium_arg=get_chromium_args(),
-                )
+                elif browser_name == "firefox":
 
-                try:
-                    driver.execute_cdp_cmd(
-                        "Browser.setPermission",
-                        {
-                            "permission": {
-                                "name": "geolocation",
+                    driver = Driver(
+                        browser="firefox",
+                        uc=False,
+                        headless=headless,
+                        user_data_dir=profile_path,
+                        firefox_pref="media.volume_scale=0.0",
+                        **proxy_kwargs,
+                    )
+
+                elif browser_name == "opera":
+
+                    driver = Driver(
+                        browser="opera",
+                        uc=False,
+                        user_data_dir=profile_path,
+                        headless=headless,
+                        chromium_arg=get_chromium_args(),
+                        **proxy_kwargs,
+                    )
+
+                    try:
+                        driver.execute_cdp_cmd(
+                            "Browser.setPermission",
+                            {
+                                "permission": {
+                                    "name": "geolocation",
+                                },
+                                "setting": "denied",
+                                "origin": "https://www.google.com",
                             },
-                            "setting": "denied",
-                            "origin": "https://www.google.com",
-                        },
+                        )
+                    except WebDriverException as e:
+                        # Non-fatal: geolocation deny is best-effort
+                        import logging as _logging
+                        _logging.getLogger(__name__).warning(f"Opera geolocation deny failed: {e}", exc_info=False)
+                    except Exception as e:
+                        import logging as _logging
+                        _logging.getLogger(__name__).warning(f"Opera geolocation deny unexpected error: {e}", exc_info=False)
+
+                elif browser_name == "brave":
+
+                    brave_binary = get_brave_binary()
+
+                    if not brave_binary:
+                        raise BrowserBinaryNotFoundError(
+                            "Brave browser binary was not found.", browser=browser_name
+                        )
+
+                    driver = Driver(
+                        browser="chrome",
+                        binary_location=brave_binary,
+                        uc=True,
+                        user_data_dir=profile_path,
+                        headless=headless,
+                        chromium_arg=get_chromium_args(),
+                        **proxy_kwargs,
                     )
-                except WebDriverException as e:
-                    # Non-fatal: geolocation deny is best-effort
-                    import logging as _logging
-                    _logging.getLogger(__name__).warning(f"Opera geolocation deny failed: {e}", exc_info=False)
-                except Exception as e:
-                    import logging as _logging
-                    _logging.getLogger(__name__).warning(f"Opera geolocation deny unexpected error: {e}", exc_info=False)
 
-            elif browser_name == "brave":
-
-                brave_binary = get_brave_binary()
-
-                if not brave_binary:
-                    raise BrowserBinaryNotFoundError(
-                        "Brave browser binary was not found.", browser=browser_name
+                else:
+                    raise UnsupportedBrowserError(
+                        f"Unsupported browser: {browser_name}", browser=browser_name
                     )
+            except (BrowserBinaryNotFoundError, UnsupportedBrowserError):
+                raise
+            except Exception as e:
+                last_error = e
+                driver = None
+                # Bury the zombie from THIS attempt only: the profile path is
+                # unique per attempt, so sibling sessions and the user's own
+                # Chrome are never touched.
+                try:
+                    _kill_browsers_by_profile(profile_path)
+                except Exception:
+                    pass
 
-                driver = Driver(
-                    browser="chrome",
-                    binary_location=brave_binary,
-                    uc=True,
-                    user_data_dir=profile_path,
-                    headless=headless,
-                    chromium_arg=get_chromium_args(),
-                )
+        if driver is not None:
+            if attempt > 1:
+                _start_logger.info(f"Browser started for {browser_name} on attempt {attempt}/{_startup_attempts}")
+            break
+        if attempt < _startup_attempts:
+            _start_logger.warning(f"Browser startup attempt {attempt}/{_startup_attempts} failed for {browser_name}: {last_error}. Retrying with a fresh profile...")
+            time.sleep(4 * attempt)
 
-            else:
-                raise UnsupportedBrowserError(
-                    f"Unsupported browser: {browser_name}", browser=browser_name
-                )
-        except (BrowserBinaryNotFoundError, UnsupportedBrowserError):
-            raise
-        except WebDriverException as e:
-            raise BrowserStartupError(f"Browser startup failed for {browser_name}: {e}", browser=browser_name, cause=e) from e
-        except Exception as e:
-            raise BrowserStartupError(f"Browser startup failed for {browser_name}: {e}", browser=browser_name, cause=e) from e
+    if driver is None:
+        raise BrowserStartupError(f"Browser startup failed for {browser_name} after {_startup_attempts} attempts: {last_error}", browser=browser_name, cause=last_error)
 
     if maximize:
         try:
@@ -264,10 +318,23 @@ def setup_browser(config, browser_name):
             import logging as _logging
             _logging.getLogger(__name__).warning(f"Maximize unexpected error for {browser_name}: {e}", exc_info=False)
 
+    # Fail fast on dead network instead of hanging 120s (Oct-08 logs:
+    # HTTPConnectionPool Read timed out). Session code fails over to the
+    # next engine/job quickly; page content still loads normally otherwise.
+    try:
+        driver.set_page_load_timeout(45)
+    except Exception:
+        pass
+    try:
+        driver.set_script_timeout(30)
+    except Exception:
+        pass
+
     # Stash metadata for forced kill by profile path (used by close_browser to find orphaned browser processes)
     try:
         driver._seo_profile_dir = profile_path  # type: ignore[attr-defined]
         driver._seo_browser_name = browser_name  # type: ignore[attr-defined]
+        driver._seo_proxy = (proxy_kwargs.get("proxy") if proxy_kwargs else None)  # type: ignore[attr-defined]
     except Exception:
         pass
 

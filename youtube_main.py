@@ -295,6 +295,12 @@ def main():
         logger.info(
             "YouTube automation started."
         )
+
+        try:
+            from utils.proxy_manager import describe as _proxy_describe
+            logger.info(f"IP bouncing: {_proxy_describe(config)}")
+        except Exception:
+            pass
  
         # -----------------------------------------------------
         # Start Parallel YouTube Sessions

@@ -29,6 +29,13 @@ from utils.exceptions import (
     wrap_unexpected,
 )
 from utils.helpers import build_browser_mode
+from utils.proxy_manager import (
+    get_proxy_for_session as _get_proxy_for_session,
+    mask_proxy as _mask_proxy,
+    report_failure as _proxy_failed,
+    report_success as _proxy_ok,
+    stagger_start as _proxy_stagger,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -208,17 +215,48 @@ def run_backlink_job(site, target, config, stop_event, stats):
 
     session_logger.info(f"Starting backlink session: {target_url} -> {site_id}", extra={"action": "BACKLINK_STARTED", "status": "RUNNING", "url": target_url})
 
+    # --- IP bouncing: one proxy per backlink job ---
+    _session_proxy = None
+    try:
+        _proxy_stagger(config, stop_event)
+    except Exception:
+        pass
+    try:
+        _session_proxy = _get_proxy_for_session(config, session_hint=target_url)
+    except Exception:
+        _session_proxy = None
+    if _session_proxy:
+        try:
+            session_logger.info(f"IP bouncing: session proxy {_mask_proxy(_session_proxy)}", extra={"action": "PROXY_ASSIGNED", "status": "RUNNING"})
+        except Exception:
+            pass
+
     # --- browser startup (with chrome fallback) ---
     try:
-        driver = setup_browser(config, selected_browser)
+        driver = setup_browser(config, selected_browser, proxy_url=_session_proxy)
         _register_driver(driver)
+        if _session_proxy:
+            try:
+                _proxy_ok(_session_proxy)
+            except Exception:
+                pass
         session_logger.info(f"Browser started: {selected_browser}", extra={"action": "BROWSER_STARTED", "status": "SUCCESS"})
     except Exception as e:
+        try:
+            if _session_proxy:
+                _proxy_failed(_session_proxy)
+        except Exception:
+            pass
         if selected_browser != "chrome":
             try:
                 session_logger.warning(f"Browser '{selected_browser}' failed ({e}), fallback to chrome", extra={"action": "BROWSER_FALLBACK", "status": "RETRYING", "error_message": str(e)})
-                driver = setup_browser(config, "chrome")
+                driver = setup_browser(config, "chrome", proxy_url=_session_proxy)
                 _register_driver(driver)
+                if _session_proxy:
+                    try:
+                        _proxy_ok(_session_proxy)
+                    except Exception:
+                        pass
                 selected_browser = "chrome"
             except Exception as fb_e:
                 session_logger.error(f"Browser startup failed: {e} | fallback failed: {fb_e}", exc_info=True, extra={"action": "BROWSER_START_FAILED", "status": "FAILED", "error_message": str(fb_e)})
@@ -269,22 +307,34 @@ def run_backlink_job(site, target, config, stop_event, stats):
             _save_backlink("FAILED", detail=f"no handler for site '{site_id}': {e}")
             return
 
-        try:
-            result = handler(driver, site, target, config, stop_event, session_logger)
-        except Exception as e:
-            if stop_event.is_set():
-                status = "INTERRUPTED"
-                _record_submission("interrupted", message=f"interrupted during submit: {e}")
-                _safe_update_run(run_id, datetime.now(timezone.utc), status, 0, 0, 0)
-                _save_backlink(status, detail=f"interrupted during submit: {e}")
-                return
-            wrapped = e if isinstance(e, SeoBotError) else wrap_unexpected(e, f"backlink {site_id} {target_url}")
-            is_captcha = "captcha" in str(wrapped).lower() or type(wrapped).__name__ == "CaptchaSkipped"
-            session_logger.error(f"Backlink submit failed ({site_id} | {target_url}): {wrapped}", exc_info=True, extra={"action": "BACKLINK_SUBMITTED", "status": "FAILED", "error_message": str(wrapped), "url": target_url})
-            _record_submission("failed", durationMs=int((time.time() - start_time) * 1000), url=site_url, message=str(wrapped))
-            _safe_update_run(run_id, datetime.now(timezone.utc), "FAILED", 0, 1, 0, captcha_encountered=is_captcha)
-            _save_backlink("FAILED", result_text=str(wrapped)[:2000], detail="submit handler raised")
-            return
+        # Transient submit failures (site hiccup, momentary network drop) are
+        # retried once on the same driver; CAPTCHA blocks never retry.
+        submit_attempts = 2
+        result = None
+        for submit_attempt in range(1, submit_attempts + 1):
+            try:
+                result = handler(driver, site, target, config, stop_event, session_logger)
+                break
+            except Exception as e:
+                if stop_event.is_set():
+                    status = "INTERRUPTED"
+                    _record_submission("interrupted", message=f"interrupted during submit: {e}")
+                    _safe_update_run(run_id, datetime.now(timezone.utc), status, 0, 0, 0)
+                    _save_backlink(status, detail=f"interrupted during submit: {e}")
+                    return
+                wrapped = e if isinstance(e, SeoBotError) else wrap_unexpected(e, f"backlink {site_id} {target_url}")
+                is_captcha = "captcha" in str(wrapped).lower() or type(wrapped).__name__ == "CaptchaSkipped"
+                if is_captcha or submit_attempt >= submit_attempts:
+                    session_logger.error(f"Backlink submit failed ({site_id} | {target_url}): {wrapped}", exc_info=True, extra={"action": "BACKLINK_SUBMITTED", "status": "FAILED", "error_message": str(wrapped), "url": target_url})
+                    _record_submission("failed", durationMs=int((time.time() - start_time) * 1000), url=site_url, message=str(wrapped))
+                    _safe_update_run(run_id, datetime.now(timezone.utc), "FAILED", 0, 1, 0, captcha_encountered=is_captcha)
+                    _save_backlink("FAILED", result_text=str(wrapped)[:2000], detail="submit handler raised")
+                    return
+                session_logger.warning(f"Backlink submit attempt {submit_attempt}/{submit_attempts} failed ({site_id} | {target_url}): {wrapped}. Retrying once...", extra={"action": "BACKLINK_SUBMIT_RETRY", "status": "RUNNING", "error_message": str(wrapped), "url": target_url})
+                try:
+                    time.sleep(5)
+                except Exception:
+                    pass
 
         if stop_event.is_set():
             _record_submission("interrupted", durationMs=int((time.time() - start_time) * 1000), url=site_url, message="interrupted after submit")
@@ -362,7 +412,10 @@ def start_parallel_backlink_sessions(sites, targets, config):
         parallel = int(config.get("sessions", {}).get("parallel", 5))
     except Exception:
         parallel = 5
-    parallel = max(1, parallel)
+    # Backlink pages are light (tool sites) vs search+video flows, and the
+    # 475-job run must fit the 90-min action timeout: keep 5/batch even when
+    # website/youtube run at parallel=3 to cut DNS storms. Runs unchanged.
+    parallel = max(5, parallel)
 
     all_jobs = [(site, t) for t in targets for site in sites if site_accepts_target(site, t)]
 

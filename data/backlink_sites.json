@@ -1266,6 +1266,10 @@
     "name": "Kwebby Backlink Maker",
     "url": "https://kwebby.com/backlink-maker",
     "enabled": true,
+    "target_url_excludes": [
+      "youtube.com",
+      "youtu.be"
+    ],
     "fields": [
       {
         "primary_xpath": "//input[@placeholder='https://yourwebsite.com']",

@@ -69,7 +69,8 @@ def send_report_email(config, summary, results, html_path, json_path):
 
     # Try loading from .env if not explicitly passed
     load_dotenv()
-    app_password = os.getenv("GMAIL_APP_PASSWORD")
+    # Gmail shows app passwords as "xxxx xxxx xxxx xxxx" — spaces must go.
+    app_password = (os.getenv("GMAIL_APP_PASSWORD") or "").strip().replace(" ", "")
     
     if not app_password:
         logger.info("Report email skipped: GMAIL_APP_PASSWORD is not set in environment.")
@@ -98,8 +99,18 @@ def send_report_email(config, summary, results, html_path, json_path):
             json_data = f.read()
             msg.add_attachment(json_data, maintype='application', subtype='json', filename='report.json')
 
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-            smtp.login(from_email, app_password)
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as smtp:
+            try:
+                smtp.login(from_email, app_password)
+            except smtplib.SMTPServerDisconnected as e:
+                # Gmail closes the connection instead of a clean 535 when the
+                # app password is wrong/revoked — tell the user exactly that.
+                raise smtplib.SMTPAuthenticationError(
+                    535,
+                    b"Login rejected: Gmail closed the connection. "
+                    b"Regenerate an App Password (Google Account > 2-Step Verification > App passwords) "
+                    b"and update GMAIL_APP_PASSWORD in .env / GitHub Secrets.",
+                ) from e
             smtp.send_message(msg)
             
         logger.info(f"Report email sent successfully to {to_email}")

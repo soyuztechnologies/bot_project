@@ -72,6 +72,10 @@ def validate_backlink_inputs(config, sites, targets):
         raise ValidationError(f"sessions.parallel must be integer: {e}", cause=e) from e
     if parallel < 1:
         raise ValidationError("sessions.parallel must be 1 or greater.")
+    # Backlink pages are light tool-sites and the 475-job run must fit the
+    # 90-min action timeout: keep 5/batch even when website/youtube run at
+    # parallel=3 to cut DNS storms. Planned runs unchanged (470).
+    parallel = max(5, parallel)
     if not isinstance(sites, list) or not sites:
         raise ValidationError("data/backlink_sites.json must contain at least one site.")
     enabled = [s for s in sites if s.get("enabled", True)]
@@ -180,6 +184,11 @@ def main(argv=None):
         logger.info(f"Targets           : {len(targets)}")
         logger.info(f"Parallel Sessions : {parallel} (batches of {parallel})")
         logger.info(f"Planned Jobs      : {planned_jobs}")
+        try:
+            from utils.proxy_manager import describe as _proxy_describe
+            logger.info(f"IP bouncing       : {_proxy_describe(config)}")
+        except Exception:
+            pass
 
         if args.list:
             print("\nBacklink sites:")

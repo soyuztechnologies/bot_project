@@ -341,6 +341,11 @@ def main():
         logger.info(f"Browser Mode      : {config['browser']['mode'].capitalize()}")
         logger.info(f"Parallel Sessions : {config['sessions']['parallel']}")
         logger.info(f"Keywords          : {len(keywords)}")
+        try:
+            from utils.proxy_manager import describe as _proxy_describe
+            logger.info(f"IP bouncing       : {_proxy_describe(config)}")
+        except Exception:
+            pass
  
         # # Start automation with VPN (never fatal - skip on any error)  # VPN DISABLED - commented out
         # vpn_config = config.get("vpn", {}) or {}  # VPN DISABLED - commented out

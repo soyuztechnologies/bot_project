@@ -1,0 +1,7 @@
+{
+  "_comment": "Static proxy list — ONLY used when config.json proxy.mode=list. For rotating residential (recommended), use proxy.mode=single + PROXY_URL in .env instead and leave this file unused. One entry per browser session, round-robin. Passwords stay in this gitignored file or PROXY_LIST env.",
+  "proxies": [
+    "http://username1:password1@proxy-host-1.example.com:8000",
+    "http://username2:password2@proxy-host-2.example.com:8000"
+  ]
+}

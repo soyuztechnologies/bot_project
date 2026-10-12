@@ -60,6 +60,13 @@ from automation.youtube import (
 
 from utils.logger import write_log
 from utils.helpers import build_browser_mode, build_fallback_keyword, random_sleep
+from utils.proxy_manager import (
+    get_proxy_for_session as _get_proxy_for_session,
+    mask_proxy as _mask_proxy,
+    report_failure as _proxy_failed,
+    report_success as _proxy_ok,
+    stagger_start as _proxy_stagger,
+)
 
 from selenium.webdriver.common.by import By
 
@@ -931,17 +938,43 @@ def run_session(
 
         # =====================================================
         # START BROWSER — with chrome fallback if requested browser missing/failed
+        # IP bouncing: one proxy per session (different exit IPs in parallel).
         # =====================================================
 
         driver = None
         actual_browser = selected_browser
         original_requested = selected_browser
+        _session_proxy = None
+        try:
+            _proxy_stagger(config, stop_event)
+        except Exception:
+            pass
+        try:
+            _session_proxy = _get_proxy_for_session(config, session_hint=keyword)
+        except Exception:
+            _session_proxy = None
+        if _session_proxy:
+            try:
+                logger.info(f"[{thread_name}] IP bouncing: session proxy {_mask_proxy(_session_proxy)}")
+            except Exception:
+                pass
         try:
             driver = setup_browser(
                 config,
                 selected_browser,
+                proxy_url=_session_proxy,
             )
+            if _session_proxy:
+                try:
+                    _proxy_ok(_session_proxy)
+                except Exception:
+                    pass
         except Exception as error:
+            try:
+                if _session_proxy:
+                    _proxy_failed(_session_proxy)
+            except Exception:
+                pass
             # Fallback to chrome if any browser fails (binary not found, startup error, etc.)
             if str(selected_browser).lower() != "chrome":
                 fallback_browser = "chrome"
@@ -958,7 +991,12 @@ def run_session(
                     },
                 )
                 try:
-                    driver = setup_browser(config, fallback_browser)
+                    driver = setup_browser(config, fallback_browser, proxy_url=_session_proxy)
+                    if _session_proxy:
+                        try:
+                            _proxy_ok(_session_proxy)
+                        except Exception:
+                            pass
                     actual_browser = fallback_browser
                     # Update selected for rest of session (stats, logs, thread name)
                     selected_browser = fallback_browser

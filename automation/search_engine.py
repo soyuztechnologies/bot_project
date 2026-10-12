@@ -1548,12 +1548,28 @@ def find_target_website(
             msg = str(e).lower()
             if "newconnectionerror" in msg or "connection refused" in msg:
                 return False
-            if session_logger:
-                try:
-                    session_logger.info(f"next_page error on page {page+1}: {e}", extra={'action': 'WEBSITE_SEARCH', 'status': 'RUNNING'})
-                except Exception:
-                    pass
-            has_next = False
+            # Transient next-button failure (overlay hiccup, slow render):
+            # settle briefly and try once more before abandoning pagination.
+            try:
+                if stop_event:
+                    stop_event.wait(3)
+                else:
+                    time.sleep(3)
+            except Exception:
+                pass
+            if stop_event and stop_event.is_set():
+                return False
+            try:
+                has_next = next_page(driver, engine, stop_event)
+            except Exception as e2:
+                if stop_event and stop_event.is_set():
+                    return False
+                if session_logger:
+                    try:
+                        session_logger.info(f"next_page error on page {page+1} (after retry): {e2}", extra={'action': 'WEBSITE_SEARCH', 'status': 'RUNNING'})
+                    except Exception:
+                        pass
+                has_next = False
         if not has_next:
             break
         # Brief pause between pages — interruptible

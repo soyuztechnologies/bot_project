@@ -42,6 +42,13 @@ from automation.search_engine import (
 from automation.website import visit_website
 from utils.helpers import build_browser_mode, build_fallback_keyword
 from utils.database import create_automation_run, update_automation_run
+from utils.proxy_manager import (
+    get_proxy_for_session as _get_proxy_for_session,
+    mask_proxy as _mask_proxy,
+    report_failure as _proxy_failed,
+    report_success as _proxy_ok,
+    stagger_start as _proxy_stagger,
+)
 from utils.exceptions import (
     BrowserError,
     CaptchaDetectedError,
@@ -552,14 +559,41 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
 
         # -------------------------------------------------
         # 1) Browser startup - with chrome fallback if requested browser missing/failed
+        # IP bouncing: one proxy per session so parallel browsers exit via
+        # different IPs (avoids Google "unusual traffic" CAPTCHA).
         # -------------------------------------------------
+        _session_proxy = None
+        try:
+            _proxy_stagger(config, stop_event)
+        except Exception:
+            pass
+        try:
+            _session_proxy = _get_proxy_for_session(config, session_hint=original_keyword)
+        except Exception:
+            _session_proxy = None
+        if _session_proxy:
+            try:
+                session_logger.info(f"IP bouncing: session proxy {_mask_proxy(_session_proxy)}", extra={'action': 'PROXY_ASSIGNED', 'status': 'RUNNING'})
+            except Exception:
+                pass
         original_requested_browser = selected_browser
         try:
-            driver = setup_browser(config, selected_browser)
+            driver = setup_browser(config, selected_browser, proxy_url=_session_proxy)
             _register_driver(driver)
+            if _session_proxy:
+                try:
+                    _proxy_ok(_session_proxy)
+                except Exception:
+                    pass
             session_logger.info(f"Browser started: {selected_browser}", extra={'action': 'BROWSER_STARTED', 'status': 'SUCCESS'})
         except Exception as e:
             # Fallback to chrome if any browser fails (binary not found, startup error)
+            # If the failure looks proxy-related, flag the proxy so list mode rotates.
+            try:
+                if _session_proxy:
+                    _proxy_failed(_session_proxy)
+            except Exception:
+                pass
             if str(selected_browser).lower() != "chrome":
                 fallback_browser = "chrome"
                 try:
@@ -567,8 +601,13 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 except Exception:
                     pass
                 try:
-                    driver = setup_browser(config, fallback_browser)
+                    driver = setup_browser(config, fallback_browser, proxy_url=_session_proxy)
                     _register_driver(driver)
+                    if _session_proxy:
+                        try:
+                            _proxy_ok(_session_proxy)
+                        except Exception:
+                            pass
                     selected_browser = fallback_browser
                     try:
                         session_logger.info(f"Browser fallback '{fallback_browser}' started (requested was '{original_requested_browser}')", extra={'action': 'BROWSER_STARTED', 'status': 'SUCCESS', 'browser': fallback_browser})
@@ -756,9 +795,9 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
 
             # CAPTCHA after open
             if _is_captcha_and_log(current_engine_name):
-                # Small pause before switching engine to avoid rapid hammering
+                # Pause before switching engine to avoid rapid hammering (free captcha-avoid)
                 try:
-                    stop_event.wait(random.uniform(1, 2))
+                    stop_event.wait(random.uniform(2, 4))
                 except Exception:
                     pass
                 continue
@@ -809,7 +848,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
             # CAPTCHA after search
             if _is_captcha_and_log(current_engine_name):
                 try:
-                    stop_event.wait(random.uniform(1, 2))
+                    stop_event.wait(random.uniform(2, 4))
                 except Exception:
                     pass
                 continue

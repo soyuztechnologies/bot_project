@@ -91,6 +91,9 @@ Write-Host "Git OK."
 
 # ---------- [2/6] Docker ----------
 Write-Host "[2/6] Checking Docker..."
+# Installers from previous runs update the registry PATH, but this
+# session may still carry the old copy - refresh before checking.
+Refresh-Path
 $daemonUp = $false
 try {
     docker info 2>$null | Out-Null
@@ -120,6 +123,9 @@ if (-not $daemonUp) {
             if ((Get-Item $out).Length -lt 100MB) { throw "Docker download looks incomplete, aborting." }
             Write-Host "Installing Docker Desktop (silent)..."
             Start-Process $out -ArgumentList "install", "--quiet", "--accept-license" -Wait
+            # The installer just changed the registry PATH - reload it so the
+            # `docker` CLI is visible in this session itself.
+            Refresh-Path
         }
     }
     # Docker is installed but the engine is down - start it and wait,

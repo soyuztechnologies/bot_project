@@ -1,5 +1,5 @@
 {
-  "user_name": "vipul",
+  "user_name": "Bot",
   "browser": {
     "name": "chrome",
     "mode": "headless",
@@ -17,11 +17,24 @@
   },
 
   "vpn": {
-  "enabled": true,
+  "enabled": false,
   "provider": "nordvpn",
   "installation_dir": "C:\\Program Files\\NordVPN",
   "verify_connection": true
 },
+
+  "proxy": {
+    "enabled": false,
+    "mode": "single",
+    "url": "${PROXY_URL}",
+    "proxies_file": "data/proxies.json",
+    "rotation": "per_session",
+    "force_new_ip_per_session": false,
+    "session_suffix_param": "session",
+    "max_failures": 3,
+    "stagger_min": 3.0,
+    "stagger_max": 6.0
+  },
 
   "email": {
     "enabled": true,
@@ -41,13 +54,13 @@
 
 
   "sessions": {
-    "parallel": 5,
+    "parallel": 3,
     "iterations": 1
   },
 
   "search": {
-    "engines": [ "google","bing","yahoo", "duckduckgo"],
-    "maxPages": 10
+    "engines": ["duckduckgo","bing","google","yahoo"],
+    "maxPages": 4
   },
 
   "website": {
@@ -65,10 +78,10 @@
     "extra_keyword": "anubhav training",
     "watchTimeMin": 20,
     "watchTimeMax": 40,
-    "maxScrolls": 10,
-    "maxSearchPages": 1,
+    "maxScrolls": 8,
+    "maxSearchPages": 2,
 
-    "retryCount": 3,
+    "retryCount": 2,
     "navigationRetryDelay": 10
   },
 
@@ -76,11 +89,11 @@
     "typingMin": 0.1,
     "typingMax": 0.25,
 
-    "sleepMin": 2,
-    "sleepMax": 4,
+    "sleepMin": 4,
+    "sleepMax": 7,
 
-    "scrollMin": 2,
-    "scrollMax": 5
+    "scrollMin": 3,
+    "scrollMax": 6
   },
 
   "files": {
