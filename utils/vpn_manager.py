@@ -362,6 +362,93 @@ def get_public_ip():
     return ip_address
 
 
+def batch_rotation_every(config) -> int:
+    """Jobs between automatic VPN IP rotations. 0/disabled-safe.
+
+    Reads config.json -> vpn.rotate_every_jobs. Returns 0 when VPN is
+    disabled or the value is missing/invalid — callers treat 0 as OFF,
+    so default behaviour never changes unless the user opts in.
+    """
+
+    try:
+        vpn_config = (config or {}).get("vpn", {}) or {}
+        if not vpn_config.get("enabled", False):
+            return 0
+        return max(0, int(vpn_config.get("rotate_every_jobs", 0)))
+    except Exception:
+        return 0
+
+
+def rotate_vpn_connection(config=None) -> bool:
+    """Rotate the VPN exit IP: disconnect, reconnect, verify IP changed.
+
+    Safe to call between batches / while workers are paused: never raises
+    on VPN/network errors (warns and returns False so automation keeps
+    running on the current IP). KeyboardInterrupt/SystemExit propagate.
+    Returns True only when the public IP actually changed.
+    """
+
+    try:
+        try:
+            before_ip = get_public_ip()
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            _warn(f"Skipping VPN rotation (IP check failed): {exc}")
+            return False
+
+        try:
+            disconnect_vpn()
+        except KeyboardInterrupt:
+            raise
+        except Exception:
+            pass
+
+        try:
+            _interruptible_sleep(3)
+        except KeyboardInterrupt:
+            raise
+
+        # Reconnect up to twice: a fast reconnect can land on the same
+        # server/IP, which defeats the purpose of rotation.
+        for attempt in (1, 2):
+            try:
+                ok = connect_vpn()
+            except KeyboardInterrupt:
+                raise
+            except Exception:
+                ok = False
+            if not ok:
+                return False
+            try:
+                after_ip = get_public_ip()
+            except KeyboardInterrupt:
+                raise
+            except Exception:
+                return True
+            if after_ip != before_ip:
+                print(f"[VPN] Rotated exit IP: {before_ip} -> {after_ip}", flush=True)
+                try:
+                    logger.info(
+                        "[VPN] Rotated exit IP: %s -> %s",
+                        before_ip,
+                        after_ip,
+                        extra={"action": "VPN_ROTATE", "status": "SUCCESS"},
+                    )
+                except Exception:
+                    pass
+                return True
+            print(f"[VPN] Reconnect landed on same IP ({after_ip}), retrying ({attempt}/2)...", flush=True)
+
+        _warn("VPN rotation reconnected but exit IP did not change.")
+        return False
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as exc:
+        _warn(f"Skipping VPN rotation due to error: {exc}")
+        return False
+
+
 def _interruptible_sleep(seconds, chunk=0.5):
     """Sleep that wakes quickly on Ctrl+C (raises KeyboardInterrupt)."""
     end = time.time() + max(0, seconds)

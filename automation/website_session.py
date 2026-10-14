@@ -1243,15 +1243,36 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         _safe_update_run(run_id, session_end_time, status, success_count, failure_count, retry_count, fallback_used=fallback_used, search_keyword=current_search_keyword, search_engine=engine_name, browser_mode=final_browser_mode, captcha_encountered=captcha_encountered)
 
 
-def _session_worker(job_queue, config, stop_event, stats, search_engines=None, all_engine_names=None):
+def _session_worker(job_queue, config, stop_event, stats, search_engines=None, all_engine_names=None, vpn_state=None):
     while not stop_event.is_set():
         job = None
+        vpn_counted = False
         try:
+            # Batch-VPN pause: wait here (never mid-session) while the main
+            # thread rotates the exit IP. None/off by default — no-op.
+            try:
+                _vp = (vpn_state or {}).get("pause")
+                if _vp is not None and _vp.is_set():
+                    stop_event.wait(0.5)
+                    continue
+            except Exception:
+                pass
             try:
                 job = job_queue.get_nowait()
             except queue.Empty:
                 return
             keyword, engine_name, engine = job
+            _vl = None
+            _va = None
+            try:
+                _vl = (vpn_state or {}).get("lock")
+                _va = (vpn_state or {}).get("active")
+                if _vl is not None and _va is not None:
+                    with _vl:
+                        _va[0] += 1
+                    vpn_counted = True
+            except Exception:
+                pass
             try:
                 run_session(keyword, config, engine_name, engine, stop_event, stats, search_engines=search_engines, all_engine_names=all_engine_names)
             except Exception as error:
@@ -1261,6 +1282,13 @@ def _session_worker(job_queue, config, stop_event, stats, search_engines=None, a
                     with _STATS_LOCK:
                         if not any(d.get('keyword') == keyword for d in stats.get("failed", [])):
                             stats["failed"].append({"keyword": keyword, "engine": engine_name})
+                except Exception:
+                    pass
+            finally:
+                try:
+                    if vpn_counted:
+                        with _vl:
+                            _va[0] -= 1
                 except Exception:
                     pass
         except Exception as e:
@@ -1332,10 +1360,22 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
     for job in jobs:
         job_queue.put(job)
 
+    # Batch-VPN coordination: workers pause ONLY between sessions (never
+    # mid-session) while the main thread rotates the exit IP. Off by
+    # default (vpn.rotate_every_jobs=0) — zero behaviour change unless opted in.
+    try:
+        from utils.vpn_manager import batch_rotation_every as _vpn_every_fn
+        _vpn_every = _vpn_every_fn(config)
+    except Exception:
+        _vpn_every = 0
+    _vpn_state = {"pause": threading.Event(), "active": [0], "lock": threading.Lock()}
+    _vpn_total = len(jobs)
+    _vpn_next_at = _vpn_every if _vpn_every > 0 else 0
+
     workers = []
     for i in range(max_workers):
         try:
-            w = threading.Thread(target=_session_worker, args=(job_queue, config, stop_event, stats, search_engines, engine_names), daemon=True, name=f"Worker-{i+1}")
+            w = threading.Thread(target=_session_worker, args=(job_queue, config, stop_event, stats, search_engines, engine_names, _vpn_state), daemon=True, name=f"Worker-{i+1}")
             workers.append(w)
         except Exception as e:
             logger.error(f"Failed to create worker {i}: {e}")
@@ -1346,6 +1386,57 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
         except Exception as e:
             logger.error(f"Failed to start worker {w.name}: {e}", exc_info=True)
 
+    def _maybe_rotate_vpn():
+        """Rotate exit IP if a milestone was crossed. Main thread only."""
+        nonlocal _vpn_next_at
+        try:
+            if _vpn_every <= 0 or _vpn_next_at <= 0:
+                return
+            try:
+                done = _vpn_total - job_queue.unfinished_tasks
+            except Exception:
+                return
+            if done < _vpn_next_at:
+                return
+            _vpn_next_at += _vpn_every
+            if stop_event.is_set():
+                return
+            try:
+                logger.info(f"Batch-VPN rotation after ~{done} job(s): pausing workers...", extra={'action': 'VPN_ROTATE', 'status': 'RUNNING'})
+            except Exception:
+                pass
+            _vpn_state["pause"].set()
+            try:
+                deadline = time.time() + 300
+                while _vpn_state["active"][0] > 0 and time.time() < deadline:
+                    if stop_event.is_set():
+                        break
+                    time.sleep(0.5)
+                if stop_event.is_set():
+                    return
+                if _vpn_state["active"][0] > 0:
+                    try:
+                        logger.warning("Batch-VPN rotation skipped: workers still busy after 5 min", extra={'action': 'VPN_ROTATE', 'status': 'FAILED'})
+                    except Exception:
+                        pass
+                    return
+                try:
+                    from utils.vpn_manager import rotate_vpn_connection as _vpn_rotate_fn
+                    _vpn_rotate_fn(config)
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except Exception:
+                    pass
+            finally:
+                try:
+                    _vpn_state["pause"].clear()
+                except Exception:
+                    pass
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception:
+            pass
+
     interrupted = False
     try:
         # Block until all jobs are processed, checking browser health periodically
@@ -1353,6 +1444,12 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
             if stop_event.is_set():
                 break
             time.sleep(0.5)
+            try:
+                _maybe_rotate_vpn()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except Exception:
+                pass
     except KeyboardInterrupt:
         interrupted = True
         # Silence noisy retry logs BEFORE anything else to prevent flood

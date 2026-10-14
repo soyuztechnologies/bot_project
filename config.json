@@ -17,10 +17,11 @@
   },
 
   "vpn": {
-  "enabled": false,
+  "enabled": true,
   "provider": "nordvpn",
   "installation_dir": "C:\\Program Files\\NordVPN",
-  "verify_connection": true
+  "verify_connection": true,
+  "rotate_every_jobs": 20
 },
 
   "proxy": {

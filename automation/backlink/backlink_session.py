@@ -428,6 +428,17 @@ def start_parallel_backlink_sessions(sites, targets, config):
     )
 
     interrupted = False
+    # Batch-VPN rotation state: rotate the exit IP every N finished jobs.
+    # 0/off by default (config vpn.rotate_every_jobs) — zero behaviour change
+    # unless the user opts in. Rotation runs ONLY here, after the batch's
+    # browsers are closed, so no live session ever breaks mid-submit.
+    try:
+        from utils.vpn_manager import batch_rotation_every as _vpn_every
+        _vpn_every_jobs = _vpn_every(config)
+    except Exception:
+        _vpn_every_jobs = 0
+    _vpn_jobs_done = 0
+    _vpn_next_at = _vpn_every_jobs if _vpn_every_jobs > 0 else 0
     try:
         logger.info(f"Processing {len(all_jobs)} jobs in batches of {parallel}")
         for batch_no, batch in enumerate(chunked(all_jobs, parallel), start=1):
@@ -467,6 +478,23 @@ def start_parallel_backlink_sessions(sites, targets, config):
             except Exception:
                 pass
             logger.info(f"Batch {batch_no} done (sessions closed) — continuing to next batch")
+
+            # --- Batch-VPN rotation: safe point, no live browsers ---
+            try:
+                _vpn_jobs_done += len(batch)
+            except Exception:
+                pass
+            if _vpn_every_jobs > 0 and _vpn_next_at > 0 and _vpn_jobs_done >= _vpn_next_at:
+                _vpn_next_at += _vpn_every_jobs
+                if not stop_event.is_set():
+                    try:
+                        from utils.vpn_manager import rotate_vpn_connection as _vpn_rotate
+                        logger.info(f"Batch-VPN rotation after {_vpn_jobs_done} job(s)", extra={"action": "VPN_ROTATE", "status": "RUNNING"})
+                        _vpn_rotate(config)
+                    except (KeyboardInterrupt, SystemExit):
+                        raise
+                    except Exception:
+                        pass
 
     except KeyboardInterrupt:
         interrupted = True

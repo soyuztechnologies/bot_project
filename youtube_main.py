@@ -301,6 +301,17 @@ def main():
             logger.info(f"IP bouncing: {_proxy_describe(config)}")
         except Exception:
             pass
+
+        # Batch-VPN: connect once at run start when vpn.enabled=true.
+        # Never fatal — any failure only warns and continues on direct IP.
+        vpn_connected = False
+        try:
+            from utils.vpn_manager import connect_vpn as _connect_vpn
+            vpn_connected = bool(_connect_vpn())
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:
+            vpn_connected = False
  
         # -----------------------------------------------------
         # Start Parallel YouTube Sessions

@@ -739,6 +739,53 @@ def open_video_tab(
         except Exception as ddg_err:
             print(f"[DUCKDUCKGO] Direct URL navigation failed: {ddg_err}, falling back to tab click.")
 
+    # -----------------------------------------------------------------
+    # Yahoo: same fast-path idea — open the video vertical directly.
+    # Tab-click fails when Yahoo serves consent/bot-check pages (no nav
+    # tabs in DOM) or when the heavy results page outruns the 10s wait.
+    # Direct video URL bypasses both, mirroring the proven DDG approach.
+    # Falls through to tab click if direct navigation is blocked.
+    # -----------------------------------------------------------------
+    try:
+        _is_yahoo = "yahoo" in str(engine.get("url", "")).lower()
+    except Exception:
+        _is_yahoo = False
+    if _is_yahoo and keyword:
+        try:
+            yahoo_video_url = (
+                "https://video.search.yahoo.com/search/video?p="
+                + quote_plus(keyword)
+            )
+            print(f"[YAHOO] Navigating directly to video search: {yahoo_video_url}")
+            driver.get(yahoo_video_url)
+            random_sleep(
+                config["timing"]["sleepMin"],
+                config["timing"]["sleepMax"],
+                stop_event,
+            )
+            try:
+                if is_captcha_page(driver, stop_event=stop_event):
+                    print("[YAHOO] Verification detected. Retrying after backoff...")
+                    random_sleep(3, 6, stop_event)
+                    driver.get(yahoo_video_url)
+                    random_sleep(
+                        config["timing"]["sleepMin"],
+                        config["timing"]["sleepMax"],
+                        stop_event,
+                    )
+                    if is_captcha_page(driver, stop_event=stop_event):
+                        print("[YAHOO] Still blocked after retry, falling back to tab click.")
+                    else:
+                        print("[YAHOO] Video search page loaded successfully.")
+                        return True
+                else:
+                    print("[YAHOO] Video search page loaded successfully.")
+                    return True
+            except Exception:
+                pass
+        except Exception as yahoo_err:
+            print(f"[YAHOO] Direct URL navigation failed: {yahoo_err}, falling back to tab click.")
+
     try:
         print("Opening Videos tab...")
 

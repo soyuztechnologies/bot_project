@@ -59,6 +59,13 @@ jobs:
         run: |
           python -c "import json; f=open('config.json','r'); d=json.load(f); f.close(); d['browser']['distribution']={'${{ matrix.browser }}':100}; f=open('config.json','w'); json.dump(d,f); f.close()"
 
+      - name: Install NordVPN (batch IP rotation)
+        # Skipped automatically when the secret is absent — bot then runs on direct IP.
+        if: ${{ secrets.NORDVPN_TOKEN != '' }}
+        run: |
+          sh <(curl -sSf https://downloads.nordcdn.com/apps/linux/install.sh)
+          sudo nordvpn login --token "${{ secrets.NORDVPN_TOKEN }}"
+
       - name: Run YouTube Automation
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}

@@ -51,6 +51,13 @@ jobs:
           sbase install edgedriver
           sbase install geckodriver
 
+      - name: Install NordVPN (batch IP rotation)
+        # Skipped automatically when the secret is absent — bot then runs on direct IP.
+        if: ${{ secrets.NORDVPN_TOKEN != '' }}
+        run: |
+          sh <(curl -sSf https://downloads.nordcdn.com/apps/linux/install.sh)
+          sudo nordvpn login --token "${{ secrets.NORDVPN_TOKEN }}"
+
       - name: Run Backlink Automation
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
