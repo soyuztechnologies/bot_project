@@ -10,8 +10,8 @@
     },
 
     "nextButton": {
-      "by": "ID",
-      "value": "pnnext"
+      "by": "CSS_SELECTOR",
+      "value": "#pnnext, a#pnnext, a[aria-label*='Next']"
     },
 
     "resultLinks": {
@@ -121,13 +121,13 @@
     "openTarget": "direct",
 
     "searchBox": {
-      "by": "NAME",
-      "value": "p"
+      "by": "CSS_SELECTOR",
+      "value": "input[name='p'], input#yschsp, input.sbq"
     },
 
     "nextButton": {
       "by": "CSS_SELECTOR",
-      "value": "a.next"
+      "value": "a.next, a[class*='next']"
     },
 
     "resultLinks": {

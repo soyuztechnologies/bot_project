@@ -60,7 +60,7 @@
 
   "search": {
     "engines": ["duckduckgo","bing","google","yahoo"],
-    "maxPages": 10
+    "maxPages": 3
   },
 
   "website": {

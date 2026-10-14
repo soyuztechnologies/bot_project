@@ -151,9 +151,34 @@ def extract_result_url(href: str) -> str:
 
     href = href.strip()
 
-    # Protocol-relative links, e.g. "//duckduckgo.com/l/?uddg=..."
+    # 1. Protocol-relative links, e.g. "//duckduckgo.com/l/?uddg=..."
     if href.startswith("//"):
         href = "https:" + href
+
+    # 2. Yahoo redirect URLs encode the destination URL in the path:
+    # e.g. https://r.search.yahoo.com/.../RU=https%3a%2f%2fwww.domain.com%2f.../RK=2/...
+    if "RU=" in href:
+        try:
+            idx = href.find("RU=")
+            if idx != -1:
+                raw_ru = href[idx + 3:]
+                for end_delim in ("/RK=", "/RS=", "/", "&", "?"):
+                    if end_delim in raw_ru:
+                        raw_ru = raw_ru.split(end_delim, 1)[0]
+                decoded_ru = unquote(raw_ru)
+                if decoded_ru.startswith(("http://", "https://")):
+                    return decoded_ru
+        except Exception:
+            pass
+
+    # 3. Google/DuckDuckGo relative redirect URLs
+    if href.startswith("/"):
+        if href.startswith("/url?") or href.startswith("/search?"):
+            href = "https://www.google.com" + href
+        elif href.startswith("/l/?"):
+            href = "https://duckduckgo.com" + href
+        else:
+            href = "https://www.google.com" + href
 
     parsed = urlparse(href)
 
@@ -161,13 +186,16 @@ def extract_result_url(href: str) -> str:
         return ""
 
     query_values = parse_qs(parsed.query)
- 
-    # Google / Yahoo / DuckDuckGo
-    for key in ("q", "url", "uddg"):
-        value = query_values.get(key, [""])[0]
- 
-        if value.startswith(("http://", "https://")):
-            return unquote(value)
+
+    # 4. Google / DuckDuckGo / Yahoo / generic redirect parameters
+    # Values can be URL-encoded (e.g. https%3A%2F%2F...), so unquote before checking scheme
+    for key in ("q", "url", "uddg", "dest", "target", "r", "u"):
+        for raw_val in query_values.get(key, []):
+            if not raw_val:
+                continue
+            val = unquote(raw_val)
+            if val.startswith(("http://", "https://")):
+                return val
  
     # Bing redirect URL
     u = query_values.get("u", [""])[0]
@@ -195,11 +223,15 @@ def extract_result_url(href: str) -> str:
  
 def is_target_url(url: str, target_domain: str) -> bool:
     """Return True when a URL belongs to the configured target domain."""
- 
+    if not url:
+        return False
+    if not url.startswith(("http://", "https://", "//")):
+        url = "https://" + url
+
     parsed = urlparse(url)
     hostname = (parsed.hostname or "").lower().removeprefix("www.")
     target = normalize_domain(target_domain)
- 
+
     return hostname == target or hostname.endswith(f".{target}")
  
  
@@ -229,6 +261,39 @@ def _is_browser_alive_se(driver, stop_event=None) -> bool:
         return False
  
  
+def _dismiss_search_engine_consent(driver, stop_event=None) -> None:
+    """Dismiss common cookie / consent modals on Google / Yahoo / Bing if present."""
+    if stop_event and stop_event.is_set():
+        return
+    try:
+        consent_selectors = [
+            "//button[@id='L2AGLb']",  # Google "Accept all" button ID
+            "//button[contains(@aria-label, 'Accept all') or contains(@aria-label, 'Reject all')]",
+            "//form[contains(@action, 'consent')]//button",
+            "//button[@name='agree']",  # Yahoo consent button
+            "//button[contains(@class, 'agree') or contains(@class, 'accept')]",
+            "//button[contains(translate(.,'ACCEPT','accept'),'accept all')]",
+            "//button[contains(translate(.,'AGREE','agree'),'i agree')]",
+        ]
+        for xpath in consent_selectors:
+            if stop_event and stop_event.is_set():
+                return
+            try:
+                elems = driver.find_elements(By.XPATH, xpath)
+                for el in elems[:1]:
+                    if el.is_displayed():
+                        try:
+                            el.click()
+                        except Exception:
+                            driver.execute_script("arguments[0].click();", el)
+                        time.sleep(1)
+                        return
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
 def open_search_engine(driver, engine: dict, session_logger=None, stop_event=None) -> None:
     """
     Open the selected search engine.
@@ -243,6 +308,7 @@ def open_search_engine(driver, engine: dict, session_logger=None, stop_event=Non
         raise EngineConfigError(f"Search engine missing 'url': {engine}")
     try:
         driver.get(url)
+        _dismiss_search_engine_consent(driver, stop_event)
     except EngineConfigError:
         raise
     except BrowserDiedError:
@@ -1370,22 +1436,48 @@ def next_page(driver, engine: dict, stop_event=None) -> bool:
     Returns:
         bool: True if next page exists.
     """
- 
-    try:
-        if "nextButton" not in engine:
-            return False
- 
+    if stop_event and stop_event.is_set():
+        return False
+
+    button = None
+    if "nextButton" in engine:
         locator = engine["nextButton"]
- 
-        button = wait_for_element(driver, locator, timeout=5)
- 
+        try:
+            button = wait_for_element(driver, locator, timeout=5)
+        except Exception:
+            button = None
+
+    if not button:
+        # Fallback selectors for Google, Yahoo, Bing, DDG
+        fallback_xpaths = [
+            "//a[@id='pnnext']",
+            "//a[contains(@aria-label, 'Next') or contains(@aria-label, 'next')]",
+            "//a[contains(@class, 'next') or contains(@class, 'sb_pagN')]",
+            "//a[normalize-space()='Next' or normalize-space()='next' or normalize-space()='Next >' or normalize-space()='Next »']",
+            "//div[contains(@class,'nav-link')]//input[@type='submit']",
+        ]
+        for xp in fallback_xpaths:
+            if stop_event and stop_event.is_set():
+                return False
+            try:
+                found = driver.find_elements(By.XPATH, xp)
+                for el in found:
+                    if el.is_displayed():
+                        button = el
+                        break
+                if button:
+                    break
+            except Exception:
+                continue
+
+    if not button:
+        return False
+
+    try:
         scroll_and_click(driver, button, stop_event)
         random_sleep(1, 2, stop_event)
- 
         return True
- 
     except Exception:
- 
         return False
  
  
