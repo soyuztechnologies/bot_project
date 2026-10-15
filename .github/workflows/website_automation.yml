@@ -60,11 +60,18 @@ jobs:
           python -c "import json; f=open('config.json','r'); d=json.load(f); f.close(); d['browser']['distribution']={'${{ matrix.browser }}':100}; f=open('config.json','w'); json.dump(d,f); f.close()"
 
       - name: Install NordVPN (batch IP rotation)
-        # Skipped automatically when the secret is absent — bot then runs on direct IP.
-        if: ${{ secrets.NORDVPN_TOKEN != '' }}
+        # No 'if:' guard here: some runners reject secrets.* in step-if
+        # expressions. Missing secret is handled inside bash instead —
+        # bot then runs on direct IP.
+        env:
+          NORDVPN_TOKEN: ${{ secrets.NORDVPN_TOKEN }}
         run: |
+          if [ -z "$NORDVPN_TOKEN" ]; then
+            echo "NORDVPN_TOKEN not set - continuing on direct IP."
+            exit 0
+          fi
           sh <(curl -sSf https://downloads.nordcdn.com/apps/linux/install.sh)
-          sudo nordvpn login --token "${{ secrets.NORDVPN_TOKEN }}"
+          sudo nordvpn login --token "$NORDVPN_TOKEN"
 
       - name: Run Website Automation
         env:
