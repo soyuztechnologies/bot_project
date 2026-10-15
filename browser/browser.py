@@ -63,16 +63,22 @@ def prepare_browser_drivers(config):
     """
     Prepare browser drivers required by the configuration.
     """
- 
-    browsers = (
-        config.get("browser", {}).get("browsers")
-        or config.get("browser", {}).get("distribution")
-        or []
-    )
- 
+
+    browser_cfg = config.get("browser", {}) if isinstance(config, dict) else {}
+    dist = browser_cfg.get("distribution")
+    if isinstance(dist, dict):
+        browsers = [k for k, v in dist.items() if float(v or 0) > 0]
+    elif isinstance(dist, (list, tuple)):
+        browsers = list(dist)
+    else:
+        browsers = browser_cfg.get("browsers") or [browser_cfg.get("name", "chrome")]
+
+    if not browsers:
+        browsers = ["chrome"]
+
     if isinstance(browsers, str):
         browsers = [browsers]
- 
+
     python_exe = sys.executable or "python"
 
     for browser in browsers:
@@ -115,34 +121,34 @@ def prepare_browser_drivers(config):
             raise BrowserStartupError(f"Driver install OSError for {browser}: {e}", browser=browser, cause=e) from e
         except Exception as e:
             raise BrowserStartupError(f"Driver install failed for {browser}: {e}", browser=browser, cause=e) from e
- 
- 
+
+
 def get_chromium_args():
     """
     Common Chromium arguments.
     """
- 
+
     return [
         "--mute-audio",
         "--disable-notifications",
     ]
- 
- 
-def setup_browser(config, browser_name, proxy_url=None):
+
+
+def setup_browser(config, browser_name="chrome", proxy_url=None):
     """
     Start and configure a browser instance.
     Caller (run_session) handles fallback to 'chrome' if this fails.
 
     Args:
         config: project configuration dict.
-        browser_name: chrome / edge / firefox / opera / brave.
+        browser_name: chrome / edge / firefox / opera / brave (defaults to chrome).
         proxy_url: optional proxy for IP bouncing. Format accepted by
             SeleniumBase Driver: "SERVER:PORT", "USER:PASS@SERVER:PORT",
             or full URL "http(s)://USER:PASS@HOST:PORT" / "socks5://...".
             None/empty = direct connection.
     """
 
-    browser_name = str(browser_name).lower().strip()
+    browser_name = str(browser_name).lower().strip() if browser_name else "chrome"
 
     browser_config = config.get("browser", {})
 

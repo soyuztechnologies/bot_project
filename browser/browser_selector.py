@@ -21,10 +21,10 @@ def select_browser(config):
     browser_cfg = config.get("browser", {}) if isinstance(config, dict) else {}
     distribution = browser_cfg.get("distribution")
 
-    # Backward compatibility
+    # Backward compatibility / fallback
     if not distribution:
-        browsers = browser_cfg.get("browsers", ["chrome"]) or ["chrome"]
-        return str(random.choice(browsers)).strip().lower()
+        browsers = browser_cfg.get("browsers") or [browser_cfg.get("name", "chrome")]
+        return str(random.choice(browsers)).strip().lower() if browsers else "chrome"
 
     # Filter zero-weight entries to avoid selecting disabled browsers
     try:
@@ -32,8 +32,8 @@ def select_browser(config):
     except Exception:
         filtered = []
     if not filtered:
-        # Fallback to browsers list if distribution has no positive weights
-        browsers = browser_cfg.get("browsers", ["chrome"]) or ["chrome"]
+        # Fallback if distribution has no positive weights
+        browsers = browser_cfg.get("browsers") or [browser_cfg.get("name", "chrome")]
         return str(random.choice(browsers)).strip().lower() if browsers else "chrome"
     browser_names, browser_weights = zip(*filtered)
     browser_names = list(browser_names)
