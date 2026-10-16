@@ -1,6 +1,7 @@
 import ipaddress
 import json
 import logging
+import shutil
 import subprocess
 import sys
 import time
@@ -56,7 +57,23 @@ def _load_vpn_config():
 
 
 def _get_nordvpn_dir():
-    """Return the configured NordVPN installation directory."""
+    """Return the directory holding the NordVPN CLI.
+
+    Linux (GitHub Actions runners): the install step puts a real `nordvpn`
+    CLI on PATH (usually /usr/bin) — use it, ignore the Windows-only
+    installation_dir from config.json.
+    Windows: fall back to the configured installation_dir probe.
+    """
+
+    if not sys.platform.startswith("win"):
+        found = shutil.which("nordvpn")
+        if found:
+            return Path(found).resolve().parent
+        raise FileNotFoundError(
+            "nordvpn CLI not found on PATH. "
+            "The workflow 'Install NordVPN' step probably failed or was skipped "
+            "(NORDVPN_TOKEN secret missing?). Continuing without VPN."
+        )
 
     vpn_config = _load_vpn_config()
 

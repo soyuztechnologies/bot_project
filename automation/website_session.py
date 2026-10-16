@@ -516,6 +516,20 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
     current_search_keyword = original_keyword
     fallback_used = False
     fallback_attempted = False
+    # Google-first-fallback: generic keywords never rank the target on
+    # Google (log-proven: original always misses, "+ anubhav training"
+    # hits). Google jobs skip the doomed original search and start with
+    # the fallback keyword directly — same runs, ~1 min saved per job.
+    # Other engines keep the original-first order.
+    try:
+        if str(engine_name).lower() == "google":
+            _extra = (config.get("website", {}) or {}).get("extra_keyword", "") or ""
+            _fb = build_fallback_keyword(original_keyword, _extra.strip())
+            if _fb:
+                current_search_keyword = _fb
+                fallback_attempted = True
+    except Exception:
+        pass
     captcha_engines = []
     status = None
     start_time = time.time()
@@ -893,6 +907,11 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                     return
                 extra_keyword = config.get("website", {}).get("extra_keyword", "").strip()
                 fallback_keyword = build_fallback_keyword(original_keyword, extra_keyword)
+                # Google jobs already started ON the fallback keyword
+                # (google-first-fallback) — re-searching it would be a
+                # duplicate query, so skip straight to engine verdict.
+                if fallback_keyword and fallback_keyword == current_search_keyword:
+                    fallback_keyword = None
                 if fallback_keyword:
                     if stop_event.is_set():
                         status = "INTERRUPTED"

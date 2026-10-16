@@ -54,7 +54,7 @@
 
   "search": {
     "engines": ["duckduckgo","bing","google","yahoo"],
-    "maxPages": 3
+    "maxPages": 5
   },
 
   "website": {
