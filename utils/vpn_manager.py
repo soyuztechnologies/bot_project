@@ -224,7 +224,18 @@ def _run_nordvpn_command(action, timeout):
     Uses Popen + communicate so KeyboardInterrupt immediately kills
     the child instead of hanging until the GUI is manually closed.
     Never leaves an orphaned `NordVPN.exe` blocking the console.
+
+    `action` may be a single token ("connect") or a list of tokens
+    (["connect", "de"]). The CLI only accepts real subcommands
+    ("connect" / "disconnect" / "status" / "login"); the legacy
+    "-c" / "-d" short flags were removed in NordVPN CLI v6 and
+    now fail with "flag provided but not defined".
     """
+
+    if isinstance(action, (list, tuple)):
+        argv = [str(token) for token in action]
+    else:
+        argv = [str(action)]
 
     nordvpn_dir = _get_nordvpn_dir()
     cli_path = _find_nordvpn_cli(nordvpn_dir)
@@ -232,7 +243,7 @@ def _run_nordvpn_command(action, timeout):
     proc = None
     try:
         proc = subprocess.Popen(
-            [str(cli_path), action],
+            [str(cli_path), *argv],
             cwd=str(nordvpn_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -263,10 +274,11 @@ def _run_nordvpn_command(action, timeout):
                 stdout, stderr = "", ""
             detail = f" {partial}" if partial else ""
             raise RuntimeError(
-                f"NordVPN command timed out after {timeout} seconds: {action}.{detail}"
+                f"NordVPN command timed out after {timeout} seconds: "
+                f"{' '.join(argv)}.{detail}"
             ) from exc
         return subprocess.CompletedProcess(
-            args=[str(cli_path), action],
+            args=[str(cli_path), *argv],
             returncode=proc.returncode,
             stdout=stdout or "",
             stderr=stderr or "",
@@ -284,42 +296,143 @@ def _run_nordvpn_command(action, timeout):
         raise
     except OSError as exc:
         raise RuntimeError(
-            f"Failed to execute NordVPN command '{action}': {exc}"
+            f"Failed to execute NordVPN command '{' '.join(argv)}': {exc}"
         ) from exc
 
 
 def _is_nordlynx_active():
-    """Return True when NordLynx has an active default route."""
+    """Return True/False/None for the VPN tunnel state.
 
-    command = [
-        "powershell",
-        "-NoProfile",
-        "-Command",
-        (
-            "Get-NetRoute "
-            "-InterfaceAlias 'NordLynx' "
-            "-DestinationPrefix '0.0.0.0/0' "
-            "-ErrorAction SilentlyContinue | "
-            "Where-Object {$_.State -eq 'Alive'} | "
-            "Select-Object -First 1"
-        ),
-    ]
+    True  = a VPN tunnel with a default route is definitely up.
+    False = no VPN tunnel is definitely up.
+    None  = state could not be determined (unknown).
+
+    The old implementation only ever queried Windows PowerShell, so on
+    the Linux GitHub Actions runners it always returned False. That made
+    `disconnect_vpn()` believe the tunnel was already down and skip the
+    real disconnect, which is why the IP never rotated between jobs.
+    """
+
+    if sys.platform.startswith("win"):
+        command = [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            (
+                "Get-NetRoute "
+                "-InterfaceAlias 'NordLynx' "
+                "-DestinationPrefix '0.0.0.0/0' "
+                "-ErrorAction SilentlyContinue | "
+                "Where-Object {$_.State -eq 'Alive'} | "
+                "Select-Object -First 1"
+            ),
+        ]
+
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            return None
+        except OSError:
+            return None
+        except KeyboardInterrupt:
+            raise
+        except Exception:
+            return None
+
+        if result.returncode != 0:
+            return None
+
+        return bool((result.stdout or "").strip())
+
+    # Linux / macOS: look for the tunnel interface.
+    interface_names = ("nordlynx", "nordvpn", "tun0", "wg0", "utun")
 
     try:
         result = subprocess.run(
-            command,
+            ["ip", "-o", "link", "show"],
             capture_output=True,
             text=True,
             timeout=10,
         )
-    except (subprocess.TimeoutExpired, OSError):
-        return False
+    except subprocess.TimeoutExpired:
+        return None
+    except OSError:
+        result = None
     except KeyboardInterrupt:
         raise
     except Exception:
+        result = None
+
+    if result is not None and result.returncode == 0:
+        output = (result.stdout or "").lower()
+        for name in interface_names:
+            if f": {name}" in output or f" {name}:" in output:
+                return True
         return False
 
-    return result.returncode == 0 and bool((result.stdout or "").strip())
+    # `ip` not available (or not permitted): try NetworkManager.
+    try:
+        result = subprocess.run(
+            ["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    except OSError:
+        return None
+    except KeyboardInterrupt:
+        raise
+    except Exception:
+        return None
+
+    if result.returncode == 0:
+        output = (result.stdout or "").lower()
+        for name in interface_names:
+            if name in output:
+                return True
+        return False
+
+    return None
+
+
+def _nordvpn_connected():
+    """Ask the NordVPN CLI for its connection state.
+
+    Returns True / False / None (unknown). This is authoritative on
+    every platform because it uses the CLI itself rather than OS
+    specific network tooling.
+    """
+
+    try:
+        result = _run_nordvpn_command("status", timeout=20)
+    except KeyboardInterrupt:
+        raise
+    except Exception:
+        return None
+
+    output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+
+    if not output.strip():
+        return None
+
+    # "disconnected" contains "connected" - always test it first.
+    if "status: disconnected" in output or "not connected" in output:
+        return False
+    if "status: connected" in output:
+        return True
+    if "disconnected" in output:
+        return False
+    if "connected" in output:
+        return True
+
+    return None
 
 
 def get_public_ip():
@@ -421,6 +534,17 @@ def rotate_vpn_connection(config=None) -> bool:
         except Exception:
             pass
 
+        # The daemon needs a moment to drop the tunnel. Reconnecting too
+        # early makes `connect` a no-op ("already connected") and the exit
+        # IP never rotates.
+        for _ in range(10):
+            try:
+                _interruptible_sleep(2)
+            except KeyboardInterrupt:
+                raise
+            if _is_nordlynx_active() is not True and _nordvpn_connected() is not True:
+                break
+
         try:
             _interruptible_sleep(3)
         except KeyboardInterrupt:
@@ -497,7 +621,7 @@ def connect_vpn():
 
         print(f"[VPN] Current public IP: {original_ip}", flush=True)
 
-        if _is_nordlynx_active():
+        if _is_nordlynx_active() is True or _nordvpn_connected() is True:
             print("[VPN] NordLynx is already active.", flush=True)
             return False
 
@@ -519,7 +643,15 @@ def connect_vpn():
         verify_delay = _cfg_int("verify_delay", 5, 1, 30)
         disconnect_timeout = _cfg_int("disconnect_timeout", DISCONNECT_TIMEOUT)
 
-        result = _run_nordvpn_command("-c", timeout=connect_timeout)
+        # NordVPN CLI v3+ uses subcommands, not the legacy "-c" flag
+        # (removed in v6: "flag provided but not defined: -c").
+        connect_args = ["connect"]
+
+        country = str(vpn_config.get("country", "") or "").strip()
+        if country:
+            connect_args.append(country)
+
+        result = _run_nordvpn_command(connect_args, timeout=connect_timeout)
 
         if result.returncode != 0:
             error = (result.stderr or "").strip() or (result.stdout or "").strip()
@@ -567,7 +699,9 @@ def connect_vpn():
             print("[VPN] Connection could not be verified.", flush=True)
             print("[VPN] Attempting automatic VPN disconnect...", flush=True)
 
-            disconnect_result = _run_nordvpn_command("-d", timeout=disconnect_timeout)
+            disconnect_result = _run_nordvpn_command(
+                "disconnect", timeout=disconnect_timeout
+            )
 
             if disconnect_result.returncode != 0:
                 error = (
@@ -628,7 +762,10 @@ def disconnect_vpn():
 
         print(f"[VPN] Current public IP: {vpn_ip}", flush=True)
 
-        if not _is_nordlynx_active():
+        tunnel_state = _is_nordlynx_active()
+        cli_state = _nordvpn_connected()
+
+        if tunnel_state is False and cli_state is False:
             print("[VPN] NordLynx is already disconnected.", flush=True)
             return False
 
@@ -645,7 +782,7 @@ def disconnect_vpn():
         verify_attempts = _cfg_int("verify_attempts", 6, 1, 12)
         verify_delay = _cfg_int("verify_delay", 5, 1, 30)
 
-        result = _run_nordvpn_command("-d", timeout=disconnect_timeout)
+        result = _run_nordvpn_command("disconnect", timeout=disconnect_timeout)
 
         if result.returncode != 0:
             error = (result.stderr or "").strip() or (result.stdout or "").strip()
