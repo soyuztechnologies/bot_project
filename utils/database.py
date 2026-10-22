@@ -256,10 +256,12 @@ def initialize_database():
         _db_available = False
 
 
-def create_automation_run(run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine=None, flow_type=None, user_name=None):
+def create_automation_run(run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine=None, flow_type=None, user_name=None, assigned_engine=None):
     """
     Insert a new automation run document. run_id stored as string.
     flow_type is YouTube-only ('youtube_first' / 'search_engine_first').
+    assigned_engine keeps the engine the job was originally assigned to, even when
+    a cross-engine fallback ends up finding the target on a different engine.
     """
     try:
         get_runs_collection().insert_one(
@@ -272,6 +274,7 @@ def create_automation_run(run_id, automation_type, original_keyword, search_keyw
                 "browser_mode": browser_mode,
                 "target": target,
                 "search_engine": search_engine,
+                "assigned_engine": assigned_engine if assigned_engine is not None else search_engine,
                 "flow_type": flow_type,
                 "user_name": user_name,
                 "captcha_encountered": False,
@@ -287,7 +290,7 @@ def create_automation_run(run_id, automation_type, original_keyword, search_keyw
         logger.error(f"Failed to create automation run record for {run_id}: {e}")
 
 
-def update_automation_run(run_id, finished_at, status, success_count, failure_count, retry_count, fallback_used=False, search_keyword=None, search_engine=None, browser_mode=None, flow_type=None, captcha_encountered=None):
+def update_automation_run(run_id, finished_at, status, success_count, failure_count, retry_count, fallback_used=False, search_keyword=None, search_engine=None, browser_mode=None, flow_type=None, captcha_encountered=None, assigned_engine=None):
     """
     Update a run document. None values leave existing fields untouched.
     """
@@ -308,6 +311,8 @@ def update_automation_run(run_id, finished_at, status, success_count, failure_co
         update["search_keyword"] = search_keyword
     if search_engine is not None:
         update["search_engine"] = search_engine
+    if assigned_engine is not None:
+        update["assigned_engine"] = assigned_engine
     if browser_mode is not None:
         update["browser_mode"] = browser_mode
     if flow_type is not None:

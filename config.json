@@ -54,7 +54,9 @@
 
   "search": {
     "engines": ["duckduckgo","bing","google","yahoo"],
-    "maxPages": 5
+    "maxPages": 5,
+    "enable_engine_fallback": true,
+    "fallback_engine_priority": []
   },
 
   "website": {

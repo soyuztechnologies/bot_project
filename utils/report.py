@@ -89,7 +89,15 @@ class RunLogger:
                     entry["engine"] = item.get("site", item.get("engine", "unknown"))
                 else:
                     entry["site"] = item.get("site", item.get("engine", "unknown"))
-                
+
+                # Engine the job was originally assigned to. When cross-engine
+                # fallback is enabled this can differ from the engine that
+                # actually produced the target, so both are reported.
+                assigned = item.get("assignedEngine") or item.get("assigned_engine")
+                if not assigned:
+                    assigned = item.get("engine", item.get("site", "unknown"))
+                entry["assignedEngine"] = assigned
+                 
                 entry["url"] = item.get("url", "")
                 self.results.append(entry)
 
@@ -112,6 +120,14 @@ class RunLogger:
                 continue
             by_target[r["target"]] = by_target.get(r["target"], 0) + 1
 
+        by_engine = {}
+        by_assigned_engine = {}
+        for r in self.results:
+            eng = r.get("engine", "unknown")
+            by_engine[eng] = by_engine.get(eng, 0) + 1
+            assigned = r.get("assignedEngine", eng)
+            by_assigned_engine[assigned] = by_assigned_engine.get(assigned, 0) + 1
+
         finished_at = datetime.now(timezone.utc)
         return {
             "startedAt": self.started_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -121,6 +137,8 @@ class RunLogger:
             "byStatus": by_status,
             "byBrowser": by_browser,
             "byTarget": by_target,
+            "byEngine": by_engine,
+            "byAssignedEngine": by_assigned_engine,
             "automationType": self.automation_type,
         }
 
@@ -149,6 +167,7 @@ class RunLogger:
             <tr>
                 <td>{escape_html(r.get('browser', ''))}</td>
                 <td>{escape_html(r.get('engine', ''))}</td>
+                <td>{escape_html(r.get('assignedEngine', ''))}</td>
                 <td>{target_link}</td>
                 <td>{escape_html(r.get('keyword', ''))}</td>
                 <td style="color:{color};font-weight:600">{escape_html(r['status'])}</td>
@@ -180,7 +199,10 @@ class RunLogger:
             
         target_breakdown_rows = "".join(f'<li><a href="{escape_html(url)}">{escape_html(url)}</a> &mdash; {count}</li>' for url, count in summary["byTarget"].items())
 
-        table_headers = "<tr><th>Browser</th><th>Engine</th><th>Target</th><th>Keyword</th><th>Status</th><th>Message</th><th>Duration</th><th>Captcha Encountered</th><th>Automation Type</th></tr>" if is_web_yt else "<tr><th>Browser</th><th>Site</th><th>URL</th><th>Target</th><th>Keyword</th><th>Status</th><th>Message</th><th>Duration</th><th>Captcha Encountered</th></tr>"
+        engine_rows = "".join(f'<li><strong>{escape_html(engine)}</strong> &mdash; {count}</li>' for engine, count in summary.get("byEngine", {}).items())
+        assigned_engine_rows = "".join(f'<li><strong>{escape_html(engine)}</strong> &mdash; {count}</li>' for engine, count in summary.get("byAssignedEngine", {}).items())
+
+        table_headers = "<tr><th>Browser</th><th>Engine</th><th>Assigned Engine</th><th>Target</th><th>Keyword</th><th>Status</th><th>Message</th><th>Duration</th><th>Captcha Encountered</th><th>Automation Type</th></tr>" if is_web_yt else "<tr><th>Browser</th><th>Site</th><th>URL</th><th>Target</th><th>Keyword</th><th>Status</th><th>Message</th><th>Duration</th><th>Captcha Encountered</th></tr>"
 
         html = f'''<!doctype html>
 <html>
@@ -211,6 +233,12 @@ class RunLogger:
 
   <h2>Summary by browser</h2>
   <ul>{browser_rows}</ul>
+
+  <h2>Summary by engine (result source)</h2>
+  <ul>{engine_rows}</ul>
+
+  <h2>Summary by assigned engine</h2>
+  <ul>{assigned_engine_rows}</ul>
 
   <h2>By target link</h2>
   <ul>{target_breakdown_rows}</ul>

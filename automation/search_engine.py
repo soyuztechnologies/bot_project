@@ -664,6 +664,71 @@ def is_captcha_page(driver, engine_name=None, stop_event=None):
         return False
  
  
+def is_captcha_page_strict(driver, engine_name=None, stop_event=None):
+    """
+    High-confidence CAPTCHA check, used inside the result-scan loop.
+    Only URL markers and unambiguous challenge wording count here, so a normal
+    result page that happens to contain words like "images not loading" is never
+    misclassified as a challenge page.
+    """
+    if stop_event is not None:
+        try:
+            if stop_event.is_set():
+                return False
+        except Exception:
+            pass
+    try:
+        try:
+            current_url = (driver.current_url or "").lower()
+        except Exception:
+            current_url = ""
+        url_indicators = [
+            "/sorry/",
+            "captcha",
+            "challenge",
+            "verify-you-are-human",
+            "areyouhuman",
+            "/interstitial/",
+            "/anomaly/",
+        ]
+        if any(ind in current_url for ind in url_indicators):
+            return True
+
+        try:
+            page_title = (driver.title or "").lower()
+        except Exception:
+            page_title = ""
+        if "anomaly" in page_title or "captcha" in page_title:
+            return True
+
+        try:
+            body_elem = driver.find_element(By.TAG_NAME, "body")
+            visible_text = (body_elem.text or "").lower()
+        except Exception:
+            visible_text = ""
+
+        strong_text = (
+            "one last step",
+            "verify you are human",
+            "verify that you are a human",
+            "please solve the challenge",
+            "complete the following challenge",
+            "our systems have detected unusual traffic",
+            "unusual traffic from your computer",
+            "please complete the security check",
+            "confirm you are human",
+            "human verification",
+            "automated requests",
+            "we've detected unusual activity",
+        )
+        for ind in strong_text:
+            if ind in page_title or ind in visible_text:
+                return True
+        return False
+    except Exception:
+        return False
+ 
+ 
 def open_video_tab(
     driver,
     engine: dict,
@@ -1529,7 +1594,7 @@ def next_page(driver, engine: dict, stop_event=None) -> bool:
  
  
 def find_target_website(
-    driver, engine: dict, target_domain: str, max_pages: int, stop_event=None, session_logger=None
+    driver, engine: dict, target_domain: str, max_pages: int, stop_event=None, session_logger=None, engine_name=None
 ) -> bool:
     """
     Find the target website in search results. Robust: any page/link error
@@ -1571,6 +1636,20 @@ def find_target_website(
                 except Exception:
                     pass
             return False
+
+        # Early CAPTCHA detection: a challenge page that appears while paginating
+        # aborts the scan immediately instead of walking all max_pages of it.
+        if engine_name:
+            try:
+                if is_captcha_page_strict(driver, engine_name, stop_event):
+                    if session_logger:
+                        try:
+                            session_logger.warning(f"Captcha detected on {engine_name} while scanning results (page {page+1})", extra={'action': 'CAPTCHA_DETECTED', 'status': 'FAILED', 'engine': engine_name})
+                        except Exception:
+                            pass
+                    return False
+            except Exception:
+                pass
 
         # Get result links - tolerate timeout/no results
         try:
@@ -1731,7 +1810,7 @@ def find_target_website(
     return False
  
  
-def retry_operation_search(driver, engine, target_domain, max_pages, stop_event, session_logger, retries=1, delay=3):
+def retry_operation_search(driver, engine, target_domain, max_pages, stop_event, session_logger, retries=1, delay=3, engine_name=None):
     """
     Retries the find_target_website operation. Isolated: exceptions never crash caller.
     Note: find_target_website already paginates through max_pages, so re-scanning
@@ -1755,7 +1834,7 @@ def retry_operation_search(driver, engine, target_domain, max_pages, stop_event,
             return False, actual_retry_count
 
         try:
-            found = find_target_website(driver, engine, target_domain, max_pages, stop_event, session_logger)
+            found = find_target_website(driver, engine, target_domain, max_pages, stop_event, session_logger, engine_name)
         except Exception as e:
             found = False
             if stop_event and stop_event.is_set():

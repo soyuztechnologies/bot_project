@@ -435,9 +435,48 @@ def _click_internal_links(driver, config, stop_event, session_logger):
             pass
 
 
+# Runtime health per search engine: how often an engine actually produced the
+# target website during this run. Used to order the cross-engine fallback so
+# engines that are currently captcha-blocked are tried last instead of at random.
+_ENGINE_HEALTH = {}
+_ENGINE_HEALTH_LOCK = threading.Lock()
+
+
+def _record_engine_result(engine_name, success):
+    """Track per-engine success/failure for fallback ordering."""
+    if not engine_name:
+        return
+    try:
+        with _ENGINE_HEALTH_LOCK:
+            entry = _ENGINE_HEALTH.setdefault(str(engine_name).lower(), {"ok": 0, "fail": 0})
+            if success:
+                entry["ok"] += 1
+            else:
+                entry["fail"] += 1
+    except Exception:
+        pass
+
+
+def _engine_success_rate(engine_name):
+    """Observed success rate for an engine (0.0-1.0). Unknown engines score 0.5."""
+    try:
+        with _ENGINE_HEALTH_LOCK:
+            entry = _ENGINE_HEALTH.get(str(engine_name).lower())
+            if not entry:
+                return 0.5
+            total = entry["ok"] + entry["fail"]
+            if total <= 0:
+                return 0.5
+            return entry["ok"] / total
+    except Exception:
+        return 0.5
+
+
 def _get_fallback_engine_order(config, search_engines, all_engine_names, initial_engine_name, initial_engine):
     """
-    Build ordered fallback list: start with assigned engine, then remaining engines shuffled.
+    Build ordered fallback list: start with assigned engine, then remaining engines
+    ordered by observed success rate (desc). Config `search.fallback_engine_priority`
+    (optional list) takes precedence over the runtime health score.
     Future-proof: works with any browsers/distribution and any search engines added later.
     Filters missing engines and case-insensitive matches.
     """
@@ -449,7 +488,14 @@ def _get_fallback_engine_order(config, search_engines, all_engine_names, initial
             ordered_names = [initial_engine_name] + [n for n in all_engine_names if str(n).lower() != str(initial_engine_name).lower()]
             if len(ordered_names) > 1:
                 remaining = ordered_names[1:]
-                random.shuffle(remaining)
+                priority = [str(p).lower() for p in (config.get("search", {}).get("fallback_engine_priority") or [])]
+                if priority:
+                    def _prio(n):
+                        low = str(n).lower()
+                        return priority.index(low) if low in priority else len(priority)
+                    remaining.sort(key=lambda n: (_prio(n), -_engine_success_rate(n)))
+                else:
+                    remaining.sort(key=lambda n: -_engine_success_rate(n))
                 ordered_names = [ordered_names[0]] + remaining
             fallback = []
             for n in ordered_names:
@@ -514,6 +560,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
 
     original_keyword = keyword
     current_search_keyword = original_keyword
+    assigned_engine_name = engine_name
     fallback_used = False
     fallback_attempted = False
     # Google-first-fallback: generic keywords never rank the target on
@@ -559,7 +606,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
 
     # Create initial session record in the database - never let DB failure kill session
     user_name = config.get("user_name", "unknown")
-    _safe_create_run(run_id, automation_type, original_keyword, current_search_keyword, browser_mode, target, engine_name, user_name=user_name)
+    _safe_create_run(run_id, automation_type, original_keyword, current_search_keyword, browser_mode, target, engine_name, user_name=user_name, assigned_engine=assigned_engine_name)
 
     try:
         if stop_event.is_set():
@@ -670,9 +717,13 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         # After all engines exhausted with original keyword, try fallback keyword across all engines
         # If still CAPTCHA on all, count as FAILED/not found and close browser cleanly
         # -------------------------------------------------
-        # USER REQUEST: Comment out fallback engine usage logic for accurate report
-        # fallback_order = _get_fallback_engine_order(config, search_engines, all_engine_names, engine_name, engine)
-        fallback_order = [(engine_name, engine)] # Only use the primary selected engine
+        # Cross-engine fallback: the assigned engine is always tried first, then the
+        # remaining engines (ordered by observed success rate) until the target is
+        # found or every engine is exhausted. Toggle: search.enable_engine_fallback.
+        if config.get("search", {}).get("enable_engine_fallback", True):
+            fallback_order = _get_fallback_engine_order(config, search_engines, all_engine_names, engine_name, engine)
+        else:
+            fallback_order = [(engine_name, engine)] # Only use the primary selected engine
         try:
             # Skip engines incompatible with the current browser
             # (e.g. DuckDuckGo on Edge/Firefox/Opera/Brave) when alternatives exist.
@@ -728,6 +779,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
         # -------------------------------------------------
         # Try original keyword across engines
         # -------------------------------------------------
+        pending_engine_fail = None
         for idx, (curr_engine_name, curr_engine) in enumerate(fallback_order):
             if stop_event.is_set():
                 status = "INTERRUPTED"
@@ -748,6 +800,11 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 return
 
             engines_tried.append(curr_engine_name)
+            # The previous engine attempt did not yield the target -> record it as
+            # failed so the fallback ordering learns which engines are blocked.
+            if pending_engine_fail:
+                _record_engine_result(pending_engine_fail, False)
+            pending_engine_fail = curr_engine_name
             try:
                 session_logger.extra['engine'] = curr_engine_name
             except Exception:
@@ -870,7 +927,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
             # Find target website
             found_tmp = False
             try:
-                found_tmp, tmp_retry = retry_operation_search(driver, current_engine, target, config["search"].get("maxPages", 20), stop_event, session_logger)
+                found_tmp, tmp_retry = retry_operation_search(driver, current_engine, target, config["search"].get("maxPages", 20), stop_event, session_logger, engine_name=current_engine_name)
                 retry_count += tmp_retry
             except Exception as e:
                 if stop_event.is_set():
@@ -890,6 +947,8 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
 
             if found_tmp:
                 found = True
+                _record_engine_result(current_engine_name, True)
+                pending_engine_fail = None
                 successful_engine_name = current_engine_name
                 successful_engine = current_engine
                 engine_name = successful_engine_name
@@ -970,7 +1029,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                                             pass
                                     else:
                                         try:
-                                            found_fallback_same, tmp_retry_same = retry_operation_search(driver, current_engine, target, config["search"].get("maxPages", 20), stop_event, session_logger)
+                                            found_fallback_same, tmp_retry_same = retry_operation_search(driver, current_engine, target, config["search"].get("maxPages", 20), stop_event, session_logger, engine_name=current_engine_name)
                                             retry_count += tmp_retry_same
                                         except Exception as e:
                                             if stop_event.is_set():
@@ -987,6 +1046,8 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                                             pass
                                         elif found_fallback_same:
                                             fallback_found_on_same_engine = True
+                                            _record_engine_result(current_engine_name, True)
+                                            pending_engine_fail = None
                                             current_search_keyword = fallback_keyword
                                             try:
                                                 session_logger.extra['search_keyword'] = current_search_keyword
@@ -1028,7 +1089,10 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                 continue
 
         # Note: Per-engine fallback with "Anubhav Training" already handled inside the engine loop (immediate retry on same engine if not found).
-        # No additional cross-engine fallback needed here to avoid duplicate searches.
+        # Last engine attempt also failed -> record it for fallback ordering.
+        if pending_engine_fail:
+            _record_engine_result(pending_engine_fail, False)
+            pending_engine_fail = None
 
         if stop_event.is_set():
             status = "INTERRUPTED"
@@ -1095,7 +1159,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                     if not any(d.get('keyword') == original_keyword and d.get('engine') == engine_name for d in stats.get("interrupted", [])):
                         stats["interrupted"].append({"keyword": original_keyword, "engine": engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
                 else:
-                    stats["success"].append({"keyword": original_keyword, "engine": engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
+                    stats["success"].append({"keyword": original_keyword, "engine": engine_name, "assignedEngine": assigned_engine_name, "durationMs": int((time.time() - start_time) * 1000), "url": getattr(driver, "current_url", "")})
                     success_count = 1
                     status = "SUCCESS"
                     return
@@ -1259,7 +1323,7 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
                         s["browser"] = selected_browser
                         s["captcha_encountered"] = str(captcha_encountered)
 
-        _safe_update_run(run_id, session_end_time, status, success_count, failure_count, retry_count, fallback_used=fallback_used, search_keyword=current_search_keyword, search_engine=engine_name, browser_mode=final_browser_mode, captcha_encountered=captcha_encountered)
+        _safe_update_run(run_id, session_end_time, status, success_count, failure_count, retry_count, fallback_used=fallback_used, search_keyword=current_search_keyword, search_engine=engine_name, browser_mode=final_browser_mode, captcha_encountered=captcha_encountered, assigned_engine=assigned_engine_name)
 
 
 def _session_worker(job_queue, config, stop_event, stats, search_engines=None, all_engine_names=None, vpn_state=None):
