@@ -381,6 +381,55 @@ button,select{font:inherit}.app-shell{display:flex;min-height:100vh}.sidebar{wid
     border-bottom: 1px solid rgba(148, 163, 184, 0.16);
 }
 
+.bot-settings-sidebar-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 9px 12px;
+    margin-top: 10px;
+    margin-bottom: 2px;
+    background: #111a2a;
+    border: 1px solid #1f2f47;
+    border-radius: 9px;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 160ms ease;
+}
+
+.bot-settings-sidebar-btn:hover {
+    background: #16243a;
+    color: #ffffff;
+    border-color: #3b82f6;
+    box-shadow: 0 2px 10px rgba(59, 130, 246, 0.2);
+}
+
+.bot-settings-sidebar-btn.active {
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(99, 102, 241, 0.25));
+    border-color: #5b8cff;
+    color: #ffffff;
+    box-shadow: 0 0 0 1px rgba(91, 140, 255, 0.35);
+}
+
+.bot-settings-sidebar-btn .bot-settings-icon {
+    font-size: 12px;
+    line-height: 1;
+    transition: transform 260ms ease;
+}
+
+.bot-settings-sidebar-btn:hover .bot-settings-icon {
+    transform: rotate(60deg);
+}
+
+.config-subpanel-divider {
+    height: 1px;
+    background: var(--line);
+    margin: 16px 0;
+}
+
 .sidebar-automation-action .generate-btn {
     min-height: 42px;
 }
@@ -544,3 +593,255 @@ button,select{font:inherit}.app-shell{display:flex;min-height:100vh}.sidebar{wid
     color: #e7edf7;
     font-weight: 600;
 }
+
+/* =========================================================
+   CONFIG & SETTINGS VIEW STYLES
+   ========================================================= */
+
+.config-title-wrap {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 22px;
+}
+
+.config-toolbar-wrap {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.config-header-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.config-reset-btn {
+    background: #111a2a;
+    color: #94a3b8;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 10px 15px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 160ms ease;
+}
+
+.config-reset-btn:hover {
+    background: #19253c;
+    color: #f1f5f9;
+    border-color: #2a3d5e;
+}
+
+.config-status-badge {
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    display: none;
+    font-weight: 600;
+    animation: fadeIn 200ms ease;
+}
+
+.config-status-badge.success {
+    display: inline-block;
+    color: var(--green);
+    background: #0d281e;
+    border: 1px solid #1c4b38;
+}
+
+.config-status-badge.error {
+    display: inline-block;
+    color: var(--red);
+    background: #2b1117;
+    border: 1px solid #551d28;
+}
+
+.config-status-badge.saving {
+    display: inline-block;
+    color: var(--amber);
+    background: #291d0c;
+    border: 1px solid #573e1b;
+}
+
+.config-card-body {
+    padding: 20px;
+}
+
+.config-form-group {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 16px;
+}
+
+.config-form-group:last-child {
+    margin-bottom: 0;
+}
+
+.config-form-group label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #dce5f4;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 7px;
+}
+
+.field-hint {
+    font-size: 9px;
+    color: #64738a;
+    font-weight: 500;
+}
+
+.field-desc {
+    font-size: 9px;
+    color: var(--muted);
+    margin-top: 6px;
+    line-height: 1.4;
+}
+
+.config-input-field,
+.config-select-field {
+    background: #0d1420;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    color: #e2e8f0;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-family: inherit;
+    width: 100%;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.config-input-field:focus,
+.config-select-field:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15);
+}
+
+.config-input-field.cfg-locked {
+    background: #090e17 !important;
+    color: #72849e !important;
+    border-style: dashed !important;
+    cursor: not-allowed;
+    user-select: all;
+}
+
+.vpn-manual-box {
+    background: rgba(245, 158, 11, 0.07);
+    border: 1px solid rgba(245, 158, 11, 0.22);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-top: 10px;
+}
+
+.vpn-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--amber);
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.vpn-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+}
+
+.vpn-manual-box p {
+    font-size: 10px;
+    color: #94a3b8;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.section-subtext {
+    font-size: 10px;
+    color: var(--muted);
+    margin: 0 0 12px 0;
+}
+
+.engine-badge-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.engine-badge {
+    background: #101826;
+    border: 1px solid #1c2a3f;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #e2e8f0;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.engine-badge::before {
+    content: "●";
+    color: var(--green);
+    font-size: 9px;
+}
+
+.keyword-filter-bar {
+    margin-bottom: 10px;
+}
+
+.keyword-search {
+    padding: 8px 12px;
+    font-size: 11px;
+}
+
+.keyword-pills-box {
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px;
+    background: #080d15;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+}
+
+.keyword-pill {
+    font-size: 10px;
+    background: #111a28;
+    border: 1px solid #1e2c42;
+    padding: 5px 11px;
+    border-radius: 6px;
+    color: #a0aec0;
+    white-space: nowrap;
+    transition: all 140ms ease;
+}
+
+.keyword-pill:hover {
+    color: #ffffff;
+    border-color: var(--blue);
+    background: #16243a;
+}
+
+.keyword-loading-msg,
+.keyword-empty-msg {
+    font-size: 11px;
+    color: #64738a;
+    padding: 16px;
+    text-align: center;
+    width: 100%;
+}
+

@@ -6,17 +6,18 @@
     "maximize": false,
     "distribution": {
       "chrome": 100
-    }
+    },
+    "browsers": [
+      "chrome"
+    ]
   },
-
   "vpn": {
-  "enabled": true,
-  "provider": "nordvpn",
-  "installation_dir": "C:\\Program Files\\NordVPN",
-  "verify_connection": true,
-  "rotate_every_jobs": 20
-},
-
+    "enabled": false,
+    "provider": "nordvpn",
+    "installation_dir": "C:\\Program Files\\NordVPN",
+    "verify_connection": true,
+    "rotate_every_jobs": 0
+  },
   "proxy": {
     "enabled": false,
     "mode": "single",
@@ -29,15 +30,12 @@
     "stagger_min": 3.0,
     "stagger_max": 6.0
   },
-
   "email": {
     "enabled": true,
     "from": "wednesday.ui5@gmail.com",
-    "to": "anubhav.abap@gmail.com, v86478846@gmail.com, shubhra@soyuztechnologies.com"
+    "to": "",
+    "cc": "anubhav.abap@gmail.com, v86478846@gmail.com, shubhra@soyuztechnologies.com"
   },
-
-
-
   "database": {
     "current_db": "atlas",
     "db": {
@@ -45,30 +43,32 @@
       "atlas": "MONGO_URI_ATLAS"
     }
   },
-
-
   "sessions": {
     "parallel": 3,
     "iterations": 1
   },
-
   "search": {
-    "engines": ["duckduckgo","bing","google","yahoo"],
+    "engines": [
+      "duckduckgo",
+      "bing",
+      "google",
+      "yahoo"
+    ],
     "maxPages": 5,
     "enable_engine_fallback": true,
     "fallback_engine_priority": []
   },
-
   "website": {
     "domain": "anubhavtrainings.com",
     "extra_keyword": "anubhav training",
     "internal_links": {
       "enabled": false,
       "max_to_visit": 3,
-      "selectors": ["//wix-dropdown-menu//a"]
+      "selectors": [
+        "//wix-dropdown-menu//a"
+      ]
     }
   },
-
   "youtube": {
     "targetChannel": "Anubhav Trainings",
     "extra_keyword": "anubhav training",
@@ -76,33 +76,25 @@
     "watchTimeMax": 40,
     "maxScrolls": 8,
     "maxSearchPages": 2,
-
     "retryCount": 2,
     "navigationRetryDelay": 10
   },
-
   "timing": {
     "typingMin": 0.1,
     "typingMax": 0.25,
-
     "sleepMin": 4,
     "sleepMax": 7,
-
     "scrollMin": 3,
     "scrollMax": 6
   },
-
   "files": {
     "keywords": "data/keywords.json",
     "searchEngines": "data/search_engines.json",
     "backlinkSites": "data/backlink_sites.json",
     "backlinkTargets": "data/backlink_targets.json"
   },
-
   "backlink": {
     "sitesFile": "data/backlink_sites.json",
     "targetsFile": "data/backlink_targets.json"
   }
 }
-
-

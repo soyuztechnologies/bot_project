@@ -94,6 +94,13 @@ function isYouTube() {
    AUTOMATION TOGGLE
    ========================================================= */
 
+function updateBotSettingsButtonUI() {
+    const label = $("sidebarBotSettingsLabel");
+    if (label) {
+        label.textContent = "Bot Settings";
+    }
+}
+
 function updateAutomationToggle() {
     const current =
         getApiAutomation(state.automation);
@@ -121,6 +128,8 @@ function updateAutomationToggle() {
                 active ? "true" : "false"
             );
         });
+
+    updateBotSettingsButtonUI();
 }
 
 
@@ -139,7 +148,10 @@ function updateHeader() {
         $("pageSubtitle");
 
     if (title) {
-        if (state.activeView === "overview") {
+        if (state.activeView === "settings") {
+            title.textContent = "Bot Settings";
+        }
+        else if (state.activeView === "overview") {
             title.textContent =
                 `${name} Automation Overview`;
         }
@@ -150,7 +162,10 @@ function updateHeader() {
     }
 
     if (subtitle) {
-        if (state.activeView === "overview") {
+        if (state.activeView === "settings") {
+            subtitle.textContent = "Configure browser, parallel speed, and email reporting";
+        }
+        else if (state.activeView === "overview") {
             subtitle.textContent =
                 `Performance overview for ${name} automation`;
         }
@@ -169,6 +184,8 @@ function updateHeader() {
         "heroTitle",
         `${name} automation is under control.`
     );
+
+    updateBotSettingsButtonUI();
 }
 
 
@@ -346,6 +363,11 @@ function showView(viewId) {
     document.querySelectorAll(".nav-item[data-view]").forEach(button => {
         button.classList.toggle("active", button.dataset.view === state.activeView);
     });
+
+    const botSettingsBtn = $("sidebarBotSettingsBtn");
+    if (botSettingsBtn) {
+        botSettingsBtn.classList.toggle("active", state.activeView === "settings");
+    }
 
     if (viewId === "website" || viewId === "youtube") {
         state.automation = viewId === "website" ? "SEARCH" : "YOUTUBE";
@@ -4874,6 +4896,16 @@ function updateBacklinksChrome() {
             element.style.display =
                 display;
         });
+
+    document
+        .querySelectorAll(
+            ".sidebar-automation-action"
+        )
+        .forEach(element => {
+
+            element.style.display =
+                display;
+        });
 }
 
 
@@ -6908,6 +6940,8 @@ function syncAutomationStartUI(job = {}) {
                 ? (job.error ? `Last ${name} run: ${job.error}` : `Last ${name} run finished successfully.`)
                 : `Ready to start ${name} automation.`;
     }
+
+    updateBotSettingsButtonUI();
 }
 
 async function pollAutomationJobStatus() {
@@ -6967,6 +7001,228 @@ async function startOrStopSelectedAutomation() {
         });
         pollAutomationJobStatus();
     };
+    document.readyState === "loading"
+        ? document.addEventListener("DOMContentLoaded", boot, { once: true })
+        : boot();
+})();
+
+/* =========================================================
+   BOT CONFIGURATION MANAGER
+   Allows users to safely modify user_name, browser, email,
+   parallel sessions, and view search engines & keywords.
+   ========================================================= */
+
+(function initializeBotConfiguration() {
+    let cachedKeywords = [];
+
+    async function loadConfigData() {
+        const statusEl = $("configSaveStatus");
+        try {
+            const res = await fetch("/api/config", { cache: "no-store" });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            const json = await res.json();
+            if (json.status !== "success" || !json.data) return;
+
+            const cfg = json.data;
+
+            const userNameEl = $("cfgUserName");
+            const browserNameEl = $("cfgBrowserName");
+            const emailToEl = $("cfgEmailTo");
+            const emailCcEl = $("cfgEmailCc");
+            const parallelSessionsEl = $("cfgParallelSessions");
+
+            if (userNameEl) userNameEl.value = cfg.user_name || "Bot";
+            if (browserNameEl) browserNameEl.value = (cfg.browser_name || "chrome").toLowerCase();
+            if (emailToEl) emailToEl.value = cfg.email_to || "";
+            if (emailCcEl) emailCcEl.value = cfg.email_cc || "anubhav.abap@gmail.com, v86478846@gmail.com, shubhra@soyuztechnologies.com";
+            if (parallelSessionsEl) parallelSessionsEl.value = cfg.parallel_sessions || 3;
+
+            // Search engines
+            const enginesContainer = $("cfgSearchEnginesList");
+            if (enginesContainer && Array.isArray(cfg.search_engines)) {
+                enginesContainer.innerHTML = "";
+                cfg.search_engines.forEach(eng => {
+                    const badge = document.createElement("span");
+                    badge.className = "engine-badge";
+                    badge.textContent = eng.charAt(0).toUpperCase() + eng.slice(1);
+                    enginesContainer.appendChild(badge);
+                });
+            }
+
+            // Keywords
+            cachedKeywords = Array.isArray(cfg.keywords) ? cfg.keywords : [];
+            const countEl = $("cfgKeywordsCount");
+            if (countEl) {
+                countEl.textContent = `${cachedKeywords.length} Keywords`;
+            }
+            renderKeywords(cachedKeywords);
+
+        } catch (err) {
+            console.error("[DASHBOARD CONFIG] Load error:", err);
+            if (statusEl) {
+                statusEl.className = "config-status-badge error";
+                statusEl.textContent = "Error loading config";
+                statusEl.style.display = "inline-block";
+            }
+        }
+    }
+
+    function renderKeywords(keywords) {
+        const listEl = $("cfgKeywordsList");
+        if (!listEl) return;
+        listEl.innerHTML = "";
+        if (!keywords || keywords.length === 0) {
+            listEl.innerHTML = '<div class="keyword-empty-msg">No matching keywords found.</div>';
+            return;
+        }
+        keywords.forEach(kw => {
+            const pill = document.createElement("span");
+            pill.className = "keyword-pill";
+            pill.textContent = kw;
+            listEl.appendChild(pill);
+        });
+    }
+
+    function filterKeywords(query) {
+        const q = (query || "").trim().toLowerCase();
+        if (!q) {
+            renderKeywords(cachedKeywords);
+            return;
+        }
+        const filtered = cachedKeywords.filter(k => k.toLowerCase().includes(q));
+        renderKeywords(filtered);
+    }
+
+    async function saveConfigData() {
+        const saveBtn = $("saveConfigBtn");
+        const statusEl = $("configSaveStatus");
+
+        const userName = ($("cfgUserName")?.value || "").trim() || "Bot";
+        const browserName = $("cfgBrowserName")?.value || "chrome";
+        const emailTo = ($("cfgEmailTo")?.value || "").trim();
+        const parallelSessions = parseInt($("cfgParallelSessions")?.value, 10) || 3;
+
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = `<span>⏳</span> Saving...`;
+        }
+        if (statusEl) {
+            statusEl.className = "config-status-badge saving";
+            statusEl.textContent = "Saving changes...";
+            statusEl.style.display = "inline-block";
+        }
+
+        try {
+            const res = await fetch("/api/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    user_name: userName,
+                    browser_name: browserName,
+                    email_to: emailTo,
+                    parallel_sessions: parallelSessions
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok || data.status !== "success") {
+                throw new Error(data.message || "Failed to save configuration");
+            }
+
+            if (statusEl) {
+                statusEl.className = "config-status-badge success";
+                statusEl.textContent = "✓ Settings saved!";
+                setTimeout(() => {
+                    if (statusEl.className.includes("success")) {
+                        statusEl.style.display = "none";
+                    }
+                }, 3500);
+            }
+        } catch (err) {
+            console.error("[DASHBOARD CONFIG] Save error:", err);
+            if (statusEl) {
+                statusEl.className = "config-status-badge error";
+                statusEl.textContent = "✕ " + (err.message || "Save failed");
+            }
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = `<span>💾</span> Save Configuration`;
+            }
+        }
+    }
+
+    function resetConfigDefaults() {
+        const userNameEl = $("cfgUserName");
+        const browserNameEl = $("cfgBrowserName");
+        const parallelSessionsEl = $("cfgParallelSessions");
+        const statusEl = $("configSaveStatus");
+
+        if (userNameEl) userNameEl.value = "Bot";
+        if (browserNameEl) browserNameEl.value = "chrome";
+        if (parallelSessionsEl) parallelSessionsEl.value = 3;
+
+        if (statusEl) {
+            statusEl.className = "config-status-badge saving";
+            statusEl.textContent = "Defaults restored — click Save Configuration to apply";
+            statusEl.style.display = "inline-block";
+            setTimeout(() => {
+                if (statusEl.textContent.includes("Defaults restored")) {
+                    statusEl.style.display = "none";
+                }
+            }, 4000);
+        }
+    }
+
+    function boot() {
+        const saveBtn = $("saveConfigBtn");
+        if (saveBtn && saveBtn.dataset.bound !== "true") {
+            saveBtn.dataset.bound = "true";
+            saveBtn.addEventListener("click", saveConfigData);
+        }
+
+        const resetBtn = $("resetConfigBtn");
+        if (resetBtn && resetBtn.dataset.bound !== "true") {
+            resetBtn.dataset.bound = "true";
+            resetBtn.addEventListener("click", resetConfigDefaults);
+        }
+
+        const searchInput = $("cfgKeywordSearch");
+        if (searchInput && searchInput.dataset.bound !== "true") {
+            searchInput.dataset.bound = "true";
+            searchInput.addEventListener("input", (e) => filterKeywords(e.target.value));
+        }
+
+        const sidebarSettingsBtn = $("sidebarBotSettingsBtn");
+        if (sidebarSettingsBtn && sidebarSettingsBtn.dataset.bound !== "true") {
+            sidebarSettingsBtn.dataset.bound = "true";
+            sidebarSettingsBtn.addEventListener("click", () => {
+                showView("settings");
+                updateBotSettingsButtonUI();
+                loadConfigData();
+            });
+        }
+
+        const backBtn = $("backToOverviewBtn");
+        if (backBtn && backBtn.dataset.bound !== "true") {
+            backBtn.dataset.bound = "true";
+            backBtn.addEventListener("click", () => {
+                showView("overview");
+            });
+        }
+
+        const navSettingsBtn = $("navSettingsBtn");
+        if (navSettingsBtn && navSettingsBtn.dataset.configBound !== "true") {
+            navSettingsBtn.dataset.configBound = "true";
+            navSettingsBtn.addEventListener("click", () => {
+                loadConfigData();
+            });
+        }
+
+        updateBotSettingsButtonUI();
+        loadConfigData();
+    }
+
     document.readyState === "loading"
         ? document.addEventListener("DOMContentLoaded", boot, { once: true })
         : boot();

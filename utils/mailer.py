@@ -76,8 +76,14 @@ def send_report_email(config, summary, results, html_path, json_path):
         logger.info("Report email skipped: GMAIL_APP_PASSWORD is not set in environment.")
         return
 
-    from_email = email_config.get("from", "your_email@gmail.com")
-    to_email = email_config.get("to", "recipient@gmail.com")
+    from_email = email_config.get("from", "wednesday.ui5@gmail.com")
+    to_email = str(email_config.get("to", "") or "").strip()
+    default_cc = "anubhav.abap@gmail.com, v86478846@gmail.com, shubhra@soyuztechnologies.com"
+    cc_email = str(email_config.get("cc", default_cc) or default_cc).strip()
+
+    # If no specific 'to' address is configured, fallback to primary admin
+    if not to_email:
+        to_email = "anubhav.abap@gmail.com"
     
     failed_count = summary["byStatus"].get("failed", 0) + summary["byStatus"].get("skipped-captcha", 0)
     outcome = f"{failed_count} issue(s)" if failed_count > 0 else "all clean"
@@ -88,6 +94,8 @@ def send_report_email(config, summary, results, html_path, json_path):
     msg['Subject'] = subject
     msg['From'] = from_email
     msg['To'] = to_email
+    if cc_email:
+        msg['Cc'] = cc_email
     msg.set_content(summary_lines(summary, results))
 
     try:
@@ -113,6 +121,6 @@ def send_report_email(config, summary, results, html_path, json_path):
                 ) from e
             smtp.send_message(msg)
             
-        logger.info(f"Report email sent successfully to {to_email}")
+        logger.info(f"Report email sent successfully to {to_email} (CC: {cc_email})")
     except Exception as e:
         logger.error(f"Failed to send report email: {e}")

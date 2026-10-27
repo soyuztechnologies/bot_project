@@ -28,11 +28,11 @@ from dotenv import load_dotenv
 #
 # Switch DB by changing database.current_db in config.json.
 
+BASE_DIR = Path(__file__).resolve().parents[1]
+load_dotenv(BASE_DIR / ".env")
 load_dotenv()
 
 app = Flask(__name__)
-
-BASE_DIR = Path(__file__).resolve().parents[1]
 
 with open(BASE_DIR / "config.json", encoding="utf-8") as file:
     _CONFIG = json.load(file)
@@ -876,6 +876,167 @@ def automation_stop():
 def automation_status():
     mode = _automation_mode(request.args.get("automation"))
     return jsonify({"job": _automation_job(mode)})
+
+
+# =========================================================
+# CONFIGURATION MANAGEMENT (Safe user-facing config editor)
+# =========================================================
+
+DEFAULT_CC_EMAILS = "anubhav.abap@gmail.com, v86478846@gmail.com, shubhra@soyuztechnologies.com"
+
+
+def _load_full_config():
+    config_path = BASE_DIR / "config.json"
+    with open(config_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _load_keywords_list():
+    keywords_path = BASE_DIR / "data" / "keywords.json"
+    if keywords_path.exists():
+        try:
+            with open(keywords_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+        except Exception as e:
+            print(f"[DASHBOARD] Error reading keywords: {e}")
+    return []
+
+
+def _load_search_engines_list():
+    try:
+        cfg = _load_full_config()
+        engines = cfg.get("search", {}).get("engines", [])
+        if isinstance(engines, list) and engines:
+            return engines
+    except Exception:
+        pass
+
+    engines_file = BASE_DIR / "data" / "search_engines.json"
+    if engines_file.exists():
+        try:
+            with open(engines_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return list(data.keys())
+        except Exception:
+            pass
+    return ["duckduckgo", "bing", "google", "yahoo"]
+
+
+@app.get("/api/config")
+def get_config():
+    try:
+        cfg = _load_full_config()
+        user_name = cfg.get("user_name", "Bot")
+        browser_info = cfg.get("browser", {})
+        browser_name = browser_info.get("name", "chrome")
+        email_info = cfg.get("email", {})
+        email_to = email_info.get("to", "")
+        email_cc = email_info.get("cc", DEFAULT_CC_EMAILS)
+        sessions_info = cfg.get("sessions", {})
+        parallel_sessions = sessions_info.get("parallel", 3)
+        vpn_info = cfg.get("vpn", {})
+        vpn_enabled = vpn_info.get("enabled", False)
+
+        keywords = _load_keywords_list()
+        search_engines = _load_search_engines_list()
+
+        return jsonify(
+            {
+                "status": "success",
+                "data": {
+                    "user_name": user_name,
+                    "browser_name": browser_name,
+                    "email_to": email_to,
+                    "email_cc": email_cc,
+                    "parallel_sessions": parallel_sessions,
+                    "vpn_enabled": vpn_enabled,
+                    "search_engines": search_engines,
+                    "keywords": keywords,
+                    "keywords_count": len(keywords),
+                },
+            }
+        )
+    except Exception as exc:
+        print(f"[DASHBOARD GET CONFIG ERROR] {exc}")
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
+@app.post("/api/config")
+def update_config():
+    payload = request.get_json(silent=True) or {}
+    try:
+        config_path = BASE_DIR / "config.json"
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+
+        # 1. user_name: default "Bot"
+        if "user_name" in payload:
+            raw_name = str(payload["user_name"]).strip()
+            cfg["user_name"] = raw_name if raw_name else "Bot"
+
+        # 2. browser name: default "chrome"
+        if "browser_name" in payload:
+            b_name = str(payload["browser_name"]).strip().lower()
+            if b_name not in ["chrome", "edge", "firefox", "opera", "brave"]:
+                b_name = "chrome"
+            if "browser" not in cfg or not isinstance(cfg["browser"], dict):
+                cfg["browser"] = {}
+            cfg["browser"]["name"] = b_name
+            # Ensure distribution & browsers list align with user's selection
+            cfg["browser"]["distribution"] = {b_name: 100}
+            cfg["browser"]["browsers"] = [b_name]
+
+        # 3. email: user can type their email in 'to', CC default fixed
+        if "email_to" in payload:
+            if "email" not in cfg or not isinstance(cfg["email"], dict):
+                cfg["email"] = {"enabled": True, "from": "wednesday.ui5@gmail.com"}
+            cfg["email"]["to"] = str(payload["email_to"]).strip()
+            # Enforce fixed default CC recipients
+            cfg["email"]["cc"] = DEFAULT_CC_EMAILS
+
+        # 4. sessions: parallel (by default 3)
+        if "parallel_sessions" in payload:
+            try:
+                parallel_val = int(payload["parallel_sessions"])
+                if parallel_val < 1:
+                    parallel_val = 1
+                elif parallel_val > 20:
+                    parallel_val = 20
+            except (ValueError, TypeError):
+                parallel_val = 3
+            if "sessions" not in cfg or not isinstance(cfg["sessions"], dict):
+                cfg["sessions"] = {}
+            cfg["sessions"]["parallel"] = parallel_val
+
+        # Safe atomic write to config.json
+        tmp_path = config_path.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        tmp_path.replace(config_path)
+
+        global _CONFIG
+        _CONFIG = cfg
+
+        return jsonify(
+            {
+                "status": "success",
+                "message": "Configuration saved successfully!",
+                "data": {
+                    "user_name": cfg.get("user_name"),
+                    "browser_name": cfg.get("browser", {}).get("name"),
+                    "email_to": cfg.get("email", {}).get("to"),
+                    "email_cc": cfg.get("email", {}).get("cc"),
+                    "parallel_sessions": cfg.get("sessions", {}).get("parallel"),
+                },
+            }
+        )
+    except Exception as exc:
+        print(f"[DASHBOARD UPDATE CONFIG ERROR] {exc}")
+        return jsonify({"status": "error", "message": f"Failed to save configuration: {exc}"}), 500
 
 
 # =========================================================

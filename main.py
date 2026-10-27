@@ -347,16 +347,15 @@ def main():
         except Exception:
             pass
 
-        # Batch-VPN: connect once at run start when vpn.enabled=true.
-        # Never fatal — any failure only warns and continues on direct IP.
+        # Batch-VPN: Automated NordVPN connection commented out (Manual NordVPN control by boss)
         vpn_connected = False
-        try:
-            from utils.vpn_manager import connect_vpn as _connect_vpn
-            vpn_connected = bool(_connect_vpn())
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:
-            vpn_connected = False
+        # try:
+        #     from utils.vpn_manager import connect_vpn as _connect_vpn
+        #     vpn_connected = bool(_connect_vpn())
+        # except (KeyboardInterrupt, SystemExit):
+        #     raise
+        # except BaseException:
+        #     vpn_connected = False
  
         # # Start automation with VPN (never fatal - skip on any error)  # VPN DISABLED - commented out
         # vpn_config = config.get("vpn", {}) or {}  # VPN DISABLED - commented out

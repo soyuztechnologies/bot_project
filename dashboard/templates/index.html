@@ -126,6 +126,11 @@
             <small class="generate-status" id="startAutomationStatus">
                 Ready to start Website automation.
             </small>
+
+            <button type="button" class="bot-settings-sidebar-btn" id="sidebarBotSettingsBtn" title="Open Bot Settings">
+                <span class="bot-settings-icon" aria-hidden="true">⚙</span>
+                <span id="sidebarBotSettingsLabel">Bot Settings</span>
+            </button>
         </div>
 
         <nav>
@@ -1808,6 +1813,319 @@
                     class="insights"
                     id="insights"
                 ></div>
+
+            </article>
+
+        </section>
+
+
+        <!-- =====================================================
+             BOT CONFIGURATION & SETTINGS VIEW
+        ====================================================== -->
+
+        <section
+            id="settings"
+            class="view"
+        >
+
+            <!-- ACTION TOOLBAR (DIRECT SETTINGS CONTROLS) -->
+            <div class="config-toolbar-wrap">
+
+                <span
+                    id="configSaveStatus"
+                    class="config-status-badge"
+                ></span>
+
+                <div class="config-header-actions">
+
+                    <button
+                        type="button"
+                        class="config-reset-btn"
+                        id="backToOverviewBtn"
+                        title="Return to Overview"
+                    >
+                        ← Back to Dashboard
+                    </button>
+
+                    <button
+                        type="button"
+                        class="config-reset-btn"
+                        id="resetConfigBtn"
+                    >
+                        ↺ Reset Defaults
+                    </button>
+
+                    <button
+                        type="button"
+                        class="generate-btn"
+                        id="saveConfigBtn"
+                        style="width: auto; min-width: 140px; padding: 10px 18px;"
+                    >
+                        <span>💾</span>
+                        Save Settings
+                    </button>
+
+                </div>
+
+            </div>
+
+
+            <!-- TWO-COLUMN CONFIG FORM -->
+
+            <div class="grid-two">
+
+                <!-- BOT PROFILE & SPEED -->
+
+                <article class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+                            <h3>🤖 Bot Profile & Speed</h3>
+                            <span>Configure bot name and how many windows run at once</span>
+                        </div>
+
+                        <span class="tag">ESSENTIALS</span>
+
+                    </div>
+
+                    <div class="config-card-body">
+
+                        <div class="config-form-group">
+
+                            <label for="cfgUserName">
+                                Bot Name
+                                <span class="field-hint">(Default: Bot)</span>
+                            </label>
+
+                            <input
+                                type="text"
+                                id="cfgUserName"
+                                class="config-input-field"
+                                placeholder="Bot"
+                                value="Bot"
+                            />
+
+                            <small class="field-desc">
+                                Name displayed on automation run logs and in the subject of email reports.
+                            </small>
+
+                        </div>
+
+
+                        <div class="config-form-group">
+
+                            <label for="cfgParallelSessions">
+                                Parallel Windows (Speed)
+                                <span class="field-hint">(Default: 3)</span>
+                            </label>
+
+                            <input
+                                type="number"
+                                id="cfgParallelSessions"
+                                class="config-input-field"
+                                min="1"
+                                max="10"
+                                placeholder="3"
+                                value="3"
+                            />
+
+                            <small class="field-desc">
+                                Number of browser windows operating concurrently. Recommended: 2 to 4 for best balance of speed and stability.
+                            </small>
+
+                        </div>
+
+                    </div>
+
+                </article>
+
+
+                <!-- BROWSER & SEARCH ENGINES (COMBINED IN ONE BOX) -->
+
+                <article class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+                            <h3>🌐 Browser & Search Engines</h3>
+                            <span>Web browser selection and search engine rotation</span>
+                        </div>
+
+                        <span class="tag">BROWSER</span>
+
+                    </div>
+
+                    <div class="config-card-body">
+
+                        <div class="config-form-group">
+
+                            <label for="cfgBrowserName">
+                                Web Browser
+                                <span class="field-hint">(Choose your browser)</span>
+                            </label>
+
+                            <select
+                                id="cfgBrowserName"
+                                class="config-select-field"
+                            >
+                                <option value="chrome" selected>Google Chrome (Recommended)</option>
+                                <option value="edge">Microsoft Edge</option>
+                                <option value="firefox">Mozilla Firefox</option>
+                                <option value="opera">Opera Browser</option>
+                                <option value="brave">Brave Browser</option>
+                            </select>
+
+                            <small class="field-desc">
+                                The browser launched on your computer to perform automated search visits and video sessions.
+                            </small>
+
+                        </div>
+
+
+                        <!-- SEARCH ENGINES SECTION INSIDE SAME BOX -->
+
+                        <div class="config-subpanel-divider"></div>
+
+                        <div class="config-form-group" style="margin-bottom: 0;">
+
+                            <label>
+                                Active Search Engines
+                                <span class="field-hint">(Auto-Rotated)</span>
+                            </label>
+
+                            <small class="field-desc" style="margin-top: 0; margin-bottom: 9px;">
+                                Searches are randomly rotated across these search engines for natural, diverse organic traffic:
+                            </small>
+
+                            <div
+                                id="cfgSearchEnginesList"
+                                class="engine-badge-wrap"
+                            >
+                                <span class="engine-badge">DuckDuckGo</span>
+                                <span class="engine-badge">Bing</span>
+                                <span class="engine-badge">Google</span>
+                                <span class="engine-badge">Yahoo</span>
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </article>
+
+            </div>
+
+
+            <!-- EMAIL REPORTING CONFIG -->
+
+            <article class="panel" style="margin-bottom: 14px;">
+
+                <div class="panel-head">
+
+                    <div>
+                        <h3>✉ Email Notifications & Reporting</h3>
+                        <span>Receive beautiful HTML performance summaries after each run</span>
+                    </div>
+
+                    <span class="tag">REPORTS</span>
+
+                </div>
+
+                <div class="config-card-body">
+
+                    <div class="grid-two" style="margin-bottom: 0;">
+
+                        <div class="config-form-group">
+
+                            <label for="cfgEmailTo">
+                                Your Email Address (To)
+                                <span class="field-hint">(Recipient)</span>
+                            </label>
+
+                            <input
+                                type="email"
+                                id="cfgEmailTo"
+                                class="config-input-field"
+                                placeholder="Enter your email (e.g. user@gmail.com)"
+                            />
+
+                            <small class="field-desc">
+                                Enter your email ID here. The comprehensive summary report will be sent to this address once automation finishes.
+                            </small>
+
+                        </div>
+
+
+                        <div class="config-form-group">
+
+                            <label for="cfgEmailCc">
+                                Default CC Recipients
+                                <span class="field-hint">🔒 Admin CC</span>
+                            </label>
+
+                            <input
+                                type="text"
+                                id="cfgEmailCc"
+                                class="config-input-field cfg-locked"
+                                readonly
+                                value="anubhav.abap@gmail.com, v86478846@gmail.com, shubhra@soyuztechnologies.com"
+                            />
+
+                            <small class="field-desc">
+                                Leads & administrators automatically copied on all execution summaries.
+                            </small>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </article>
+
+
+            <!-- TARGET KEYWORDS POOL (CLEAN FULL-WIDTH VIEWER) -->
+
+            <article class="panel">
+
+                <div class="panel-head">
+
+                    <div>
+                        <h3>🎯 Target Keywords Pool</h3>
+                        <span>Keywords automatically searched and visited by the bot</span>
+                    </div>
+
+                    <span
+                        id="cfgKeywordsCount"
+                        class="tag"
+                    >
+                        36 Keywords
+                    </span>
+
+                </div>
+
+                <div class="config-card-body">
+
+                    <div class="keyword-filter-bar">
+
+                        <input
+                            type="text"
+                            id="cfgKeywordSearch"
+                            class="config-input-field keyword-search"
+                            placeholder="🔍 Type here to search or filter keywords..."
+                        />
+
+                    </div>
+
+                    <div
+                        id="cfgKeywordsList"
+                        class="keyword-pills-box"
+                    >
+                        <div class="keyword-loading-msg">Loading keywords...</div>
+                    </div>
+
+                </div>
 
             </article>
 
