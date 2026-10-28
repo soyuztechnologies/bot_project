@@ -13,6 +13,7 @@ Responsibilities:
 7. Stop running sessions cleanly on Ctrl+C.
 """
 
+import os
 import threading
 import time
 import traceback
@@ -761,7 +762,7 @@ def _safe_create_automation_run(run_id, keyword, config, selected_browser, searc
             target=youtube_config.get("targetChannel", ""),
             search_engine=search_engine,
             flow_type=flow_type,
-            user_name=config.get("user_name", "unknown"),
+            user_name=os.getenv("USER_NAME") or config.get("user_name", "unknown"),
         )
     except Exception as error:
         logger.warning(

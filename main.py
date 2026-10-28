@@ -8,7 +8,7 @@ Responsibilities:
 2. Load keywords
 3. Load search engine settings.
 """
- 
+import os
 import json
 import logging
 from pathlib import Path
@@ -465,7 +465,8 @@ def main():
                 from utils.report import RunLogger
                 from utils.mailer import send_report_email
                 target_urls = [config.get("website", {}).get("domain", "")]
-                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="Web")
+                user_name = os.getenv("USER_NAME") or config.get("user_name", "Unknown")
+                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="Web", user_name=user_name)
                 reporter.set_results_from_stats(stats, config)
                 json_path = reporter.write_json()
                 html_path = reporter.write_html()

@@ -29,13 +29,14 @@ def escape_html(text):
     return "".join(html_escape_table.get(c, c) for c in text)
 
 class RunLogger:
-    def __init__(self, logs_dir="logs", target_urls=None, started_at=None, automation_type="Unknown"):
+    def __init__(self, logs_dir="logs", target_urls=None, started_at=None, automation_type="Unknown", user_name=None):
         if started_at:
             self.started_at = started_at
         else:
             self.started_at = datetime.now(timezone.utc)
         
         self.automation_type = automation_type
+        self.user_name = user_name or os.getenv("USER_NAME") or "Unknown"
         
         # Resolve path relative to project root
         base_dir = Path(__file__).resolve().parent.parent
@@ -59,6 +60,13 @@ class RunLogger:
         self.results = []
         global_browser = config.get("browser", {}).get("name", "unknown") if config else "unknown"
         default_target = self.target_urls[0] if self.target_urls else ""
+
+        if config and isinstance(config, dict):
+            cfg_user = config.get("user_name")
+            if cfg_user and (not self.user_name or self.user_name == "Unknown"):
+                self.user_name = cfg_user
+            elif not os.getenv("USER_NAME") and cfg_user:
+                self.user_name = cfg_user
         
         for status in ["success", "failed", "interrupted"]:
             for item in stats.get(status, []):
@@ -82,7 +90,8 @@ class RunLogger:
                     "message": item.get("message", item.get("error", "")),
                     "duration": duration_str,
                     "captcha_encountered": str(item.get("captcha_encountered", "False")),
-                    "automation_type": self.automation_type
+                    "automation_type": self.automation_type,
+                    "user_name": self.user_name,
                 }
                 
                 if self.automation_type in ["Web", "YouTube", "Web & YouTube"]:
@@ -130,6 +139,8 @@ class RunLogger:
 
         finished_at = datetime.now(timezone.utc)
         return {
+            "userName": self.user_name,
+            "user_name": self.user_name,
             "startedAt": self.started_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "finishedAt": finished_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "targetUrls": self.target_urls,
@@ -154,6 +165,7 @@ class RunLogger:
     def write_html(self):
         summary = self.summary()
         auto_type = summary.get("automationType", "Unknown")
+        user_name = summary.get("userName", self.user_name)
         is_web_yt = auto_type in ["Web", "YouTube", "Web & YouTube"]
         
         rows = ""
@@ -223,6 +235,7 @@ class RunLogger:
 <body>
   <h1>{auto_type} SEO Automation Report</h1>
   <p class="meta">
+    <strong>User:</strong> {escape_html(user_name)}<br>
     Started: {escape_html(summary['startedAt'])}<br>
     Finished: {escape_html(summary['finishedAt'])}<br>
     Total attempts: {summary['totalAttempts']}

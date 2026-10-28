@@ -7,6 +7,7 @@ This merged version keeps the original YouTube main flow and adds
  database initialization, application logging, and cleanup.
 """
  
+import os
 import json
 import logging
 from pathlib import Path
@@ -496,7 +497,8 @@ def main():
                 from utils.mailer import send_report_email
                 # youtube config target is just targetChannel but we can leave target_urls empty or set to channel
                 target_urls = [config.get("youtube", {}).get("targetChannel", "")]
-                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="YouTube")
+                user_name = os.getenv("USER_NAME") or (config.get("user_name") if config else "Unknown")
+                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="YouTube", user_name=user_name)
                 reporter.set_results_from_stats(youtube_stats, config)
                 json_path = reporter.write_json()
                 html_path = reporter.write_html()

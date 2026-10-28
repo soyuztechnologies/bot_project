@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-def summary_lines(summary, results):
+def summary_lines(summary, results, user_name="Unknown"):
     status_lines = "\n".join(f"  {status}: {count}" for status, count in summary["byStatus"].items())
     
     browser_lines = []
@@ -45,7 +45,8 @@ def summary_lines(summary, results):
     
     detailed_lines = "\n".join(detailed_lines_list)
 
-    return f"""Started:  {summary['startedAt']}
+    return f"""User:     {user_name}
+Started:  {summary['startedAt']}
 Finished: {summary['finishedAt']}
 Total attempts: {summary['totalAttempts']}
 
@@ -84,11 +85,22 @@ def send_report_email(config, summary, results, html_path, json_path):
     # If no specific 'to' address is configured, fallback to primary admin
     if not to_email:
         to_email = "anubhav.abap@gmail.com"
-    
+
+    user_name = (
+        summary.get("userName")
+        or summary.get("user_name")
+        or os.getenv("USER_NAME")
+        or (config.get("user_name") if isinstance(config, dict) else None)
+        or os.getenv("USERNAME")
+        or os.getenv("USER")
+        or "Unknown"
+    )
+    user_name = str(user_name).strip() if user_name else "Unknown"
+
     failed_count = summary["byStatus"].get("failed", 0) + summary["byStatus"].get("skipped-captcha", 0)
     outcome = f"{failed_count} issue(s)" if failed_count > 0 else "all clean"
     auto_type = summary.get("automationType", "Unknown")
-    subject = f"[{auto_type} Automation] SEO Report — {summary['totalAttempts']} attempts, {outcome} — {summary['finishedAt']}"
+    subject = f"[{auto_type} Automation | User: {user_name}] SEO Report — {summary['totalAttempts']} attempts, {outcome} — {summary['finishedAt']}"
 
     msg = EmailMessage()
     msg['Subject'] = subject
@@ -96,7 +108,7 @@ def send_report_email(config, summary, results, html_path, json_path):
     msg['To'] = to_email
     if cc_email:
         msg['Cc'] = cc_email
-    msg.set_content(summary_lines(summary, results))
+    msg.set_content(summary_lines(summary, results, user_name=user_name))
 
     try:
         with open(html_path, 'rb') as f:
@@ -121,6 +133,6 @@ def send_report_email(config, summary, results, html_path, json_path):
                 ) from e
             smtp.send_message(msg)
             
-        logger.info(f"Report email sent successfully to {to_email} (CC: {cc_email})")
+        logger.info(f"Report email (User: {user_name}) sent successfully to {to_email} (CC: {cc_email})")
     except Exception as e:
         logger.error(f"Failed to send report email: {e}")
