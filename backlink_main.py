@@ -18,6 +18,7 @@ Usage:
   python backlink_main.py --list           # show sites + targets and exit
 """
 
+import os
 import argparse
 import json
 import logging
@@ -250,7 +251,8 @@ def main(argv=None):
                 from utils.report import RunLogger
                 from utils.mailer import send_report_email
                 target_urls = [t.get("url") for t in targets] if targets else []
-                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="Backlink")
+                user_name = os.getenv("USER_NAME") or (config.get("user_name") if config else "Unknown")
+                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="Backlink", user_name=user_name)
                 reporter.set_results_from_stats(stats, config)
                 json_path = reporter.write_json()
                 html_path = reporter.write_html()

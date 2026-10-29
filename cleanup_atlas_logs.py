@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-def cleanup_atlas_logs(days=30):
+def cleanup_atlas_logs(days):
     # Load environment variables from .env in the same directory
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
     load_dotenv(dotenv_path=env_path)
@@ -91,4 +91,4 @@ def cleanup_atlas_logs(days=30):
             client.close()
 
 if __name__ == "__main__":
-    cleanup_atlas_logs(30)
+    cleanup_atlas_logs(10)

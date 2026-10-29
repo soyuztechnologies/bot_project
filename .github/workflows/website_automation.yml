@@ -54,6 +54,7 @@ jobs:
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MONGO_URI_ATLAS: ${{ secrets.MONGO_URI_ATLAS }}
+          USER_NAME: ${{ github.event_name == 'schedule' && 'GitHub Actions (Scheduled)' || github.actor }}
         run: python main.py
 
       - name: Upload run report
