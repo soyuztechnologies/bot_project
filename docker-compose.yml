@@ -1,14 +1,18 @@
 # docker-compose.yml — SEO Automation Bot
 #
 # Services:
-#   bot        interactive launcher (website / youtube / backlinks).
-#              Run it with:  docker compose run --rm bot
+#   bot        Interactive launcher (website / youtube / backlinks).
+#              Started automatically by the dashboard UI.
 #   dashboard  Flask dashboard on http://localhost:5050
-#              Run it with:  docker compose up -d dashboard
+#              Start with:  LAUNCH.bat  (double-click)
+#              Or manually: docker compose up -d dashboard
 #
-# The database is MongoDB Atlas (same as a laptop run): config.json sets
-# database.current_db=atlas, so only MONGO_URI_ATLAS must exist in .env.
-# setup.bat creates .env for you on first run.
+# Data persistence:
+#   config.json  — bot settings changed from dashboard are saved back to host
+#   data/        — keywords, backlink sites, targets (editable on host)
+#   logs/        — run logs written by automation scripts
+#
+# Secrets come from .env (created by SETUP.bat on first run).
 
 services:
   bot:
@@ -22,6 +26,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     volumes:
+      - ./config.json:/app/config.json
       - ./data:/app/data
       - ./logs:/app/logs
     command: ["launcher.py"]
@@ -30,6 +35,7 @@ services:
     build: .
     image: seo-bot:latest
     container_name: seo-bot-dashboard
+    restart: unless-stopped
     env_file:
       - .env
     environment:
@@ -39,6 +45,7 @@ services:
     ports:
       - "5050:5050"
     volumes:
+      - ./config.json:/app/config.json
       - ./data:/app/data
       - ./logs:/app/logs
     command: ["dashboard/app.py"]

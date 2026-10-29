@@ -1,3 +1,15 @@
+# =============================================================
+# Dockerfile — SEO Automation Bot
+# =============================================================
+# Multi-purpose image used by both services in docker-compose:
+#   dashboard  -> python dashboard/app.py   (Flask, port 5050)
+#   bot        -> python launcher.py        (automation runner)
+#
+# Chrome runs in headless mode inside the container (no display
+# needed). The host mounts config.json, data/ and logs/ so that
+# settings saved in the dashboard persist across restarts.
+# =============================================================
+
 # -----------------------------
 # Base Image
 # -----------------------------
@@ -10,7 +22,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
 # -----------------------------
-# Install System Dependencies
+# System Dependencies
+# (Chrome requires these libs)
 # -----------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
@@ -45,7 +58,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # -----------------------------
-# Install Google Chrome
+# Google Chrome (stable)
 # -----------------------------
 RUN wget -qO- https://dl.google.com/linux/linux_signing_key.pub \
     | gpg --dearmor -o /usr/share/keyrings/google.gpg && \
@@ -61,13 +74,18 @@ RUN wget -qO- https://dl.google.com/linux/linux_signing_key.pub \
 WORKDIR /app
 
 # -----------------------------
-# Install Python Dependencies
+# Python Dependencies
+# (installed before COPY . . so
+#  this layer is cached on code
+#  changes — only re-runs when
+#  requirements.txt changes)
 # -----------------------------
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
-    seleniumbase install chromedriver
+    seleniumbase install chromedriver && \
+    seleniumbase install uc_driver
 
 # -----------------------------
 # Copy Project Files
@@ -76,6 +94,8 @@ COPY . .
 
 # -----------------------------
 # Default Command
+# (overridden per service in
+#  docker-compose.yml)
 # -----------------------------
 ENTRYPOINT ["python"]
 CMD ["launcher.py"]
