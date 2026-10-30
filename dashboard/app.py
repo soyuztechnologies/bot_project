@@ -802,6 +802,19 @@ def _stop_automation_process(mode):
     if proc is None or proc.poll() is not None:
         return False
     try:
+        import psutil
+        parent = psutil.Process(proc.pid)
+        children = parent.children(recursive=True)
+        for child in children:
+            try:
+                child.kill()
+            except Exception:
+                pass
+        parent.kill()
+        return True
+    except Exception as exc:
+        print(f"[DASHBOARD {mode} PSUTIL STOP WARN] {exc!r}")
+    try:
         if os.name == "nt":
             subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                            capture_output=True, timeout=20)

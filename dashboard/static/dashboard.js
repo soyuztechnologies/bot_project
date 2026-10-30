@@ -7004,6 +7004,7 @@ async function startOrStopSelectedAutomation() {
     document.readyState === "loading"
         ? document.addEventListener("DOMContentLoaded", boot, { once: true })
         : boot();
+    window.addEventListener("load", () => setTimeout(pollAutomationJobStatus, 200));
 })();
 
 /* =========================================================
