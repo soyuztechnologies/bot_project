@@ -466,7 +466,8 @@ def main():
                 from utils.mailer import send_report_email
                 target_urls = [config.get("website", {}).get("domain", "")]
                 user_name = os.getenv("USER_NAME") or config.get("user_name", "Unknown")
-                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="Web", user_name=user_name)
+                user_email = os.getenv("USER_EMAIL") or config.get("email", {}).get("to") or config.get("user_email", "")
+                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="Web", user_name=user_name, user_email=user_email)
                 reporter.set_results_from_stats(stats, config)
                 json_path = reporter.write_json()
                 html_path = reporter.write_html()

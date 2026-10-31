@@ -205,7 +205,8 @@ def run_backlink_job(site, target, config, stop_event, stats):
         },
     )
     user_name = os.getenv("USER_NAME") or config.get("user_name", "unknown")
-    _safe_create_run(run_id, "BACKLINK", target_url, keyword, browser_mode, target_url, search_engine=site_id, user_name=user_name)
+    user_email = os.getenv("USER_EMAIL") or config.get("email", {}).get("to") or config.get("user_email") or "unknown"
+    _safe_create_run(run_id, "BACKLINK", target_url, keyword, browser_mode, target_url, search_engine=site_id, user_name=user_name, user_email=user_email)
 
     if stop_event.is_set():
         status = "INTERRUPTED"

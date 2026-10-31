@@ -607,7 +607,8 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
 
     # Create initial session record in the database - never let DB failure kill session
     user_name = os.getenv("USER_NAME") or config.get("user_name", "unknown")
-    _safe_create_run(run_id, automation_type, original_keyword, current_search_keyword, browser_mode, target, engine_name, user_name=user_name, assigned_engine=assigned_engine_name)
+    user_email = os.getenv("USER_EMAIL") or config.get("email", {}).get("to") or config.get("user_email") or "unknown"
+    _safe_create_run(run_id, automation_type, original_keyword, current_search_keyword, browser_mode, target, engine_name, user_name=user_name, assigned_engine=assigned_engine_name, user_email=user_email)
 
     try:
         if stop_event.is_set():

@@ -138,6 +138,11 @@ def get_backlinks_collection():
     return get_database()["backlinks"]
 
 
+def get_user_settings_collection():
+    """Collection for persistent bot configuration & user settings."""
+    return get_database()["user_settings"]
+
+
 @contextmanager
 def get_db_connection():
     """Compat context manager yielding the MongoDB database."""
@@ -246,17 +251,20 @@ def initialize_database():
             ]
         )
 
+        user_settings = get_user_settings_collection()
+        user_settings.create_index("updated_at")
+
         _db_available = True
         logger.info(
             "Database initialized: 'automation_runs', "
-            "'automation_logs' and 'backlinks' collections are ready (MongoDB)."
+            "'automation_logs', 'backlinks', and 'user_settings' collections are ready (MongoDB)."
         )
     except (PyMongoError, Exception) as e:
         logger.error(f"Failed to initialize database: {e}")
         _db_available = False
 
 
-def create_automation_run(run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine=None, flow_type=None, user_name=None, assigned_engine=None):
+def create_automation_run(run_id, automation_type, original_keyword, search_keyword, browser_mode, target, search_engine=None, flow_type=None, user_name=None, assigned_engine=None, user_email=None):
     """
     Insert a new automation run document. run_id stored as string.
     flow_type is YouTube-only ('youtube_first' / 'search_engine_first').
@@ -264,6 +272,11 @@ def create_automation_run(run_id, automation_type, original_keyword, search_keyw
     a cross-engine fallback ends up finding the target on a different engine.
     """
     try:
+        if not user_name:
+            user_name = os.getenv("USER_NAME") or CONFIG.get("user_name") or None
+        if not user_email:
+            user_email = os.getenv("USER_EMAIL") or CONFIG.get("email", {}).get("to") or CONFIG.get("user_email") or None
+
         get_runs_collection().insert_one(
             {
                 "run_id": str(run_id),
@@ -277,6 +290,7 @@ def create_automation_run(run_id, automation_type, original_keyword, search_keyw
                 "assigned_engine": assigned_engine if assigned_engine is not None else search_engine,
                 "flow_type": flow_type,
                 "user_name": user_name,
+                "user_email": user_email,
                 "captcha_encountered": False,
                 "started_at": _utcnow(),
                 "finished_at": None,
@@ -579,3 +593,36 @@ class DatabaseHandler(logging.Handler):
             )
         except Exception:
             self.handleError(record)
+
+
+def save_user_settings(email, user_name=None, extra=None):
+    """Save user configuration and email to MongoDB user_settings collection."""
+    try:
+        data = {
+            "email": str(email).strip() if email else "",
+            "email_to": str(email).strip() if email else "",
+            "updated_at": _utcnow(),
+        }
+        if user_name is not None:
+            data["user_name"] = str(user_name).strip()
+        if extra and isinstance(extra, dict):
+            data.update(extra)
+        get_user_settings_collection().update_one(
+            {"_id": "current_settings"},
+            {"$set": data},
+            upsert=True,
+        )
+        logger.info(f"User settings saved to MongoDB: email={email}, user={user_name}")
+        return True
+    except (PyMongoError, Exception) as e:
+        logger.error(f"Failed to save user settings to MongoDB: {e}")
+        return False
+
+
+def get_user_settings():
+    """Retrieve user configuration from MongoDB user_settings collection."""
+    try:
+        return get_user_settings_collection().find_one({"_id": "current_settings"})
+    except (PyMongoError, Exception) as e:
+        logger.error(f"Failed to fetch user settings from MongoDB: {e}")
+        return None

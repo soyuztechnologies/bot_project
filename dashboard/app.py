@@ -115,6 +115,11 @@ def backlinks_collection():
     return get_mongo_db()["backlinks"]
 
 
+def user_settings_collection():
+    """Persistent user settings & email collection in MongoDB."""
+    return get_mongo_db()["user_settings"]
+
+
 def _ensure_backlinks_indexes():
     """Idempotent index setup for the backlinks collection (safe to call per request)."""
     try:
@@ -953,6 +958,17 @@ def get_config():
         vpn_info = cfg.get("vpn", {})
         vpn_enabled = vpn_info.get("enabled", False)
 
+        # Check if MongoDB has stored settings to fallback/enrich
+        try:
+            db_doc = user_settings_collection().find_one({"_id": "current_settings"})
+            if db_doc:
+                if not email_to and db_doc.get("email"):
+                    email_to = db_doc.get("email")
+                if (not user_name or user_name == "Bot") and db_doc.get("user_name"):
+                    user_name = db_doc.get("user_name")
+        except Exception:
+            pass
+
         keywords = _load_keywords_list()
         search_engines = _load_search_engines_list()
 
@@ -1004,9 +1020,11 @@ def update_config():
 
         # 3. email: user can type their email in 'to', CC default fixed
         if "email_to" in payload:
+            email_val = str(payload["email_to"]).strip()
             if "email" not in cfg or not isinstance(cfg["email"], dict):
                 cfg["email"] = {"enabled": True, "from": "wednesday.ui5@gmail.com"}
-            cfg["email"]["to"] = str(payload["email_to"]).strip()
+            cfg["email"]["to"] = email_val
+            cfg["user_email"] = email_val
             # Enforce fixed default CC recipients
             cfg["email"]["cc"] = DEFAULT_CC_EMAILS
 
@@ -1033,6 +1051,25 @@ def update_config():
 
         global _CONFIG
         _CONFIG = cfg
+
+        # Also persist email and user settings in MongoDB
+        try:
+            mongo_settings = {
+                "user_name": cfg.get("user_name", "Bot"),
+                "email": cfg.get("email", {}).get("to", ""),
+                "email_to": cfg.get("email", {}).get("to", ""),
+                "browser_name": cfg.get("browser", {}).get("name", "chrome"),
+                "parallel_sessions": cfg.get("sessions", {}).get("parallel", 3),
+                "updated_at": _utcnow(),
+            }
+            user_settings_collection().update_one(
+                {"_id": "current_settings"},
+                {"$set": mongo_settings},
+                upsert=True,
+            )
+            print(f"[DASHBOARD] Saved email '{mongo_settings['email']}' and user '{mongo_settings['user_name']}' to MongoDB user_settings.")
+        except Exception as db_err:
+            print(f"[DASHBOARD DB ERROR] Failed to save settings to MongoDB: {db_err}")
 
         return jsonify(
             {

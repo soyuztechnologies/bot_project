@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-def summary_lines(summary, results, user_name="Unknown"):
+def summary_lines(summary, results, user_name="Unknown", user_email=""):
     status_lines = "\n".join(f"  {status}: {count}" for status, count in summary["byStatus"].items())
     
     browser_lines = []
@@ -45,7 +45,9 @@ def summary_lines(summary, results, user_name="Unknown"):
     
     detailed_lines = "\n".join(detailed_lines_list)
 
+    email_display = user_email or summary.get("userEmail") or summary.get("user_email") or "Not configured"
     return f"""User:     {user_name}
+Email:    {email_display}
 Started:  {summary['startedAt']}
 Finished: {summary['finishedAt']}
 Total attempts: {summary['totalAttempts']}
@@ -78,13 +80,9 @@ def send_report_email(config, summary, results, html_path, json_path):
         return
 
     from_email = email_config.get("from", "wednesday.ui5@gmail.com")
-    to_email = str(email_config.get("to", "") or "").strip()
+    configured_to = str(email_config.get("to", "") or "").strip()
     default_cc = "anubhav.abap@gmail.com, v86478846@gmail.com, shubhra@soyuztechnologies.com"
     cc_email = str(email_config.get("cc", default_cc) or default_cc).strip()
-
-    # If no specific 'to' address is configured, fallback to primary admin
-    if not to_email:
-        to_email = "anubhav.abap@gmail.com"
 
     user_name = (
         summary.get("userName")
@@ -97,6 +95,26 @@ def send_report_email(config, summary, results, html_path, json_path):
     )
     user_name = str(user_name).strip() if user_name else "Unknown"
 
+    raw_user_email = (
+        summary.get("userEmail")
+        or summary.get("user_email")
+        or os.getenv("USER_EMAIL")
+        or (config.get("email", {}).get("to") if isinstance(config, dict) and isinstance(config.get("email"), dict) else None)
+        or (config.get("user_email") if isinstance(config, dict) else None)
+        or configured_to
+        or ""
+    )
+    raw_user_email = str(raw_user_email).strip() if raw_user_email else ""
+
+    # If 'To' is not configured from UI, send to default (anubhav) so email still goes,
+    # but in details clearly show 'Not configured' so admins know the user didn't enter an email.
+    if raw_user_email:
+        to_email = raw_user_email
+        user_email_display = raw_user_email
+    else:
+        to_email = "anubhav.abap@gmail.com"
+        user_email_display = "Not configured"
+
     failed_count = summary["byStatus"].get("failed", 0) + summary["byStatus"].get("skipped-captcha", 0)
     outcome = f"{failed_count} issue(s)" if failed_count > 0 else "all clean"
     auto_type = summary.get("automationType", "Unknown")
@@ -108,7 +126,7 @@ def send_report_email(config, summary, results, html_path, json_path):
     msg['To'] = to_email
     if cc_email:
         msg['Cc'] = cc_email
-    msg.set_content(summary_lines(summary, results, user_name=user_name))
+    msg.set_content(summary_lines(summary, results, user_name=user_name, user_email=user_email_display))
 
     try:
         with open(html_path, 'rb') as f:
@@ -133,6 +151,6 @@ def send_report_email(config, summary, results, html_path, json_path):
                 ) from e
             smtp.send_message(msg)
             
-        logger.info(f"Report email (User: {user_name}) sent successfully to {to_email} (CC: {cc_email})")
+        logger.info(f"Report email (User: {user_name}, Email: {user_email_display}) sent successfully to {to_email} (CC: {cc_email})")
     except Exception as e:
         logger.error(f"Failed to send report email: {e}")
