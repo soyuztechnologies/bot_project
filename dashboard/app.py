@@ -1089,6 +1089,49 @@ def update_config():
         return jsonify({"status": "error", "message": f"Failed to save configuration: {exc}"}), 500
 
 
+
+# =========================================================
+# 24-HOUR SUMMARY EMAIL REPORT (EXCEL ATTACHMENT)
+# =========================================================
+
+@app.route("/api/email/summary-report", methods=["GET", "POST"])
+def send_summary_email_report():
+    """
+    Generate and dispatch a 24-hour multi-user summary report email
+    with a downloadable detailed Excel file (.xlsx) attachment.
+    """
+    try:
+        from utils.summary_mailer import send_24h_summary_report
+
+        payload = request.get_json(silent=True) or {}
+        hours = int(payload.get("hours") or request.args.get("hours") or 24)
+        email_to = payload.get("email_to") or request.args.get("email_to") or None
+        dry_run = bool(payload.get("dry_run", False))
+
+        cfg = _load_full_config()
+        result = send_24h_summary_report(
+            config=cfg,
+            hours=hours,
+            recipient=email_to,
+            dry_run=dry_run,
+        )
+
+        if result.get("success"):
+            return jsonify({
+                "status": "success",
+                "message": f"24-Hour Summary Report generated successfully! Sent to {result.get('to')}",
+                "data": result,
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": result.get("error", "Failed to dispatch summary email report."),
+                "data": result,
+            }), 500
+    except Exception as exc:
+        print(f"[DASHBOARD SUMMARY EMAIL ERROR] {exc}")
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
 # =========================================================
 # HEALTH
 # =========================================================

@@ -154,3 +154,14 @@ def send_report_email(config, summary, results, html_path, json_path):
         logger.info(f"Report email (User: {user_name}, Email: {user_email_display}) sent successfully to {to_email} (CC: {cc_email})")
     except Exception as e:
         logger.error(f"Failed to send report email: {e}")
+
+
+# Re-export 24-hour summary mailer flow
+try:
+    from utils.summary_mailer import (
+        send_24h_summary_report,
+        fetch_24h_summary_data,
+        create_summary_excel_report,
+    )
+except ImportError:
+    pass
