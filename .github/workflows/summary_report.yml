@@ -10,7 +10,7 @@ on:
       recipient:
         description: 'Override recipient email (optional)'
         required: false
-        default: ''
+        default: 'anubhav.abap@gmail.com'
   schedule:
     # 06:00 AM IST everyday = 00:30 UTC
     - cron: '30 0 * * *'
@@ -39,12 +39,10 @@ jobs:
           MONGO_URI_ATLAS: ${{ secrets.MONGO_URI_ATLAS }}
           USER_NAME: ${{ github.event_name == 'schedule' && 'GitHub Actions (Scheduled)' || github.actor }}
           HOURS_INPUT: ${{ github.event.inputs.hours || '24' }}
-          RECIPIENT_INPUT: ${{ github.event.inputs.recipient || '' }}
+          RECIPIENT_INPUT: ${{ github.event.inputs.recipient || 'anubhav.abap@gmail.com' }}
         run: |
-          CMD="python send_summary_report.py --hours ${HOURS_INPUT:-24}"
-          if [ -n "$RECIPIENT_INPUT" ]; then
-            CMD="$CMD --to $RECIPIENT_INPUT"
-          fi
+          TARGET_TO="${RECIPIENT_INPUT:-anubhav.abap@gmail.com}"
+          CMD="python send_summary_report.py --hours ${HOURS_INPUT:-24} --to $TARGET_TO"
           echo "Executing: $CMD"
           $CMD
 

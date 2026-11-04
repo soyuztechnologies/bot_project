@@ -36,7 +36,7 @@ from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 
 DEFAULT_ADMIN_CC = ""
-DEFAULT_FALLBACK_TO = "v86478846@gmail.com"
+DEFAULT_FALLBACK_TO = "anubhav.abap@gmail.com"
 
 
 def _parse_iso_utc(val):
@@ -1816,6 +1816,9 @@ def send_24h_summary_report(config=None, hours=24, recipient=None, cc=None, save
 
     cc_email = cc if cc is not None else (email_cfg.get("cc", DEFAULT_ADMIN_CC) or DEFAULT_ADMIN_CC)
     cc_email = str(cc_email).strip() if cc_email else ""
+    if cc_email and to_email:
+        cc_addrs = [a.strip() for a in cc_email.split(",") if a.strip() and a.strip().lower() != to_email.lower()]
+        cc_email = ", ".join(cc_addrs)
 
     # 1. Gather & enrich data
     logger.info(f"Summary Mailer: Collecting runs and logs for the last {hours} hours...")
