@@ -10,11 +10,13 @@ Responsibilities:
 """
 import os
 import json
+import random
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 from automation.website_session import start_parallel_sessions
+from utils.local_tracker import get_run_tracker
 # from utils.vpn_manager import connect_vpn, disconnect_vpn  # VPN DISABLED - commented out
 from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool, reconcile_stale_runs
 from utils.logger import setup_logger
@@ -301,6 +303,7 @@ def main():
     config = None
     interrupted = False
     unexpected_error = None
+    tracker = get_run_tracker(automation_type="Web")
     # vpn_connected = False  # VPN DISABLED - commented out
     try:
         setup_logger()
@@ -327,20 +330,36 @@ def main():
  
         # Load main config
         config = load_json(BASE_DIR / "config.json")
+        tracker.set_config(config)
  
         # Load project data
-        keywords = load_json(project_path(config["files"]["keywords"]))
+        all_keywords = load_json(project_path(config["files"]["keywords"]))
         search_engines = load_json(project_path(config["files"]["searchEngines"]))
  
-        validate_config(config, keywords, search_engines)
+        validate_config(config, all_keywords, search_engines)
+
+        # Randomly select 12 keywords from 36 keywords to reduce total execution time
+        sample_size = config.get("search", {}).get("sample_keywords", 12)
+        if isinstance(sample_size, int) and 0 < sample_size < len(all_keywords):
+            keywords = random.sample(all_keywords, sample_size)
+            logger.info(
+                f"Selected {len(keywords)} random keywords from {len(all_keywords)} "
+                f"configured keywords to reduce total execution time."
+            )
+        else:
+            keywords = all_keywords
  
         engine_names = get_search_engine_names(config, search_engines)
+
+        target_domain = config.get("website", {}).get("domain", "")
+        tracker.set_target(target_domain)
+        tracker.start_run(total_jobs=len(keywords))
  
         logger.info(f"Project Path      : {BASE_DIR}")
         logger.info(f"Search Engines    : {', '.join(engine_names)}")
         logger.info(f"Browser Mode      : {config['browser']['mode'].capitalize()}")
         logger.info(f"Parallel Sessions : {config['sessions']['parallel']}")
-        logger.info(f"Keywords          : {len(keywords)}")
+        logger.info(f"Keywords (sample) : {len(keywords)} (of {len(all_keywords)} total)")
         try:
             from utils.proxy_manager import describe as _proxy_describe
             logger.info(f"IP bouncing       : {_proxy_describe(config)}")
@@ -393,11 +412,20 @@ def main():
         #         except Exception:  # VPN DISABLED - commented out
         #             pass  # VPN DISABLED - commented out
 
+        stats = {
+            "total": 0,
+            "success": [],
+            "failed": [],
+            "interrupted": [],
+        }
+        tracker.attach_stats(stats)
+
         stats = start_parallel_sessions(
             keywords,
             config,
             search_engines,
             engine_names,
+            stats=stats,
         )
  
     except KeyboardInterrupt:
@@ -444,47 +472,6 @@ def main():
         unexpected_error = wrapped
         logger.error(f"Unexpected automation error (bug): {wrapped} cause={error} [{type(error).__name__}]", exc_info=True)
     finally:
-        # Always print summary if automation was started (even on Ctrl+C or error)
-        if stats is not None and config is not None:
-            try:
-                print_summary(stats, config)
-            except (SeoBotError, ValidationError) as summary_error:
-                logger.error(f"Failed to print summary (expected): {summary_error} [{type(summary_error).__name__}]", exc_info=False)
-            except UnhandledAutomationError as summary_error:
-                logger.error(f"Failed to print summary (unhandled): {summary_error} cause={summary_error.cause}", exc_info=True)
-            except Exception as summary_error:
-                wrapped = wrap_unexpected(summary_error, "print_summary")
-                logger.error(f"Failed to print summary (bug): {wrapped}", exc_info=True)
-                # Fallback console print if logger fails
-                try:
-                    total = stats.get("total", 0) if isinstance(stats, dict) else getattr(stats, "total_sessions", 0)
-                    print(f"\nSummary fallback: total={total}")
-                except Exception:
-                    pass
-            try:
-                from utils.report import RunLogger
-                from utils.mailer import send_report_email
-                target_urls = [config.get("website", {}).get("domain", "")]
-                user_name = os.getenv("USER_NAME") or config.get("user_name", "Unknown")
-                user_email = os.getenv("USER_EMAIL") or config.get("email", {}).get("to") or config.get("user_email", "")
-                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="Web", user_name=user_name, user_email=user_email)
-                reporter.set_results_from_stats(stats, config)
-                json_path = reporter.write_json()
-                html_path = reporter.write_html()
-                send_report_email(config, reporter.summary(), reporter.results, html_path, json_path)
-            except Exception as e:
-                logger.error(f"Failed to generate report or send email: {e}", exc_info=True)
-        elif interrupted:
-            logger.info("No summary: automation was interrupted before stats were available.")
-            print("\n=== No stats available (interrupted before start) ===")
-        elif unexpected_error is not None:
-            # For expected ConfigError etc., already logged; give user-friendly fallback
-            if isinstance(unexpected_error, (ConfigError, ValidationError)):
-                print(f"\n=== No stats: configuration error — {unexpected_error} ===")
-            else:
-                logger.info("No summary: automation failed before stats were available.")
-                print(f"\n=== No stats available (error: {unexpected_error}) ===")
- 
         # start_parallel_sessions swallows Ctrl+C internally and returns partial
         # stats, so infer interruption from non-empty interrupted list.
         try:
@@ -492,6 +479,36 @@ def main():
                 interrupted = True
         except Exception:
             pass
+
+        final_status = "INTERRUPTED" if interrupted else ("FAILED" if unexpected_error else "COMPLETED")
+
+        # Always print console summary if automation was started (even on Ctrl+C or error)
+        if stats is not None and config is not None:
+            try:
+                print_summary(stats, config)
+            except Exception as summary_error:
+                logger.error(f"Failed to print summary: {summary_error}", exc_info=True)
+        elif interrupted:
+            logger.info("Automation was interrupted before full stats were available.")
+            print("\n=== Automation Interrupted by User ===")
+        elif unexpected_error is not None:
+            if isinstance(unexpected_error, (ConfigError, ValidationError)):
+                print(f"\n=== Configuration Error: {unexpected_error} ===")
+            else:
+                logger.info(f"Automation ended with error: {unexpected_error}")
+                print(f"\n=== Automation Error: {unexpected_error} ===")
+
+        # GUARANTEED: Save all info locally and send summary report email under ALL conditions
+        try:
+            tracker.finalize_and_email(
+                status=final_status,
+                error=unexpected_error,
+                stats=stats,
+                config=config,
+                start_time=start_time,
+            )
+        except Exception as e:
+            logger.error(f"Failed to finalize tracker or send email: {e}", exc_info=True)
 
         if interrupted:
             logger.info("Automation ended due to interruption.")

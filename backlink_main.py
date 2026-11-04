@@ -35,6 +35,7 @@ from automation.backlink.engine import site_accepts_target
 from utils.database import check_db_connection, close_connection_pool, initialize_database, DatabaseHandler
 from utils.exceptions import ConfigError, ConfigFileNotFoundError, ConfigInvalidError, ValidationError, wrap_unexpected
 from utils.logger import setup_logger
+from utils.local_tracker import get_run_tracker
 # from utils.vpn_manager import connect_vpn, disconnect_vpn  # VPN DISABLED - commented out
 
 logger = logging.getLogger(__name__)
@@ -152,6 +153,9 @@ def main(argv=None):
     stats = None
     config = None
     targets = []
+    interrupted = False
+    unexpected_error = None
+    tracker = get_run_tracker(automation_type="Backlink")
     # vpn_connected = False  # VPN DISABLED - commented out
     try:
         setup_logger()
@@ -163,6 +167,7 @@ def main(argv=None):
         logger.info("=" * 50)
 
         config = load_json(BASE_DIR / "config.json")
+        tracker.set_config(config)
         sites_path, targets_path = resolve_backlink_files(config)
         sites = load_json(sites_path)
         targets = load_json(targets_path)
@@ -179,6 +184,10 @@ def main(argv=None):
             targets = targets[: args.max_targets]
 
         planned_jobs = sum(1 for s in enabled for t in targets if site_accepts_target(s, t))
+
+        tracker.set_target([t.get("url") for t in targets if t.get("url")])
+        if not args.list and not args.dry_run:
+            tracker.start_run(total_jobs=planned_jobs)
 
         logger.info(f"Project Path      : {BASE_DIR}")
         logger.info(f"Backlink Sites    : {', '.join(s.get('id') for s in enabled)}")
@@ -226,41 +235,44 @@ def main(argv=None):
         #     vpn_connected = True  # VPN DISABLED - commented out
         #     logger.info("VPN connected and verified.")  # VPN DISABLED - commented out
 
-        stats = start_parallel_backlink_sessions(enabled, targets, config)
+        stats = {"total": 0, "success": [], "failed": [], "interrupted": []}
+        tracker.attach_stats(stats)
+        stats = start_parallel_backlink_sessions(enabled, targets, config, stats=stats)
         return stats
 
     except KeyboardInterrupt:
+        interrupted = True
         logger.info("Backlink automation stopped by user (Ctrl+C).")
         return stats
     except (ConfigError, ValidationError) as e:
+        unexpected_error = e
         logger.error(f"Configuration error: {e} [{type(e).__name__}]", exc_info=False)
         print(f"\nConfiguration error: {e}")
         return stats
     except Exception as e:
         wrapped = e if isinstance(e, Exception) else wrap_unexpected(e, "backlink_main")
+        unexpected_error = wrapped
         logger.error(f"Backlink automation error: {wrapped}", exc_info=True)
         print(f"\nBacklink automation error: {wrapped}")
         return stats
     finally:
-        if stats is not None and not args.list and not args.dry_run:
+        if not args.list and not args.dry_run:
+            final_status = "INTERRUPTED" if interrupted else ("FAILED" if unexpected_error else "COMPLETED")
+            if stats is not None:
+                try:
+                    print_summary(stats)
+                except Exception as e:
+                    logger.error(f"Failed to print backlink summary: {e}", exc_info=True)
             try:
-                print_summary(stats)
+                tracker.finalize_and_email(
+                    status=final_status,
+                    error=unexpected_error,
+                    stats=stats,
+                    config=config,
+                    start_time=start_time,
+                )
             except Exception as e:
-                logger.error(f"Failed to print backlink summary: {e}", exc_info=True)
-            try:
-                from utils.report import RunLogger
-                from utils.mailer import send_report_email
-                target_urls = [t.get("url") for t in targets] if targets else []
-                user_name = os.getenv("USER_NAME") or (config.get("user_name") if config else "Unknown")
-                user_email = os.getenv("USER_EMAIL") or (config.get("email", {}).get("to") if config else None) or (config.get("user_email") if config else "")
-                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="Backlink", user_name=user_name, user_email=user_email)
-                reporter.set_results_from_stats(stats, config)
-                json_path = reporter.write_json()
-                html_path = reporter.write_html()
-                if config:
-                    send_report_email(config, reporter.summary(), reporter.results, html_path, json_path)
-            except Exception as e:
-                logger.error(f"Failed to generate report or send email: {e}", exc_info=True)
+                logger.error(f"Failed to finalize backlink tracker or send email: {e}", exc_info=True)
         # if vpn_connected:  # VPN DISABLED - commented out
         #     try:  # VPN DISABLED - commented out
         #         logger.info("Disconnecting VPN after backlink automation.")  # VPN DISABLED - commented out

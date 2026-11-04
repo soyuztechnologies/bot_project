@@ -510,6 +510,120 @@ def fetch_24h_summary_data(hours=24, end_time=None, logs_dir="logs"):
     except Exception as e:
         logger.warning(f"Summary Mailer: Note on MongoDB fetch: {e}")
 
+    # 1.5 Local persistent runs from logs/local_user_runs.json
+    local_runs_file = logs_path / "local_user_runs.json"
+    if local_runs_file.exists():
+        try:
+            with open(local_runs_file, "r", encoding="utf-8") as f:
+                local_data = json.load(f)
+            raw_runs = local_data.get("runs", []) if isinstance(local_data, dict) else (local_data if isinstance(local_data, list) else [])
+            for r_entry in raw_runs:
+                s_at = _parse_iso_utc(r_entry.get("started_at"))
+                f_at = _parse_iso_utc(r_entry.get("finished_at"))
+                in_window = False
+                if s_at and (start_time <= s_at <= end_time):
+                    in_window = True
+                elif f_at and (start_time <= f_at <= end_time):
+                    in_window = True
+                if not in_window:
+                    continue
+
+                parent_run_id = str(r_entry.get("run_id") or "")
+                u_name = str(r_entry.get("user_name") or "Unknown").strip() or "Unknown"
+                u_email = str(r_entry.get("user_email") or "").strip()
+                auto_type = str(r_entry.get("automation_type") or "Web").capitalize()
+                run_status = str(r_entry.get("status") or "COMPLETED").upper()
+
+                results = r_entry.get("results", [])
+                if results:
+                    for idx, res in enumerate(results):
+                        run_id = f"{parent_run_id}-session-{idx+1}"
+                        if run_id in runs_by_id:
+                            continue
+
+                        status_raw = str(res.get("status") or "unknown").upper()
+                        norm_status = "SUCCESS" if status_raw in ("SUCCESS", "SUBMITTED") else ("INTERRUPTED" if "INTERRUPT" in status_raw else ("FAILED" if "FAIL" in status_raw or "ERROR" in status_raw else status_raw))
+                        browser_val = str(res.get("browser") or "chrome").lower()
+                        target_val = str(res.get("target") or r_entry.get("target") or "")
+                        keyword_val = str(res.get("keyword") or "")
+                        engine_val = str(res.get("engine") or res.get("site") or "")
+                        assigned_engine_val = str(res.get("assignedEngine") or res.get("engine") or "")
+                        url_val = str(res.get("url") or "")
+                        msg_val = str(res.get("message") or "")
+                        dur_val = str(res.get("duration") or "")
+                        dur_secs = 0.0
+                        if res.get("durationMs") is not None:
+                            try:
+                                dur_secs = max(0.0, float(res.get("durationMs")) / 1000.0)
+                            except Exception:
+                                pass
+                        elif dur_val:
+                            dur_secs = _parse_duration_to_seconds(dur_val)
+
+                        runs_by_id[run_id] = {
+                            "run_id": run_id,
+                            "user_name": str(res.get("user_name") or u_name).strip() or "Unknown",
+                            "user_email": str(res.get("user_email") or u_email).strip(),
+                            "automation_type": str(res.get("automation_type") or auto_type).capitalize(),
+                            "status": norm_status,
+                            "target": target_val,
+                            "keyword": keyword_val,
+                            "engine": engine_val,
+                            "assigned_engine": assigned_engine_val,
+                            "flow_type": "",
+                            "browser": browser_val,
+                            "visited_url": url_val,
+                            "started_at": s_at,
+                            "finished_at": f_at or s_at,
+                            "duration": dur_val,
+                            "duration_seconds": dur_secs,
+                            "captcha_encountered": str(res.get("captcha_encountered", "False")),
+                            "outcome_message": msg_val or ("Completed successfully" if norm_status == "SUCCESS" else "Failed/Interrupted"),
+                            "error_message": msg_val if norm_status != "SUCCESS" else "",
+                            "source": "local_history",
+                        }
+
+                        log_e = {
+                            "timestamp": s_at,
+                            "run_id": run_id,
+                            "user_name": str(res.get("user_name") or u_name).strip(),
+                            "level": "INFO" if norm_status == "SUCCESS" else "ERROR",
+                            "action": "automation_execution",
+                            "status": norm_status,
+                            "engine": engine_val,
+                            "keyword": keyword_val,
+                            "url": url_val or target_val,
+                            "message": f"Run {norm_status} on {engine_val} ({dur_val})",
+                            "error_message": msg_val if norm_status != "SUCCESS" else "",
+                        }
+                        detailed_logs.append(log_e)
+                        logs_by_run_id.setdefault(run_id, []).append(log_e)
+                elif parent_run_id and parent_run_id not in runs_by_id:
+                    runs_by_id[parent_run_id] = {
+                        "run_id": parent_run_id,
+                        "user_name": u_name,
+                        "user_email": u_email,
+                        "automation_type": auto_type,
+                        "status": run_status,
+                        "target": str(r_entry.get("target") or ""),
+                        "keyword": "",
+                        "engine": "",
+                        "assigned_engine": "",
+                        "flow_type": "",
+                        "browser": "chrome",
+                        "visited_url": "",
+                        "started_at": s_at,
+                        "finished_at": f_at,
+                        "duration": str(r_entry.get("duration") or ""),
+                        "duration_seconds": float(r_entry.get("duration_seconds") or 0.0),
+                        "captcha_encountered": "False",
+                        "outcome_message": str(r_entry.get("error_message") or f"Run finished ({run_status})"),
+                        "error_message": str(r_entry.get("error_message") or ""),
+                        "source": "local_history",
+                    }
+        except Exception as e:
+            logger.warning(f"Summary Mailer: Error reading local runs file {local_runs_file.name}: {e}")
+
     # 2. Local fallback / supplement from logs/run-*.json
     if logs_path.exists():
         for json_file in sorted(logs_path.glob("run-*.json"), reverse=True):

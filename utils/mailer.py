@@ -8,10 +8,11 @@ from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 
 def summary_lines(summary, results, user_name="Unknown", user_email=""):
-    status_lines = "\n".join(f"  {status}: {count}" for status, count in summary["byStatus"].items())
+    by_status = summary.get("byStatus", {})
+    status_lines = "\n".join(f"  {status}: {count}" for status, count in by_status.items())
     
     browser_lines = []
-    for browser, stats in summary["byBrowser"].items():
+    for browser, stats in summary.get("byBrowser", {}).items():
         parts = ", ".join(f"{status}: {count}" for status, count in stats.items() if status != "total")
         browser_lines.append(f"  {browser}: {stats['total']} attempted ({parts})")
     browser_lines_str = "\n".join(browser_lines)
@@ -24,7 +25,7 @@ def summary_lines(summary, results, user_name="Unknown", user_email=""):
             if tgt:
                 successful_by_target[tgt] = successful_by_target.get(tgt, 0) + 1
 
-    for url, total_count in summary["byTarget"].items():
+    for url, total_count in summary.get("byTarget", {}).items():
         success_count = successful_by_target.get(url, 0)
         target_lines_list.append(f"  {url}: {success_count} successful")
     
@@ -48,9 +49,9 @@ def summary_lines(summary, results, user_name="Unknown", user_email=""):
     email_display = user_email or summary.get("userEmail") or summary.get("user_email") or "Not configured"
     return f"""User:     {user_name}
 Email:    {email_display}
-Started:  {summary['startedAt']}
-Finished: {summary['finishedAt']}
-Total attempts: {summary['totalAttempts']}
+Started:  {summary.get('startedAt', '')}
+Finished: {summary.get('finishedAt', '')}
+Total attempts: {summary.get('totalAttempts', len(results))}
 
 By status:
 {status_lines}
@@ -64,9 +65,11 @@ By target link:
 Detailed Session Target Links:
 {detailed_lines}"""
 
-def send_report_email(config, summary, results, html_path, json_path):
+def send_report_email(config, summary, results, html_path=None, json_path=None):
+    if not isinstance(config, dict):
+        config = {}
     email_config = config.get("email", {})
-    if not email_config.get("enabled", False):
+    if not email_config.get("enabled", True):
         logger.info("Report email disabled (email.enabled=false) — skipping.")
         return
 
@@ -80,23 +83,17 @@ def send_report_email(config, summary, results, html_path, json_path):
         return
 
     # Sender / recipients come ONLY from config.json -> "email" (no hardcoded addresses).
-    from_email = str(email_config.get("from", "") or "").strip()
+    from_email = str(email_config.get("from", "") or "").strip() or "wednesday.ui5@gmail.com"
     to_email = str(email_config.get("to", "") or "").strip()
     configured_to = to_email
     cc_email = str(email_config.get("cc", "") or "").strip()
 
-    if not from_email:
-        logger.warning("Report email skipped: email.from is not set in config.json.")
-        return
-
     # No explicit 'to' -> the first CC address becomes the primary recipient.
     if not to_email:
         cc_list = [a.strip() for a in cc_email.split(",") if a.strip()]
-        if not cc_list:
-            logger.warning("Report email skipped: neither email.to nor email.cc is set in config.json.")
-            return
-        to_email = cc_list[0]
-        cc_email = ", ".join(cc_list[1:])
+        if cc_list:
+            to_email = cc_list[0]
+            cc_email = ", ".join(cc_list[1:])
 
     user_name = (
         summary.get("userName")
@@ -129,27 +126,49 @@ def send_report_email(config, summary, results, html_path, json_path):
         to_email = "anubhav.abap@gmail.com"
         user_email_display = "Not configured"
 
-    failed_count = summary["byStatus"].get("failed", 0) + summary["byStatus"].get("skipped-captcha", 0)
-    outcome = f"{failed_count} issue(s)" if failed_count > 0 else "all clean"
+    failed_count = summary.get("byStatus", {}).get("failed", 0) + summary.get("byStatus", {}).get("skipped-captcha", 0)
+    interrupted_count = summary.get("byStatus", {}).get("interrupted", 0)
+
+    outcome_parts = []
+    if interrupted_count > 0:
+        outcome_parts.append(f"{interrupted_count} interrupted")
+    if failed_count > 0:
+        outcome_parts.append(f"{failed_count} issue(s)")
+    outcome = ", ".join(outcome_parts) if outcome_parts else "all clean"
+
+    status_tag = ""
+    run_status = str(summary.get("status") or "").upper()
+    if "INTERRUPT" in run_status or interrupted_count > 0:
+        status_tag = " [INTERRUPTED]"
+    elif "FAIL" in run_status or "ERROR" in run_status or failed_count > 0:
+        status_tag = " [ISSUES DETECTED]"
+
     auto_type = summary.get("automationType", "Unknown")
-    subject = f"[{auto_type} Automation | User: {user_name}] Rankora Report — {summary['totalAttempts']} attempts, {outcome} — {summary['finishedAt']}"
+    attempts = summary.get("totalAttempts", len(results))
+    finished_time = summary.get("finishedAt") or summary.get("finished_at") or ""
+    subject = f"[{auto_type} Automation | User: {user_name}]{status_tag} Rankora Report — {attempts} attempts, {outcome} — {finished_time}"
 
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = from_email
     msg['To'] = to_email
     if cc_email:
-        msg['Cc'] = cc_email
+        # Avoid sending CC to the same address as To
+        cc_addrs = [a.strip() for a in cc_email.split(",") if a.strip() and a.strip().lower() != to_email.lower()]
+        if cc_addrs:
+            msg['Cc'] = ", ".join(cc_addrs)
     msg.set_content(summary_lines(summary, results, user_name=user_name, user_email=user_email_display))
 
     try:
-        with open(html_path, 'rb') as f:
-            html_data = f.read()
-            msg.add_attachment(html_data, maintype='text', subtype='html', filename='report.html')
+        if html_path and Path(html_path).exists():
+            with open(html_path, 'rb') as f:
+                html_data = f.read()
+                msg.add_attachment(html_data, maintype='text', subtype='html', filename='report.html')
             
-        with open(json_path, 'rb') as f:
-            json_data = f.read()
-            msg.add_attachment(json_data, maintype='application', subtype='json', filename='report.json')
+        if json_path and Path(json_path).exists():
+            with open(json_path, 'rb') as f:
+                json_data = f.read()
+                msg.add_attachment(json_data, maintype='application', subtype='json', filename='report.json')
 
         with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as smtp:
             try:

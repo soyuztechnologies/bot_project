@@ -398,9 +398,15 @@ def _batch_worker(job_q, config, stop_event, stats):
                 pass
 
 
-def start_parallel_backlink_sessions(sites, targets, config):
+def start_parallel_backlink_sessions(sites, targets, config, stats=None):
     """Outer: sites one-by-one. Inner: targets in batches of `parallel` parallel browsers."""
-    stats = {"total": 0, "success": [], "failed": [], "interrupted": []}
+    if stats is None:
+        stats = {"total": 0, "success": [], "failed": [], "interrupted": []}
+    else:
+        stats.setdefault("total", 0)
+        stats.setdefault("success", [])
+        stats.setdefault("failed", [])
+        stats.setdefault("interrupted", [])
     sites = [s for s in (sites or []) if s.get("enabled", True)]
     targets = list(targets or [])
     if not sites:
