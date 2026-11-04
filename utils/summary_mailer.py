@@ -175,29 +175,23 @@ def _parse_duration_to_seconds(val):
 
 def _format_total_hours(dur_seconds):
     """
-    Format total seconds into user-friendly total hours string,
-    e.g. '2.50 hrs (2h 30m)' or '0.45 hrs (27m)'.
+    Format total seconds into clean hours & minutes format,
+    e.g. '15h 48m', '3h 53m', '0h 11m'.
     """
     if not dur_seconds or dur_seconds <= 0:
-        return "0.0 hrs"
+        return "0h 0m"
     try:
         total_secs = int(float(dur_seconds))
-        hours_dec = total_secs / 3600.0
         hrs = total_secs // 3600
-        rem = total_secs % 3600
-        mins = rem // 60
-        secs = rem % 60
-
-        if hrs > 0:
-            if mins > 0:
-                return f"{hours_dec:.2f} hrs ({hrs}h {mins}m)"
-            return f"{hours_dec:.2f} hrs ({hrs}h)"
-        elif mins > 0:
-            return f"{hours_dec:.2f} hrs ({mins}m)"
-        else:
-            return f"{hours_dec:.2f} hrs ({secs}s)"
+        mins = (total_secs % 3600) // 60
+        secs = total_secs % 60
+        if hrs > 0 or mins > 0:
+            return f"{hrs}h {mins}m"
+        elif secs > 0:
+            return f"0h 0m {secs}s"
+        return "0h 0m"
     except Exception:
-        return "0.0 hrs"
+        return "0h 0m"
 
 
 def _sanitize_sheet_name(name, existing_names):
@@ -684,7 +678,7 @@ def fetch_24h_summary_data(hours=24, end_time=None, logs_dir="logs"):
 
         # Outcome message
         outcome_found = False
-        if status in ("SUCCESS", "SUBMITTED"):
+        if status in ("SUCCESS", "SUBMITTED", "COMPLETED"):
             for l in reversed(r_logs):
                 act = l.get("action") or ""
                 msg = l.get("message") or ""
@@ -693,7 +687,14 @@ def fetch_24h_summary_data(hours=24, end_time=None, logs_dir="logs"):
                     outcome_found = True
                     break
             if not outcome_found:
-                run_record["outcome_message"] = "Target found and visited successfully"
+                if status == "COMPLETED":
+                    run_record["outcome_message"] = "Session finished (COMPLETED)"
+                else:
+                    run_record["outcome_message"] = "Target found and visited successfully"
+        elif "INTERRUPT" in status:
+            run_record["outcome_message"] = "Session interrupted before completion"
+        elif "RUNNING" in status:
+            run_record["outcome_message"] = "Session was active/running at cutoff"
         elif "FAIL" in status or "ERR" in status:
             for l in reversed(r_logs):
                 act = l.get("action") or ""
@@ -705,10 +706,6 @@ def fetch_24h_summary_data(hours=24, end_time=None, logs_dir="logs"):
                     break
             if not outcome_found:
                 run_record["outcome_message"] = "Search exhausted without finding target"
-        elif "RUNNING" in status:
-            run_record["outcome_message"] = "Session was active/running at cutoff"
-        elif "INTERRUPT" in status:
-            run_record["outcome_message"] = "Session interrupted before completion"
         else:
             run_record["outcome_message"] = f"Session finished ({status})"
 
@@ -763,13 +760,13 @@ def fetch_24h_summary_data(hours=24, end_time=None, logs_dir="logs"):
 
         u["total_runs"] += 1
         # duration calculated accurately below via compute_user_active_seconds
-        st = r["status"]
-        if st in ("SUCCESS", "SUBMITTED"):
+        st = str(r.get("status") or "").upper()
+        if st in ("SUCCESS", "SUBMITTED", "COMPLETED"):
             u["success_runs"] += 1
-        elif "FAIL" in st or "ERR" in st:
-            u["failed_runs"] += 1
         elif "INTERRUPT" in st or "RUNNING" in st:
             u["interrupted_runs"] += 1
+        elif "FAIL" in st or "ERR" in st:
+            u["failed_runs"] += 1
         else:
             u["failed_runs"] += 1
 
@@ -937,7 +934,7 @@ def create_summary_excel_report(report_data, output_file_path=None, logs_dir="lo
         f"Window: {summary['start_time_str']} to {summary['end_time_str']} | "
         f"Active Users: {summary['total_users']} | "
         f"Total Runs: {summary['total_runs']} | "
-        f"Total Hours: {summary.get('total_hours_formatted', '0.0 hrs')} | "
+        f"Total Hours: {summary.get('total_hours_formatted', '0h 0m')} | "
         f"Overall Success Rate: {summary['overall_success_rate']}%"
     )
     sub_cell.font = Font(name=FONT_FAMILY, size=10, italic=True, color="E2E8F0")
@@ -1005,7 +1002,7 @@ def create_summary_excel_report(report_data, output_file_path=None, logs_dir="lo
                 c7.font = FAILED_FONT; c7.fill = FAILED_FILL
             c7.alignment = Alignment(horizontal="center", vertical="center")
 
-            c8 = ws_main.cell(row=current_row, column=8, value=u.get("total_hours_formatted", "0.0 hrs"))
+            c8 = ws_main.cell(row=current_row, column=8, value=u.get("total_hours_formatted", "0h 0m"))
             c8.font = BOLD_FONT
             c8.alignment = Alignment(horizontal="center", vertical="center")
 
@@ -1034,7 +1031,7 @@ def create_summary_excel_report(report_data, output_file_path=None, logs_dir="lo
     ws_main.cell(row=current_row, column=5, value=summary["total_failed"]).font = FAILED_FONT
     ws_main.cell(row=current_row, column=6, value=summary["total_interrupted"]).font = WARN_FONT
     ws_main.cell(row=current_row, column=7, value=f"{summary['overall_success_rate']}%").font = BOLD_FONT
-    ws_main.cell(row=current_row, column=8, value=summary.get("total_hours_formatted", "0.0 hrs")).font = BOLD_FONT
+    ws_main.cell(row=current_row, column=8, value=summary.get("total_hours_formatted", "0h 0m")).font = BOLD_FONT
     ws_main.cell(row=current_row, column=9, value=_format_duration(total_all_dur_secs)).font = BOLD_FONT
     for col_i in range(3, 10):
         ws_main.cell(row=current_row, column=col_i).alignment = Alignment(horizontal="center", vertical="center")
@@ -1167,12 +1164,14 @@ def create_summary_excel_report(report_data, output_file_path=None, logs_dir="lo
                 # Col 4: Status
                 st_val = str(r.get("status") or "").upper()
                 c4 = ws_main.cell(row=current_row, column=4, value=st_val)
-                if st_val in ("SUCCESS", "SUBMITTED"):
+                if st_val in ("SUCCESS", "SUBMITTED", "COMPLETED"):
                     c4.font = SUCCESS_FONT; c4.fill = SUCCESS_FILL
+                elif "INTERRUPT" in st_val or "RUNNING" in st_val:
+                    c4.font = WARN_FONT; c4.fill = WARN_FILL
                 elif "FAIL" in st_val or "ERR" in st_val:
                     c4.font = FAILED_FONT; c4.fill = FAILED_FILL
                 else:
-                    c4.font = WARN_FONT; c4.fill = WARN_FILL
+                    c4.font = REGULAR_FONT
                 c4.alignment = Alignment(horizontal="center", vertical="center")
 
                 # Col 5: Captcha
@@ -1332,12 +1331,14 @@ def create_summary_excel_report(report_data, output_file_path=None, logs_dir="lo
 
             st_val = str(r.get("status") or "").upper()
             c4 = ws_u.cell(row=u_row, column=4, value=st_val)
-            if st_val in ("SUCCESS", "SUBMITTED"):
+            if st_val in ("SUCCESS", "SUBMITTED", "COMPLETED"):
                 c4.font = SUCCESS_FONT; c4.fill = SUCCESS_FILL
+            elif "INTERRUPT" in st_val or "RUNNING" in st_val:
+                c4.font = WARN_FONT; c4.fill = WARN_FILL
             elif "FAIL" in st_val or "ERR" in st_val:
                 c4.font = FAILED_FONT; c4.fill = FAILED_FILL
             else:
-                c4.font = WARN_FONT; c4.fill = WARN_FILL
+                c4.font = REGULAR_FONT
             c4.alignment = Alignment(horizontal="center", vertical="center")
 
             c5 = ws_u.cell(row=u_row, column=5, value=str(r.get("captcha_encountered", "False")))
@@ -1434,12 +1435,14 @@ def create_summary_excel_report(report_data, output_file_path=None, logs_dir="lo
 
         st_val = str(r.get("status") or "").upper()
         c9 = ws_master.cell(row=r_idx, column=9, value=st_val)
-        if st_val in ("SUCCESS", "SUBMITTED"):
+        if st_val in ("SUCCESS", "SUBMITTED", "COMPLETED"):
             c9.font = SUCCESS_FONT; c9.fill = SUCCESS_FILL
+        elif "INTERRUPT" in st_val or "RUNNING" in st_val:
+            c9.font = WARN_FONT; c9.fill = WARN_FILL
         elif "FAIL" in st_val or "ERR" in st_val:
             c9.font = FAILED_FONT; c9.fill = FAILED_FILL
         else:
-            c9.font = WARN_FONT; c9.fill = WARN_FILL
+            c9.font = REGULAR_FONT
         c9.alignment = Alignment(horizontal="center", vertical="center")
 
         ws_master.cell(row=r_idx, column=10, value=r.get("outcome_message") or r.get("error_message") or "").font = REGULAR_FONT
@@ -1505,7 +1508,7 @@ def generate_summary_email_html(report_data):
         uname = u["user_name"]
         bg_color = "#F8FAFC" if idx % 2 == 1 else "#FFFFFF"
         rate_badge_color = get_rate_color(u["success_rate"])
-        total_hours = u.get("total_hours_formatted", "0.0 hrs")
+        total_hours = u.get("total_hours_formatted", "0h 0m")
         blk = u.get("report_block") or {}
 
         user_rows_html += f"""
@@ -1737,7 +1740,7 @@ def generate_summary_email_text(report_data):
         lines.append(
             f"* {u['user_name']} ({u['user_email']}): "
             f"{u['total_runs']} runs | {u['success_runs']} success | {u['failed_runs']} failed "
-            f"({u['success_rate']}% success) | Total hours: {u.get('total_hours_formatted', '0.0 hrs')}"
+            f"({u['success_rate']}% success) | Total hours: {u.get('total_hours_formatted', '0h 0m')}"
         )
 
         lines.extend(["", "By browser:"])
