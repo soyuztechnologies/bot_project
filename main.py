@@ -10,7 +10,6 @@ Responsibilities:
 """
 import os
 import json
-import random
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
@@ -333,21 +332,10 @@ def main():
         tracker.set_config(config)
  
         # Load project data
-        all_keywords = load_json(project_path(config["files"]["keywords"]))
+        keywords = load_json(project_path(config["files"]["keywords"]))
         search_engines = load_json(project_path(config["files"]["searchEngines"]))
  
-        validate_config(config, all_keywords, search_engines)
-
-        # Randomly select 12 keywords from 36 keywords to reduce total execution time
-        sample_size = config.get("search", {}).get("sample_keywords", 12)
-        if isinstance(sample_size, int) and 0 < sample_size < len(all_keywords):
-            keywords = random.sample(all_keywords, sample_size)
-            logger.info(
-                f"Selected {len(keywords)} random keywords from {len(all_keywords)} "
-                f"configured keywords to reduce total execution time."
-            )
-        else:
-            keywords = all_keywords
+        validate_config(config, keywords, search_engines)
  
         engine_names = get_search_engine_names(config, search_engines)
 
@@ -359,7 +347,7 @@ def main():
         logger.info(f"Search Engines    : {', '.join(engine_names)}")
         logger.info(f"Browser Mode      : {config['browser']['mode'].capitalize()}")
         logger.info(f"Parallel Sessions : {config['sessions']['parallel']}")
-        logger.info(f"Keywords (sample) : {len(keywords)} (of {len(all_keywords)} total)")
+        logger.info(f"Keywords          : {len(keywords)}")
         try:
             from utils.proxy_manager import describe as _proxy_describe
             logger.info(f"IP bouncing       : {_proxy_describe(config)}")

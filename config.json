@@ -48,7 +48,6 @@
     "iterations": 1
   },
   "search": {
-    "sample_keywords": 12,
     "engines": [
       "duckduckgo",
       "bing",
@@ -96,7 +95,6 @@
   },
   "backlink": {
     "sitesFile": "data/backlink_sites.json",
-    "targetsFile": "data/backlink_targets.json",
-    "sample_sites": 16
+    "targetsFile": "data/backlink_targets.json"
   }
 }

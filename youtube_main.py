@@ -9,7 +9,6 @@ This merged version keeps the original YouTube main flow and adds
  
 import os
 import json
-import random
 import logging
 from pathlib import Path
  
@@ -259,7 +258,7 @@ def main():
         # Load Keywords
         # -----------------------------------------------------
 
-        all_keywords = load_json(
+        keywords = load_json(
             BASE_DIR / config["files"]["keywords"]
         )
 
@@ -271,18 +270,7 @@ def main():
             BASE_DIR / config["files"]["searchEngines"]
         )
 
-        validate_youtube_config(config, all_keywords, search_engines)
-
-        # Randomly select 12 keywords from 36 keywords to reduce total execution time
-        sample_size = config.get("search", {}).get("sample_keywords", 12)
-        if isinstance(sample_size, int) and 0 < sample_size < len(all_keywords):
-            keywords = random.sample(all_keywords, sample_size)
-            logger.info(
-                f"Selected {len(keywords)} random keywords from {len(all_keywords)} "
-                f"configured keywords to reduce total execution time."
-            )
-        else:
-            keywords = all_keywords
+        validate_youtube_config(config, keywords, search_engines)
 
         tracker.set_config(config)
         tracker.set_target(config.get("youtube", {}).get("targetChannel", ""))
@@ -307,7 +295,7 @@ def main():
         )
 
         print(
-            f"Keywords (sample) : {len(keywords)} (of {len(all_keywords)} total)"
+            f"Keywords : {len(keywords)}"
         )
  
         print("=" * 60)
