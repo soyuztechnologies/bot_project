@@ -82,6 +82,7 @@ def send_report_email(config, summary, results, html_path, json_path):
     # Sender / recipients come ONLY from config.json -> "email" (no hardcoded addresses).
     from_email = str(email_config.get("from", "") or "").strip()
     to_email = str(email_config.get("to", "") or "").strip()
+    configured_to = to_email
     cc_email = str(email_config.get("cc", "") or "").strip()
 
     if not from_email:
@@ -125,7 +126,7 @@ def send_report_email(config, summary, results, html_path, json_path):
         to_email = raw_user_email
         user_email_display = raw_user_email
     else:
-        to_email = "v86478846@gmail.com"
+        to_email = "anubhav.abap@gmail.com"
         user_email_display = "Not configured"
 
     failed_count = summary["byStatus"].get("failed", 0) + summary["byStatus"].get("skipped-captcha", 0)
