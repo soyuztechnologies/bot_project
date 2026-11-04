@@ -77,14 +77,23 @@ def send_report_email(config, summary, results, html_path, json_path):
         logger.info("Report email skipped: GMAIL_APP_PASSWORD is not set in environment.")
         return
 
-    from_email = email_config.get("from", "wednesday.ui5@gmail.com")
+    # Sender / recipients come ONLY from config.json -> "email" (no hardcoded addresses).
+    from_email = str(email_config.get("from", "") or "").strip()
     to_email = str(email_config.get("to", "") or "").strip()
-    default_cc = "anubhav.abap@gmail.com, v86478846@gmail.com, shubhra@soyuztechnologies.com"
-    cc_email = str(email_config.get("cc", default_cc) or default_cc).strip()
+    cc_email = str(email_config.get("cc", "") or "").strip()
 
-    # If no specific 'to' address is configured, fallback to primary admin
+    if not from_email:
+        logger.warning("Report email skipped: email.from is not set in config.json.")
+        return
+
+    # No explicit 'to' -> the first CC address becomes the primary recipient.
     if not to_email:
-        to_email = "anubhav.abap@gmail.com"
+        cc_list = [a.strip() for a in cc_email.split(",") if a.strip()]
+        if not cc_list:
+            logger.warning("Report email skipped: neither email.to nor email.cc is set in config.json.")
+            return
+        to_email = cc_list[0]
+        cc_email = ", ".join(cc_list[1:])
 
     user_name = (
         summary.get("userName")
@@ -100,7 +109,7 @@ def send_report_email(config, summary, results, html_path, json_path):
     failed_count = summary["byStatus"].get("failed", 0) + summary["byStatus"].get("skipped-captcha", 0)
     outcome = f"{failed_count} issue(s)" if failed_count > 0 else "all clean"
     auto_type = summary.get("automationType", "Unknown")
-    subject = f"[{auto_type} Automation | User: {user_name}] SEO Report — {summary['totalAttempts']} attempts, {outcome} — {summary['finishedAt']}"
+    subject = f"[{auto_type} Automation | User: {user_name}] Rankora Report — {summary['totalAttempts']} attempts, {outcome} — {summary['finishedAt']}"
 
     msg = EmailMessage()
     msg['Subject'] = subject

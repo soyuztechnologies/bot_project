@@ -274,6 +274,7 @@ def _serialise_run(r):
         "original_keyword": r.get("original_keyword"),
         "search_keyword": r.get("search_keyword"),
         "browser_mode": r.get("browser_mode"),
+        "user_name": r.get("user_name"),
         "target": r.get("target"),
         "search_engine": r.get("search_engine"),
         "captcha_encountered": str(r.get("captcha_encountered", "")).strip().lower()
@@ -895,9 +896,6 @@ def automation_status():
 # CONFIGURATION MANAGEMENT (Safe user-facing config editor)
 # =========================================================
 
-DEFAULT_CC_EMAILS = "anubhav.abap@gmail.com, v86478846@gmail.com, shubhra@soyuztechnologies.com"
-
-
 def _load_full_config():
     config_path = BASE_DIR / "config.json"
     with open(config_path, "r", encoding="utf-8") as f:
@@ -945,9 +943,14 @@ def get_config():
         user_name = cfg.get("user_name", "Bot")
         browser_info = cfg.get("browser", {})
         browser_name = browser_info.get("name", "chrome")
+        # Same rule browser.py uses: headless flag OR mode == "headless" -> background
+        _is_headless = bool(browser_info.get("headless", False)) or (
+            str(browser_info.get("mode", "headless")).strip().lower() == "headless"
+        )
+        user_mode = "background" if _is_headless else "foreground"
         email_info = cfg.get("email", {})
         email_to = email_info.get("to", "")
-        email_cc = email_info.get("cc", DEFAULT_CC_EMAILS)
+        email_cc = email_info.get("cc", "")
         sessions_info = cfg.get("sessions", {})
         parallel_sessions = sessions_info.get("parallel", 3)
         vpn_info = cfg.get("vpn", {})
@@ -962,6 +965,7 @@ def get_config():
                 "data": {
                     "user_name": user_name,
                     "browser_name": browser_name,
+                    "user_mode": user_mode,
                     "email_to": email_to,
                     "email_cc": email_cc,
                     "parallel_sessions": parallel_sessions,
@@ -1002,13 +1006,24 @@ def update_config():
             cfg["browser"]["distribution"] = {b_name: 100}
             cfg["browser"]["browsers"] = [b_name]
 
-        # 3. email: user can type their email in 'to', CC default fixed
+        # 2b. run mode: foreground (visible window) / background (headless)
+        if "user_mode" in payload:
+            u_mode = str(payload["user_mode"]).strip().lower()
+            if u_mode not in ("foreground", "background"):
+                u_mode = "background"
+            if "browser" not in cfg or not isinstance(cfg["browser"], dict):
+                cfg["browser"] = {}
+            background = (u_mode == "background")
+            # keep both keys in sync: browser.py reads "headless" OR mode == "headless"
+            cfg["browser"]["mode"] = "headless" if background else "headed"
+            cfg["browser"]["headless"] = background
+
+        # 3. email: user can type their email in 'to'; 'from' and 'cc' are
+        #    admin-managed in config.json and are left exactly as they are.
         if "email_to" in payload:
             if "email" not in cfg or not isinstance(cfg["email"], dict):
-                cfg["email"] = {"enabled": True, "from": "wednesday.ui5@gmail.com"}
+                cfg["email"] = {"enabled": True, "from": "", "cc": ""}
             cfg["email"]["to"] = str(payload["email_to"]).strip()
-            # Enforce fixed default CC recipients
-            cfg["email"]["cc"] = DEFAULT_CC_EMAILS
 
         # 4. sessions: parallel (by default 3)
         if "parallel_sessions" in payload:
@@ -1041,6 +1056,9 @@ def update_config():
                 "data": {
                     "user_name": cfg.get("user_name"),
                     "browser_name": cfg.get("browser", {}).get("name"),
+                    "user_mode": "background"
+                    if (cfg.get("browser", {}).get("headless") or cfg.get("browser", {}).get("mode") == "headless")
+                    else "foreground",
                     "email_to": cfg.get("email", {}).get("to"),
                     "email_cc": cfg.get("email", {}).get("cc"),
                     "parallel_sessions": cfg.get("sessions", {}).get("parallel"),

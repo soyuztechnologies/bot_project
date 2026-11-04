@@ -295,7 +295,7 @@ def print_summary(stats, config):
  
  
 def main():
-    """Main function to run the SEO automation bot."""
+    """Main function to run Rankora."""
     start_time = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
     stats = None
     config = None

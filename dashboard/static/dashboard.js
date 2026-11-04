@@ -1,5 +1,5 @@
 // =========================================================
-// SEO AUTOMATION DASHBOARD
+// RANKORA DASHBOARD
 // Context-aware Website / YouTube dashboard
 // =========================================================
 
@@ -3136,7 +3136,7 @@ function renderRuns(
         tbody.innerHTML = `
             <tr>
                 <td
-                    colspan="10"
+                    colspan="11"
                     class="empty-state"
                 >
                     No ${escapeHtml(
@@ -3179,6 +3179,17 @@ function renderRuns(
                             : automation === "YOUTUBE"
                                 ? "YouTube"
                                 : "—";
+
+
+                    /*
+                     * -----------------------------------------
+                     * USER (who started this automation run)
+                     * -----------------------------------------
+                     */
+                    const userName =
+                        run.user_name ??
+                        run.userName ??
+                        "—";
 
 
                     /*
@@ -3308,6 +3319,14 @@ function renderRuns(
                             <td>
                                 ${escapeHtml(
                                     typeLabel
+                                )}
+                            </td>
+
+
+                            <!-- USER -->
+                            <td>
+                                ${escapeHtml(
+                                    userName
                                 )}
                             </td>
 
@@ -7016,6 +7035,43 @@ async function startOrStopSelectedAutomation() {
 (function initializeBotConfiguration() {
     let cachedKeywords = [];
 
+    /* ---------------------------------------------------------
+       Save button is shown ONLY while the form differs from the
+       last saved/loaded settings.
+       --------------------------------------------------------- */
+    const CONFIG_FIELD_IDS = [
+        "cfgUserName",
+        "cfgBrowserName",
+        "cfgUserMode",
+        "cfgEmailTo",
+        "cfgParallelSessions"
+    ];
+    let savedConfigSnapshot = null;
+
+    function readConfigForm() {
+        return JSON.stringify({
+            user_name: (($("cfgUserName")?.value || "").trim() || "Bot"),
+            browser_name: $("cfgBrowserName")?.value || "chrome",
+            user_mode: $("cfgUserMode")?.value || "background",
+            email_to: ($("cfgEmailTo")?.value || "").trim(),
+            parallel_sessions: parseInt($("cfgParallelSessions")?.value, 10) || 3
+        });
+    }
+
+    function isConfigDirty() {
+        return savedConfigSnapshot !== null && readConfigForm() !== savedConfigSnapshot;
+    }
+
+    function updateSaveButtonVisibility() {
+        const saveBtn = $("saveConfigBtn");
+        if (saveBtn) saveBtn.style.display = isConfigDirty() ? "" : "none";
+    }
+
+    function captureSavedConfigSnapshot() {
+        savedConfigSnapshot = readConfigForm();
+        updateSaveButtonVisibility();
+    }
+
     async function loadConfigData() {
         const statusEl = $("configSaveStatus");
         try {
@@ -7031,12 +7087,15 @@ async function startOrStopSelectedAutomation() {
             const emailToEl = $("cfgEmailTo");
             const emailCcEl = $("cfgEmailCc");
             const parallelSessionsEl = $("cfgParallelSessions");
+            const userModeEl = $("cfgUserMode");
 
+            if (userModeEl) userModeEl.value = (cfg.user_mode || "background").toLowerCase();
             if (userNameEl) userNameEl.value = cfg.user_name || "Bot";
             if (browserNameEl) browserNameEl.value = (cfg.browser_name || "chrome").toLowerCase();
             if (emailToEl) emailToEl.value = cfg.email_to || "";
-            if (emailCcEl) emailCcEl.value = cfg.email_cc || "anubhav.abap@gmail.com, v86478846@gmail.com, shubhra@soyuztechnologies.com";
+            if (emailCcEl) emailCcEl.value = cfg.email_cc || "";
             if (parallelSessionsEl) parallelSessionsEl.value = cfg.parallel_sessions || 3;
+            captureSavedConfigSnapshot();
 
             // Search engines
             const enginesContainer = $("cfgSearchEnginesList");
@@ -7100,8 +7159,10 @@ async function startOrStopSelectedAutomation() {
 
         const userName = ($("cfgUserName")?.value || "").trim() || "Bot";
         const browserName = $("cfgBrowserName")?.value || "chrome";
+        const userMode = $("cfgUserMode")?.value || "background";
         const emailTo = ($("cfgEmailTo")?.value || "").trim();
         const parallelSessions = parseInt($("cfgParallelSessions")?.value, 10) || 3;
+        const submittedSnapshot = readConfigForm();
 
         if (saveBtn) {
             saveBtn.disabled = true;
@@ -7120,6 +7181,7 @@ async function startOrStopSelectedAutomation() {
                 body: JSON.stringify({
                     user_name: userName,
                     browser_name: browserName,
+                    user_mode: userMode,
                     email_to: emailTo,
                     parallel_sessions: parallelSessions
                 })
@@ -7129,6 +7191,9 @@ async function startOrStopSelectedAutomation() {
             if (!res.ok || data.status !== "success") {
                 throw new Error(data.message || "Failed to save configuration");
             }
+
+            savedConfigSnapshot = submittedSnapshot;
+            updateSaveButtonVisibility();
 
             if (statusEl) {
                 statusEl.className = "config-status-badge success";
@@ -7161,11 +7226,15 @@ async function startOrStopSelectedAutomation() {
 
         if (userNameEl) userNameEl.value = "Bot";
         if (browserNameEl) browserNameEl.value = "chrome";
+        if ($("cfgUserMode")) $("cfgUserMode").value = "background";
         if (parallelSessionsEl) parallelSessionsEl.value = 3;
+        updateSaveButtonVisibility();
 
         if (statusEl) {
             statusEl.className = "config-status-badge saving";
-            statusEl.textContent = "Defaults restored — click Save Configuration to apply";
+            statusEl.textContent = isConfigDirty()
+                ? "Defaults restored — click Save Settings to apply"
+                : "Defaults restored — nothing to save";
             statusEl.style.display = "inline-block";
             setTimeout(() => {
                 if (statusEl.textContent.includes("Defaults restored")) {
@@ -7187,6 +7256,15 @@ async function startOrStopSelectedAutomation() {
             resetBtn.dataset.bound = "true";
             resetBtn.addEventListener("click", resetConfigDefaults);
         }
+
+        CONFIG_FIELD_IDS.forEach(id => {
+            const el = $(id);
+            if (el && el.dataset.dirtyBound !== "true") {
+                el.dataset.dirtyBound = "true";
+                ["input", "change"].forEach(evt => el.addEventListener(evt, updateSaveButtonVisibility));
+            }
+        });
+        updateSaveButtonVisibility();
 
         const searchInput = $("cfgKeywordSearch");
         if (searchInput && searchInput.dataset.bound !== "true") {

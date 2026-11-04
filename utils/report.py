@@ -220,7 +220,7 @@ class RunLogger:
 <html>
 <head>
 <meta charset="utf-8">
-<title>{auto_type} SEO Automation Report</title>
+<title>{auto_type} Rankora Report</title>
 <style>
   body {{ font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 24px; color: #1c1c1c; background: #fafafa; }}
   h1 {{ font-size: 20px; }}
@@ -233,7 +233,7 @@ class RunLogger:
 </style>
 </head>
 <body>
-  <h1>{auto_type} SEO Automation Report</h1>
+  <h1>{auto_type} Rankora Report</h1>
   <p class="meta">
     <strong>User:</strong> {escape_html(user_name)}<br>
     Started: {escape_html(summary['startedAt'])}<br>

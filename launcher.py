@@ -1,7 +1,7 @@
 """
 launcher.py
  
-Launcher for SEO Automation.
+Launcher for Rankora.
  
 Allows user to choose which automation to run.
 """
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 def main():
  
     print("\n" + "-" * 50)
-    print("        SEO AUTOMATION BOT")
+    print("                     RANKORA")
     print("-" * 50)
     print("1. Website Automation")
     print("2. YouTube Automation")

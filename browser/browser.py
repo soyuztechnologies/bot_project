@@ -6,7 +6,9 @@ Browser setup and lifecycle helpers.
  
 import logging
 import os
+import re
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -23,6 +25,185 @@ from utils.exceptions import (
  
  
 _BROWSER_START_LOCK = threading.Lock()
+
+
+# ---------------------------------------------------------------------------
+# Browser profile disk-space management
+#
+# Every session gets its own throw-away profile folder
+# (<profile_root>/<browser>_<thread>_<uuid8>). Nothing is ever re-used, so the
+# folder is deleted as soon as the session's browser is closed, and anything a
+# crash left behind is swept once at start-up.
+# ---------------------------------------------------------------------------
+_PROFILE_NAME_RE = re.compile(r"^(chrome|edge|firefox|opera|brave)_\d+_[0-9a-f]{8}$")
+DEFAULT_STALE_PROFILE_MINUTES = 10
+
+_ACTIVE_PROFILES: set = set()          # profiles created by THIS process and still open
+_ACTIVE_PROFILES_LOCK = threading.Lock()
+_STALE_SWEEP_DONE = False
+_STALE_SWEEP_LOCK = threading.Lock()
+
+
+def _norm_path(p) -> str:
+    return os.path.normcase(os.path.abspath(str(p)))
+
+
+def _is_inside(path, root) -> bool:
+    """True if path is strictly inside root (never root itself)."""
+    try:
+        p, r = _norm_path(path), _norm_path(root)
+        return p != r and os.path.commonpath([p, r]) == r
+    except ValueError:
+        return False
+
+
+def _register_profile(path) -> None:
+    with _ACTIVE_PROFILES_LOCK:
+        _ACTIVE_PROFILES.add(_norm_path(path))
+
+
+def _unregister_profile(path) -> None:
+    with _ACTIVE_PROFILES_LOCK:
+        _ACTIVE_PROFILES.discard(_norm_path(path))
+
+
+def _rmtree_onerror(func, path, _exc):
+    """Clear a read-only flag and retry once; give up silently otherwise."""
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception:
+        pass
+
+
+def _dir_size_mb(path) -> float:
+    total = 0
+    try:
+        for dirpath, _dirs, files in os.walk(path):
+            for name in files:
+                try:
+                    total += os.path.getsize(os.path.join(dirpath, name))
+                except OSError:
+                    pass
+    except Exception:
+        pass
+    return total / (1024 * 1024)
+
+
+def remove_profile_dir(profile_dir, profile_root, retries: int = 6, delay: float = 0.5) -> bool:
+    """Delete one session profile folder. Returns True once it is gone.
+
+    Safety: refuses to delete anything that is not strictly inside
+    profile_root, so a wrong path can never wipe the user's real browser
+    profile or the root itself. Windows releases file handles a moment after
+    the browser dies, so the delete is retried a few times.
+    """
+    if not profile_dir or not profile_root or not _is_inside(profile_dir, profile_root):
+        return False
+    kw = {"onexc": _rmtree_onerror} if sys.version_info >= (3, 12) else {"onerror": _rmtree_onerror}
+    try:
+        for attempt in range(retries):
+            if not os.path.exists(profile_dir):
+                return True
+            try:
+                shutil.rmtree(profile_dir, **kw)
+            except Exception:
+                pass
+            if not os.path.exists(profile_dir):
+                return True
+            time.sleep(delay)
+        return not os.path.exists(profile_dir)
+    finally:
+        _unregister_profile(profile_dir)
+
+
+def _profile_in_use(profile_dir) -> bool:
+    """True if any running process was launched with this profile path."""
+    import psutil
+    target = os.path.normpath(str(profile_dir)).replace("\\", "/").lower()
+    for proc in psutil.process_iter(["cmdline"]):
+        try:
+            cmdline = proc.info.get("cmdline")
+            if cmdline and target in " ".join(cmdline).replace("\\", "/").lower():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def cleanup_stale_profiles(profile_root, stale_after_minutes=DEFAULT_STALE_PROFILE_MINUTES) -> dict:
+    """Remove profile folders left behind by crashed / killed earlier runs.
+
+    A folder is only removed when ALL of these hold, so sessions running in
+    parallel (same process or another bot process) are never touched:
+      * its name matches our own <browser>_<thread>_<uuid8> pattern
+      * it is not registered as active by this process
+      * it is older than stale_after_minutes (covers the short window between
+        folder creation and browser launch)
+      * no running process has it on its command line
+    """
+    stats = {"removed": 0, "skipped": 0, "failed": 0, "freed_mb": 0.0}
+    log = logging.getLogger(__name__)
+    if not profile_root or not os.path.isdir(profile_root):
+        return stats
+    try:
+        import psutil  # noqa: F401
+    except ImportError:
+        log.warning("Stale profile cleanup skipped: psutil is not installed.")
+        return stats
+
+    try:
+        min_age = max(0.0, float(stale_after_minutes)) * 60
+    except (TypeError, ValueError):
+        min_age = DEFAULT_STALE_PROFILE_MINUTES * 60
+    now = time.time()
+
+    try:
+        names = os.listdir(profile_root)
+    except OSError:
+        return stats
+
+    for name in names:
+        path = os.path.join(profile_root, name)
+        if not _PROFILE_NAME_RE.match(name) or os.path.islink(path) or not os.path.isdir(path):
+            continue
+        with _ACTIVE_PROFILES_LOCK:
+            if _norm_path(path) in _ACTIVE_PROFILES:
+                stats["skipped"] += 1
+                continue
+        try:
+            if now - os.path.getmtime(path) < min_age or _profile_in_use(path):
+                stats["skipped"] += 1
+                continue
+        except Exception:
+            stats["skipped"] += 1
+            continue
+        size_mb = _dir_size_mb(path)
+        if remove_profile_dir(path, profile_root):
+            stats["removed"] += 1
+            stats["freed_mb"] += size_mb
+        else:
+            stats["failed"] += 1
+
+    if stats["removed"] or stats["failed"]:
+        log.info(
+            "Stale browser profile cleanup: removed %d folder(s), freed %.1f MB, %d could not be removed.",
+            stats["removed"], stats["freed_mb"], stats["failed"],
+        )
+    return stats
+
+
+def _sweep_stale_profiles_once(profile_root, stale_after_minutes) -> None:
+    """Run the stale-profile sweep a single time per process (first browser start)."""
+    global _STALE_SWEEP_DONE
+    with _STALE_SWEEP_LOCK:
+        if _STALE_SWEEP_DONE:
+            return
+        _STALE_SWEEP_DONE = True
+    try:
+        cleanup_stale_profiles(profile_root, stale_after_minutes)
+    except Exception as e:
+        logging.getLogger(__name__).debug(f"Stale profile cleanup failed: {e}")
  
  
 def get_brave_binary():
@@ -167,6 +348,12 @@ def setup_browser(config, browser_name="chrome", proxy_url=None):
         os.path.join(os.getcwd(), "browser_profiles"),
     )
 
+    # Pre-run cleanup: once per process, delete leftovers of crashed/stale sessions.
+    _sweep_stale_profiles_once(
+        profile_root,
+        browser_config.get("stale_profile_minutes", DEFAULT_STALE_PROFILE_MINUTES),
+    )
+
     # uuid avoids collisions from recycled OS thread IDs + stale lock files.
     # Startup is retried with a FRESH profile per attempt: transient failures
     # like "cannot connect to chrome at 127.0.0.1:9222 / chrome not reachable"
@@ -182,9 +369,11 @@ def setup_browser(config, browser_name="chrome", proxy_url=None):
             f"{browser_name}_{thread_id}_{_uuid.uuid4().hex[:8]}",
         )
 
+        _register_profile(profile_path)
         try:
             os.makedirs(profile_path, exist_ok=True)
         except OSError as e:
+            _unregister_profile(profile_path)
             last_error = BrowserStartupError(f"Failed to create profile dir {profile_path}: {e}", browser=browser_name, cause=e)
             continue
 
@@ -291,6 +480,7 @@ def setup_browser(config, browser_name="chrome", proxy_url=None):
                         f"Unsupported browser: {browser_name}", browser=browser_name
                     )
             except (BrowserBinaryNotFoundError, UnsupportedBrowserError):
+                remove_profile_dir(profile_path, profile_root)
                 raise
             except Exception as e:
                 last_error = e
@@ -300,6 +490,10 @@ def setup_browser(config, browser_name="chrome", proxy_url=None):
                 # Chrome are never touched.
                 try:
                     _kill_browsers_by_profile(profile_path)
+                except Exception:
+                    pass
+                try:
+                    remove_profile_dir(profile_path, profile_root)
                 except Exception:
                     pass
 
@@ -339,6 +533,7 @@ def setup_browser(config, browser_name="chrome", proxy_url=None):
     # Stash metadata for forced kill by profile path (used by close_browser to find orphaned browser processes)
     try:
         driver._seo_profile_dir = profile_path  # type: ignore[attr-defined]
+        driver._seo_profile_root = profile_root  # type: ignore[attr-defined]
         driver._seo_browser_name = browser_name  # type: ignore[attr-defined]
         driver._seo_proxy = (proxy_kwargs.get("proxy") if proxy_kwargs else None)  # type: ignore[attr-defined]
     except Exception:
@@ -706,6 +901,16 @@ def close_browser(driver, timeout: float = 4.0):
                     pass
         except Exception:
             pass
+
+    # Disk cleanup: this session's profile folder is never re-used, so delete it
+    # now that the browser process is gone (runs last so nothing still holds files).
+    try:
+        _prof_dir = getattr(driver, "_seo_profile_dir", None)
+        _prof_root = getattr(driver, "_seo_profile_root", None)
+        if _prof_dir and _prof_root:
+            remove_profile_dir(_prof_dir, _prof_root)
+    except Exception:
+        pass
 
     # Keep silenced at ERROR to avoid post-quit spam
     try:

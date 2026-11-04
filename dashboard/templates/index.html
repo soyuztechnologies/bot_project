@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>SEO Automation Control Center</title>
+    <title>Rankora Control Center</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -249,7 +249,7 @@
 
 
             <div class="version">
-                SEO BOT • v1.0
+                RANKORA • v1.0
             </div>
 
         </div>
@@ -757,6 +757,7 @@
 
                                 <th>Status</th>
                                 <th>Type</th>
+                                <th>User</th>
                                 <th>Keyword</th>
                                 <th>Target</th>
                                 <th>Search Engine</th>
@@ -1859,7 +1860,7 @@
                         type="button"
                         class="generate-btn"
                         id="saveConfigBtn"
-                        style="width: auto; min-width: 140px; padding: 10px 18px;"
+                        style="display: none; width: auto; min-width: 140px; padding: 10px 18px;"
                     >
                         <span>💾</span>
                         Save Settings
@@ -1983,6 +1984,28 @@
                         </div>
 
 
+                        <div class="config-form-group">
+
+                            <label for="cfgUserMode">
+                                Run Mode
+                                <span class="field-hint">(Foreground / Background)</span>
+                            </label>
+
+                            <select
+                                id="cfgUserMode"
+                                class="config-select-field"
+                            >
+                                <option value="background" selected>Background (hidden browser, recommended)</option>
+                                <option value="foreground">Foreground (visible browser window)</option>
+                            </select>
+
+                            <small class="field-desc">
+                                Foreground opens real browser windows you can watch. Background runs them hidden (headless) and uses less CPU/RAM. Applies to the next run you start.
+                            </small>
+
+                        </div>
+
+
                         <!-- SEARCH ENGINES SECTION INSIDE SAME BOX -->
 
                         <div class="config-subpanel-divider"></div>
@@ -2069,7 +2092,8 @@
                                 id="cfgEmailCc"
                                 class="config-input-field cfg-locked"
                                 readonly
-                                value="anubhav.abap@gmail.com, v86478846@gmail.com, shubhra@soyuztechnologies.com"
+                                value=""
+                                placeholder="Loaded from config.json"
                             />
 
                             <small class="field-desc">
