@@ -163,6 +163,21 @@ def run_backlink_job(site, target, config, stop_event, stats):
             site=site.get("name") or site_id,
             message=message,
         )
+        try:
+            from utils.local_tracker import record_active_session_result
+            record_active_session_result(
+                keyword=target_url,
+                browser=selected_browser,
+                engine=site_id,
+                assigned_engine=site_id,
+                target=target_url,
+                url=url or target_url,
+                status=bucket,
+                message=message or ("Submitted successfully" if bucket == "success" else bucket),
+                duration_ms=durationMs,
+            )
+        except Exception:
+            pass
 
     def _save_backlink(status, result_text="", result_xpath="", detail=""):
         """Write the flat per-submission document to the `backlinks` collection."""

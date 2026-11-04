@@ -359,17 +359,28 @@ class LocalRunTracker:
         default_target = self.target_urls[0] if self.target_urls else ""
 
         extracted = []
-        seen_keywords = set()
+        seen_higher_priority_keys = set()
 
-        # Prioritize success first, then failed, then interrupted so best outcome per keyword is kept
+        # Prioritize success first, then failed, then interrupted so best outcome per job is kept
         for cat in ["success", "failed", "interrupted"]:
             items = stats.get(cat, [])
+            current_cat_keys = set()
             for item in items:
                 kw = item.get("keyword", "")
-                if kw and kw in seen_keywords:
+                eng = item.get("engine", item.get("site", "unknown"))
+                assigned = item.get("assignedEngine") or item.get("assigned_engine") or eng
+                target_val = item.get("target", item.get("target_url", default_target))
+
+                # Identify job uniquely by (target, keyword, engine/site)
+                # This ensures distinct engine runs or site submissions for the same target/keyword are NEVER discarded
+                job_key = (
+                    str(target_val or "").strip().lower(),
+                    str(kw or "").strip().lower(),
+                    str(eng or "").strip().lower(),
+                )
+                if job_key in seen_higher_priority_keys:
                     continue
-                if kw:
-                    seen_keywords.add(kw)
+                current_cat_keys.add(job_key)
 
                 dur_ms = item.get("durationMs")
                 duration_str = ""
@@ -381,9 +392,6 @@ class LocalRunTracker:
                 elif item.get("duration"):
                     duration_str = str(item.get("duration"))
 
-                eng = item.get("engine", item.get("site", "unknown"))
-                assigned = item.get("assignedEngine") or item.get("assigned_engine") or eng
-
                 default_msg = (
                     "Target found and visited successfully"
                     if cat == "success"
@@ -392,7 +400,7 @@ class LocalRunTracker:
 
                 entry = {
                     "browser": str(item.get("browser", global_browser)).lower(),
-                    "target": item.get("target", item.get("target_url", default_target)),
+                    "target": target_val,
                     "keyword": kw,
                     "status": cat,
                     "message": item.get("message") or item.get("error") or default_msg,
@@ -408,6 +416,8 @@ class LocalRunTracker:
                     "timestamp": _iso_utc(_utcnow()),
                 }
                 extracted.append(entry)
+
+            seen_higher_priority_keys.update(current_cat_keys)
 
         with self._results_lock:
             if extracted:
@@ -434,9 +444,14 @@ class LocalRunTracker:
             by_browser[b][r["status"]] = by_browser[b].get(r["status"], 0) + 1
 
         by_target = {}
+        if self.target_urls:
+            for t in self.target_urls:
+                if t:
+                    by_target[str(t)] = 0
         for r in current_results:
-            if r.get("target"):
-                by_target[r["target"]] = by_target.get(r["target"], 0) + 1
+            tgt = r.get("target")
+            if tgt:
+                by_target[tgt] = by_target.get(tgt, 0) + 1
 
         by_engine = {}
         by_assigned_engine = {}

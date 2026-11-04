@@ -96,6 +96,7 @@
   },
   "backlink": {
     "sitesFile": "data/backlink_sites.json",
-    "targetsFile": "data/backlink_targets.json"
+    "targetsFile": "data/backlink_targets.json",
+    "sample_sites": 16
   }
 }

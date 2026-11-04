@@ -21,6 +21,7 @@ Usage:
 import os
 import argparse
 import json
+import random
 import logging
 import sys
 from datetime import datetime, timezone, timedelta
@@ -173,12 +174,22 @@ def main(argv=None):
         targets = load_json(targets_path)
 
         enabled, parallel = validate_backlink_inputs(config, sites, targets)
+        all_enabled_sites = enabled
 
         if args.sites.strip():
             wanted = {s.strip().lower() for s in args.sites.split(",") if s.strip()}
             enabled = [s for s in enabled if str(s.get("id", "")).lower() in wanted]
             if not enabled:
                 raise ValidationError(f"--sites matched nothing. Available: {[s.get('id') for s in sites]}")
+        else:
+            # Randomly select 16 backlink sites from 49 configured sites to reduce total execution time (1/3rd)
+            sample_size = config.get("backlink", {}).get("sample_sites", 16)
+            if isinstance(sample_size, int) and 0 < sample_size < len(all_enabled_sites):
+                enabled = random.sample(all_enabled_sites, sample_size)
+                logger.info(
+                    f"Selected {len(enabled)} random backlink sites from {len(all_enabled_sites)} "
+                    f"configured sites to reduce total execution time."
+                )
 
         if args.max_targets and args.max_targets > 0:
             targets = targets[: args.max_targets]
@@ -191,6 +202,8 @@ def main(argv=None):
 
         logger.info(f"Project Path      : {BASE_DIR}")
         logger.info(f"Backlink Sites    : {', '.join(s.get('id') for s in enabled)}")
+        if len(enabled) < len(all_enabled_sites):
+            logger.info(f"Sites (sample)    : {len(enabled)} (of {len(all_enabled_sites)} total)")
         logger.info(f"Targets           : {len(targets)}")
         logger.info(f"Parallel Sessions : {parallel} (batches of {parallel})")
         logger.info(f"Planned Jobs      : {planned_jobs}")
