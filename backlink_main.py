@@ -252,7 +252,8 @@ def main(argv=None):
                 from utils.mailer import send_report_email
                 target_urls = [t.get("url") for t in targets] if targets else []
                 user_name = os.getenv("USER_NAME") or (config.get("user_name") if config else "Unknown")
-                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="Backlink", user_name=user_name)
+                user_email = os.getenv("USER_EMAIL") or (config.get("email", {}).get("to") if config else None) or (config.get("user_email") if config else "")
+                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="Backlink", user_name=user_name, user_email=user_email)
                 reporter.set_results_from_stats(stats, config)
                 json_path = reporter.write_json()
                 html_path = reporter.write_html()

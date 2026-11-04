@@ -150,9 +150,10 @@ DASHBOARD_HOST=0.0.0.0 DASHBOARD_PORT=5050 python dashboard/app.py
 Both the bot and the dashboard share the same MongoDB database, configured via project-root `config.json` (`database.current_db`: `atlas` or `local`) and `.env` (`MONGO_URI_ATLAS` / `MONGO_URI_LOCAL`).
 
 ### Collections Used:
-- **`automation_runs`**: One document per run (`run_id`, `automation_type`, `keyword`, `browser_mode`, `started_at`, `finished_at`, `status`, `success/failure counts`).
+- **`automation_runs`**: One document per run (`run_id`, `automation_type`, `keyword`, `browser_mode`, `user_name`, `user_email`, `started_at`, `finished_at`, `status`, `success/failure counts`).
 - **`automation_logs`**: Individual event logs linked by `run_id` (`timestamp`, `level`, `keyword`, `search_engine`, `action`, `event_status`, `url`, `error_message`, `message`, `metadata`).
 - **`backlinks`**: One document per site × URL submission (`site_id`, `target_url`, `status`, `result_text`, `result_xpath`, `created_at`).
+- **`user_settings`**: Stores user profile and notification configuration set from the Bot UI (`email`, `email_to`, `user_name`, `browser_name`, `parallel_sessions`, `updated_at`).
 
 ---
 

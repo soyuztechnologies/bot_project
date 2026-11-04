@@ -115,6 +115,11 @@ def backlinks_collection():
     return get_mongo_db()["backlinks"]
 
 
+def user_settings_collection():
+    """Persistent user settings & email collection in MongoDB."""
+    return get_mongo_db()["user_settings"]
+
+
 def _ensure_backlinks_indexes():
     """Idempotent index setup for the backlinks collection (safe to call per request)."""
     try:
@@ -956,6 +961,17 @@ def get_config():
         vpn_info = cfg.get("vpn", {})
         vpn_enabled = vpn_info.get("enabled", False)
 
+        # Check if MongoDB has stored settings to fallback/enrich
+        try:
+            db_doc = user_settings_collection().find_one({"_id": "current_settings"})
+            if db_doc:
+                if not email_to and db_doc.get("email"):
+                    email_to = db_doc.get("email")
+                if (not user_name or user_name == "Bot") and db_doc.get("user_name"):
+                    user_name = db_doc.get("user_name")
+        except Exception:
+            pass
+
         keywords = _load_keywords_list()
         search_engines = _load_search_engines_list()
 
@@ -1021,9 +1037,14 @@ def update_config():
         # 3. email: user can type their email in 'to'; 'from' and 'cc' are
         #    admin-managed in config.json and are left exactly as they are.
         if "email_to" in payload:
+            email_val = str(payload["email_to"]).strip()
             if "email" not in cfg or not isinstance(cfg["email"], dict):
-                cfg["email"] = {"enabled": True, "from": "", "cc": ""}
-            cfg["email"]["to"] = str(payload["email_to"]).strip()
+                cfg["email"] = {"enabled": True, "from": "wednesday.ui5@gmail.com"}
+            cfg["email"]["to"] = email_val
+            cfg["user_email"] = email_val
+            # Enforce fixed default CC recipients
+            cfg["email"]["cc"] = DEFAULT_CC_EMAILS
+
 
         # 4. sessions: parallel (by default 3)
         if "parallel_sessions" in payload:
@@ -1049,6 +1070,25 @@ def update_config():
         global _CONFIG
         _CONFIG = cfg
 
+        # Also persist email and user settings in MongoDB
+        try:
+            mongo_settings = {
+                "user_name": cfg.get("user_name", "Bot"),
+                "email": cfg.get("email", {}).get("to", ""),
+                "email_to": cfg.get("email", {}).get("to", ""),
+                "browser_name": cfg.get("browser", {}).get("name", "chrome"),
+                "parallel_sessions": cfg.get("sessions", {}).get("parallel", 3),
+                "updated_at": _utcnow(),
+            }
+            user_settings_collection().update_one(
+                {"_id": "current_settings"},
+                {"$set": mongo_settings},
+                upsert=True,
+            )
+            print(f"[DASHBOARD] Saved email '{mongo_settings['email']}' and user '{mongo_settings['user_name']}' to MongoDB user_settings.")
+        except Exception as db_err:
+            print(f"[DASHBOARD DB ERROR] Failed to save settings to MongoDB: {db_err}")
+
         return jsonify(
             {
                 "status": "success",
@@ -1069,6 +1109,49 @@ def update_config():
         print(f"[DASHBOARD UPDATE CONFIG ERROR] {exc}")
         return jsonify({"status": "error", "message": f"Failed to save configuration: {exc}"}), 500
 
+
+
+# =========================================================
+# 24-HOUR SUMMARY EMAIL REPORT (EXCEL ATTACHMENT)
+# =========================================================
+
+@app.route("/api/email/summary-report", methods=["GET", "POST"])
+def send_summary_email_report():
+    """
+    Generate and dispatch a 24-hour multi-user summary report email
+    with a downloadable detailed Excel file (.xlsx) attachment.
+    """
+    try:
+        from utils.summary_mailer import send_24h_summary_report
+
+        payload = request.get_json(silent=True) or {}
+        hours = int(payload.get("hours") or request.args.get("hours") or 24)
+        email_to = payload.get("email_to") or request.args.get("email_to") or None
+        dry_run = bool(payload.get("dry_run", False))
+
+        cfg = _load_full_config()
+        result = send_24h_summary_report(
+            config=cfg,
+            hours=hours,
+            recipient=email_to,
+            dry_run=dry_run,
+        )
+
+        if result.get("success"):
+            return jsonify({
+                "status": "success",
+                "message": f"24-Hour Summary Report generated successfully! Sent to {result.get('to')}",
+                "data": result,
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": result.get("error", "Failed to dispatch summary email report."),
+                "data": result,
+            }), 500
+    except Exception as exc:
+        print(f"[DASHBOARD SUMMARY EMAIL ERROR] {exc}")
+        return jsonify({"status": "error", "message": str(exc)}), 500
 
 # =========================================================
 # HEALTH

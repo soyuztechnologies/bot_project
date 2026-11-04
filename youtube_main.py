@@ -498,7 +498,8 @@ def main():
                 # youtube config target is just targetChannel but we can leave target_urls empty or set to channel
                 target_urls = [config.get("youtube", {}).get("targetChannel", "")]
                 user_name = os.getenv("USER_NAME") or (config.get("user_name") if config else "Unknown")
-                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="YouTube", user_name=user_name)
+                user_email = os.getenv("USER_EMAIL") or (config.get("email", {}).get("to") if config else None) or (config.get("user_email") if config else "")
+                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="YouTube", user_name=user_name, user_email=user_email)
                 reporter.set_results_from_stats(youtube_stats, config)
                 json_path = reporter.write_json()
                 html_path = reporter.write_html()

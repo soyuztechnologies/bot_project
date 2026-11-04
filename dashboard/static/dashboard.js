@@ -705,10 +705,9 @@ async function load() {
         ) {
 
             generated.textContent =
-                `Last database refresh: ${
-                    new Date(
-                        data.generated_at
-                    ).toLocaleString("en-IN")
+                `Last database refresh: ${new Date(
+                    data.generated_at
+                ).toLocaleString("en-IN")
                 }`;
         }
 
@@ -837,12 +836,11 @@ async function loadSelectedAutomation() {
             state.data.generated_at
         ) {
             generated.textContent =
-                `Last database refresh: ${
-                    new Date(
-                        state.data.generated_at
-                    ).toLocaleString(
-                        "en-IN"
-                    )
+                `Last database refresh: ${new Date(
+                    state.data.generated_at
+                ).toLocaleString(
+                    "en-IN"
+                )
                 }`;
         }
 
@@ -1786,11 +1784,11 @@ function renderEngines(engines = []) {
 }
 
 
-    /* =========================================================
-    YOUTUBE PERFORMANCE
-    ========================================================= */
+/* =========================================================
+YOUTUBE PERFORMANCE
+========================================================= */
 
-    function renderYoutubePerformance(
+function renderYoutubePerformance(
     youtube = null
 ) {
     const section =
@@ -1901,15 +1899,14 @@ function renderEngines(engines = []) {
                 <div
                     class="bar-fill youtube-success"
                     style="
-                        width:${
-                            total
-                                ? (
-                                    successful /
-                                    total *
-                                    100
-                                ).toFixed(1)
-                                : 0
-                        }%
+                        width:${total
+            ? (
+                successful /
+                total *
+                100
+            ).toFixed(1)
+            : 0
+        }%
                     "
                 ></div>
             </div>
@@ -1933,15 +1930,14 @@ function renderEngines(engines = []) {
                 <div
                     class="bar-fill youtube-failed"
                     style="
-                        width:${
-                            total
-                                ? (
-                                    failed /
-                                    total *
-                                    100
-                                ).toFixed(1)
-                                : 0
-                        }%
+                        width:${total
+            ? (
+                failed /
+                total *
+                100
+            ).toFixed(1)
+            : 0
+        }%
                     "
                 ></div>
             </div>
@@ -2267,13 +2263,11 @@ function renderSearchEnginesPage(engines = []) {
 
                             callbacks: {
                                 label: context => {
-                                    return ` ${
-                                        context.dataset.label
-                                    }: ${
-                                        formatNumber(
+                                    return ` ${context.dataset.label
+                                        }: ${formatNumber(
                                             context.raw
                                         )
-                                    } runs`;
+                                        } runs`;
                                 }
                             }
                         }
@@ -2424,31 +2418,31 @@ function renderRecentRuns(
 
                             <div class="recent-run-keyword">
                                 ${escapeHtml(
-                                    keyword
-                                )}
+                    keyword
+                )}
                             </div>
 
                             <div class="recent-run-time">
                                 ${escapeHtml(
-                                    formatDateTime(
-                                        started
-                                    )
-                                )}
+                    formatDateTime(
+                        started
+                    )
+                )}
                             </div>
 
                         </div>
 
                         <div class="recent-run-status status-${status.toLowerCase()}">
                             ${escapeHtml(
-                                status
-                            )}
+                    status
+                )}
                         </div>
 
                     </div>
                 `;
             }
         )
-        .join("");
+            .join("");
 }
 
 
@@ -2680,7 +2674,7 @@ function statusLabel(
         );
 
     switch (
-        normalized
+    normalized
     ) {
 
         case "SUCCESS":
@@ -3140,8 +3134,8 @@ function renderRuns(
                     class="empty-state"
                 >
                     No ${escapeHtml(
-                        getAutomationName()
-                    )} automation runs found.
+            getAutomationName()
+        )} automation runs found.
                 </td>
             </tr>
         `;
@@ -3277,7 +3271,7 @@ function renderRuns(
                      */
                     const duration =
                         run.duration_seconds !== undefined &&
-                        run.duration_seconds !== null
+                            run.duration_seconds !== null
                             ? formatDurationSeconds(
                                 run.duration_seconds
                             )
@@ -3305,12 +3299,12 @@ function renderRuns(
                             <td>
                                 <span
                                     class="status-badge status-${statusClass(
-                                        status
-                                    )}"
+                        status
+                    )}"
                                 >
                                     ${escapeHtml(
-                                        statusLabel(status)
-                                    )}
+                        statusLabel(status)
+                    )}
                                 </span>
                             </td>
 
@@ -3318,8 +3312,8 @@ function renderRuns(
                             <!-- TYPE -->
                             <td>
                                 ${escapeHtml(
-                                    typeLabel
-                                )}
+                        typeLabel
+                    )}
                             </td>
 
 
@@ -3334,24 +3328,24 @@ function renderRuns(
                             <!-- KEYWORD -->
                             <td>
                                 ${escapeHtml(
-                                    keyword
-                                )}
+                        keyword
+                    )}
                             </td>
 
 
                             <!-- TARGET -->
                             <td>
                                 ${escapeHtml(
-                                    target
-                                )}
+                        target
+                    )}
                             </td>
 
 
                             <!-- ENGINE -->
                             <td>
                                 ${escapeHtml(
-                                    engine
-                                )}
+                        engine
+                    )}
                             </td>
 
                             <td>
@@ -3367,36 +3361,36 @@ function renderRuns(
                             <!-- BROWSER -->
                             <td>
                                 ${escapeHtml(
-                                    browser
-                                )}
+                        browser
+                    )}
                             </td>
 
 
                             <!-- STARTED -->
                             <td>
                                 ${escapeHtml(
-                                    formatDateTime(
-                                        started
-                                    )
-                                )}
+                        formatDateTime(
+                            started
+                        )
+                    )}
                             </td>
 
 
                             <!-- DURATION -->
                             <td>
                                 ${escapeHtml(
-                                    duration
-                                )}
+                        duration
+                    )}
                             </td>
 
 
                             <!-- RETRIES -->
                             <td>
                                 ${escapeHtml(
-                                    formatNumber(
-                                        retries
-                                    )
-                                )}
+                        formatNumber(
+                            retries
+                        )
+                    )}
                             </td>
 
                         </tr>
@@ -3495,8 +3489,8 @@ function showRunDetails(
                     <strong>Run ID</strong>
                     <span>
                         ${escapeHtml(
-                            getRunId(run)
-                        )}
+            getRunId(run)
+        )}
                     </span>
                 </div>
 
@@ -3504,12 +3498,12 @@ function showRunDetails(
                     <strong>Automation</strong>
                     <span>
                         ${escapeHtml(
-                            getAutomationName(
-                                getRunAutomation(
-                                    run
-                                )
-                            )
-                        )}
+            getAutomationName(
+                getRunAutomation(
+                    run
+                )
+            )
+        )}
                     </span>
                 </div>
 
@@ -3517,12 +3511,12 @@ function showRunDetails(
                     <strong>Status</strong>
                     <span>
                         ${escapeHtml(
-                            statusLabel(
-                                getRunStatus(
-                                    run
-                                )
-                            )
-                        )}
+            statusLabel(
+                getRunStatus(
+                    run
+                )
+            )
+        )}
                     </span>
                 </div>
 
@@ -3530,10 +3524,10 @@ function showRunDetails(
                     <strong>Keyword</strong>
                     <span>
                         ${escapeHtml(
-                            getRunKeyword(
-                                run
-                            )
-                        )}
+            getRunKeyword(
+                run
+            )
+        )}
                     </span>
                 </div>
 
@@ -3541,12 +3535,12 @@ function showRunDetails(
                     <strong>Started</strong>
                     <span>
                         ${escapeHtml(
-                            formatDateTime(
-                                getRunStartedAt(
-                                    run
-                                )
-                            )
-                        )}
+            formatDateTime(
+                getRunStartedAt(
+                    run
+                )
+            )
+        )}
                     </span>
                 </div>
 
@@ -3554,12 +3548,12 @@ function showRunDetails(
                     <strong>Finished</strong>
                     <span>
                         ${escapeHtml(
-                            formatDateTime(
-                                getRunFinishedAt(
-                                    run
-                                )
-                            )
-                        )}
+            formatDateTime(
+                getRunFinishedAt(
+                    run
+                )
+            )
+        )}
                     </span>
                 </div>
 
@@ -3725,15 +3719,15 @@ function renderLogs(logs = []) {
 
                 return `
                     <div class="log-entry log-${escapeHtml(
-                        level.toLowerCase()
-                    )}">
+                    level.toLowerCase()
+                )}">
 
                         <div class="log-time">
                             ${escapeHtml(
-                                formatDateTime(
-                                    timestamp
-                                )
-                            )}
+                    formatDateTime(
+                        timestamp
+                    )
+                )}
                         </div>
 
                         <div class="log-level">
@@ -3744,74 +3738,68 @@ function renderLogs(logs = []) {
                             ${escapeHtml(message)}
                         </div>
 
-                        ${
-                            action
-                                ? `
+                        ${action
+                        ? `
                                     <div class="log-meta">
                                         Action:
                                         ${escapeHtml(action)}
                                     </div>
                                 `
-                                : ""
-                        }
+                        : ""
+                    }
 
-                        ${
-                            eventStatus
-                                ? `
+                        ${eventStatus
+                        ? `
                                     <div class="log-meta">
                                         Status:
                                         ${escapeHtml(eventStatus)}
                                     </div>
                                 `
-                                : ""
-                        }
+                        : ""
+                    }
 
-                        ${
-                            keyword
-                                ? `
+                        ${keyword
+                        ? `
                                     <div class="log-meta">
                                         Keyword:
                                         ${escapeHtml(keyword)}
                                     </div>
                                 `
-                                : ""
-                        }
+                        : ""
+                    }
 
-                        ${
-                            searchEngine
-                                ? `
+                        ${searchEngine
+                        ? `
                                     <div class="log-meta">
                                         Engine:
                                         ${escapeHtml(
-                                            searchEngine
-                                        )}
+                            searchEngine
+                        )}
                                     </div>
                                 `
-                                : ""
-                        }
+                        : ""
+                    }
 
-                        ${
-                            url
-                                ? `
+                        ${url
+                        ? `
                                     <div class="log-meta">
                                         URL:
                                         ${escapeHtml(url)}
                                     </div>
                                 `
-                                : ""
-                        }
+                        : ""
+                    }
 
-                        ${
-                            errorMessage
-                                ? `
+                        ${errorMessage
+                        ? `
                                     <div class="log-error">
                                         ${escapeHtml(
-                                            errorMessage
-                                        )}
+                            errorMessage
+                        )}
                                     </div>
                                 `
-                                : ""
-                        }
+                        : ""
+                    }
 
                     </div>
                 `;
@@ -4150,7 +4138,7 @@ function renderSearchEngines(
 
                     const rate =
                         engine.success_rate !==
-                        undefined
+                            undefined
                             ? toNumber(
                                 engine.success_rate
                             )
@@ -4167,32 +4155,32 @@ function renderSearchEngines(
 
                             <td>
                                 ${escapeHtml(
-                                    name
-                                )}
+                        name
+                    )}
                             </td>
 
                             <td>
                                 ${formatNumber(
-                                    total
-                                )}
+                        total
+                    )}
                             </td>
 
                             <td>
                                 ${formatNumber(
-                                    successful
-                                )}
+                        successful
+                    )}
                             </td>
 
                             <td>
                                 ${formatNumber(
-                                    failed
-                                )}
+                        failed
+                    )}
                             </td>
 
                             <td>
                                 ${formatPercent(
-                                    rate
-                                )}
+                        rate
+                    )}
                             </td>
 
                         </tr>
@@ -4336,8 +4324,8 @@ function renderPerformanceChart(
 
                 return total
                     ? success /
-                        total *
-                        100
+                    total *
+                    100
                     : 0;
             }
         );
@@ -6276,38 +6264,38 @@ function dashboardDebugInfo() {
    ========================================================= */
 
 window.dashboard =
-    {
+{
 
-        getState() {
-            return state;
-        },
+    getState() {
+        return state;
+    },
 
-        getAutomation() {
-            return state.automation;
-        },
+    getAutomation() {
+        return state.automation;
+    },
 
-        setAutomation(
+    setAutomation(
+        mode
+    ) {
+        return changeAutomation(
             mode
-        ) {
-            return changeAutomation(
-                mode
-            );
-        },
+        );
+    },
 
-        refresh() {
-            return refreshSelectedAutomation();
-        },
+    refresh() {
+        return refreshSelectedAutomation();
+    },
 
-        load() {
-            return loadAutomationData(
-                state.automation
-            );
-        },
+    load() {
+        return loadAutomationData(
+            state.automation
+        );
+    },
 
-        debug() {
-            return dashboardDebugInfo();
-        }
-    };
+    debug() {
+        return dashboardDebugInfo();
+    }
+};
 
 
 /* =========================================================
@@ -6616,7 +6604,7 @@ function renderBacklinksTable(rows = []) {
 
             const duration =
                 row.duration_seconds !== undefined &&
-                row.duration_seconds !== null
+                    row.duration_seconds !== null
                     ? formatDurationSeconds(row.duration_seconds)
                     : "—";
 
@@ -7244,6 +7232,8 @@ async function startOrStopSelectedAutomation() {
         }
     }
 
+
+
     function boot() {
         const saveBtn = $("saveConfigBtn");
         if (saveBtn && saveBtn.dataset.bound !== "true") {
@@ -7297,6 +7287,8 @@ async function startOrStopSelectedAutomation() {
                 loadConfigData();
             });
         }
+
+
 
         updateBotSettingsButtonUI();
         loadConfigData();

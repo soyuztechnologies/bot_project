@@ -763,6 +763,7 @@ def _safe_create_automation_run(run_id, keyword, config, selected_browser, searc
             search_engine=search_engine,
             flow_type=flow_type,
             user_name=os.getenv("USER_NAME") or config.get("user_name", "unknown"),
+            user_email=os.getenv("USER_EMAIL") or config.get("email", {}).get("to") or config.get("user_email") or "unknown",
         )
     except Exception as error:
         logger.warning(
