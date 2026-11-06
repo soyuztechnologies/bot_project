@@ -1327,6 +1327,23 @@ def run_session(keyword, config, engine_name, engine, stop_event, stats, search_
 
         _safe_update_run(run_id, session_end_time, status, success_count, failure_count, retry_count, fallback_used=fallback_used, search_keyword=current_search_keyword, search_engine=engine_name, browser_mode=final_browser_mode, captcha_encountered=captcha_encountered, assigned_engine=assigned_engine_name)
 
+        try:
+            from utils.local_tracker import record_active_session_result
+            record_active_session_result(
+                keyword=original_keyword,
+                browser=selected_browser,
+                engine=engine_name,
+                assigned_engine=assigned_engine_name,
+                target=config.get("website", {}).get("domain", "") if isinstance(config, dict) else "",
+                url=getattr(driver, "current_url", "") if driver else "",
+                status=status.lower(),
+                message="Target found and visited successfully" if status == "SUCCESS" else ("Interrupted" if status == "INTERRUPTED" else "Failed"),
+                duration_ms=int((time.time() - start_time) * 1000) if start_time else None,
+                captcha_encountered=str(captcha_encountered),
+            )
+        except Exception:
+            pass
+
 
 def _session_worker(job_queue, config, stop_event, stats, search_engines=None, all_engine_names=None, vpn_state=None):
     while not stop_event.is_set():
@@ -1402,7 +1419,7 @@ def _build_jobs(keywords, config, search_engines, engine_names):
     return jobs
 
 
-def start_parallel_sessions(keywords, config, search_engines, engine_names):
+def start_parallel_sessions(keywords, config, search_engines, engine_names, stats=None):
     """
     Start multiple sessions in parallel.
     Robust: isolated job failures never stop other jobs; browsers always cleaned up.
@@ -1420,12 +1437,18 @@ def start_parallel_sessions(keywords, config, search_engines, engine_names):
         logger.error(f"Failed to build jobs: {e}", exc_info=True)
         return {"total": 0, "success": [], "failed": [], "interrupted": []}
 
-    stats = {
-        "total": len(jobs),
-        "success": [],
-        "failed": [],
-        "interrupted": [],
-    }
+    if stats is None:
+        stats = {
+            "total": len(jobs),
+            "success": [],
+            "failed": [],
+            "interrupted": [],
+        }
+    else:
+        stats["total"] = len(jobs)
+        stats.setdefault("success", [])
+        stats.setdefault("failed", [])
+        stats.setdefault("interrupted", [])
 
     # Cap workers to avoid idle threads, but ensure at least 1 if jobs exist
     try:

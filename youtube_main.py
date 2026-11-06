@@ -14,6 +14,7 @@ from pathlib import Path
  
 from dotenv import load_dotenv  # type: ignore
 from datetime import datetime, timezone, timedelta
+from utils.local_tracker import get_run_tracker
  
 from utils.exceptions import (
     ConfigError,
@@ -185,6 +186,8 @@ def main():
     completed = None
     interrupted = False
     unexpected_error = None
+    tracker = get_run_tracker(automation_type="YouTube")
+    tracker.attach_stats(youtube_stats)
     # vpn_connected = False  # VPN DISABLED - commented out
  
     try:
@@ -254,20 +257,24 @@ def main():
         # -----------------------------------------------------
         # Load Keywords
         # -----------------------------------------------------
- 
+
         keywords = load_json(
             BASE_DIR / config["files"]["keywords"]
         )
- 
+
         # -----------------------------------------------------
         # Load Search Engines
         # -----------------------------------------------------
- 
+
         search_engines = load_json(
             BASE_DIR / config["files"]["searchEngines"]
         )
 
         validate_youtube_config(config, keywords, search_engines)
+
+        tracker.set_config(config)
+        tracker.set_target(config.get("youtube", {}).get("targetChannel", ""))
+        tracker.start_run(total_jobs=len(keywords))
 
         # -----------------------------------------------------
         # Start Message
@@ -286,7 +293,7 @@ def main():
             f"Sessions : "
             f"{config.get('sessions', {}).get('parallel', 1)}"
         )
- 
+
         print(
             f"Keywords : {len(keywords)}"
         )
@@ -491,22 +498,17 @@ def main():
         except Exception as summary_err:
             logger.error(f"Failed to print YouTube final summary: {summary_err}", exc_info=True)
             
+        final_status = "INTERRUPTED" if interrupted else ("FAILED" if unexpected_error else "COMPLETED")
         try:
-            if youtube_stats is not None:
-                from utils.report import RunLogger
-                from utils.mailer import send_report_email
-                # youtube config target is just targetChannel but we can leave target_urls empty or set to channel
-                target_urls = [config.get("youtube", {}).get("targetChannel", "")]
-                user_name = os.getenv("USER_NAME") or (config.get("user_name") if config else "Unknown")
-                user_email = os.getenv("USER_EMAIL") or (config.get("email", {}).get("to") if config else None) or (config.get("user_email") if config else "")
-                reporter = RunLogger(target_urls=target_urls, started_at=start_time, automation_type="YouTube", user_name=user_name, user_email=user_email)
-                reporter.set_results_from_stats(youtube_stats, config)
-                json_path = reporter.write_json()
-                html_path = reporter.write_html()
-                if config:
-                    send_report_email(config, reporter.summary(), reporter.results, html_path, json_path)
+            tracker.finalize_and_email(
+                status=final_status,
+                error=unexpected_error,
+                stats=youtube_stats,
+                config=config,
+                start_time=start_time,
+            )
         except Exception as e:
-            logger.error(f"Failed to generate report or send email: {e}", exc_info=True)
+            logger.error(f"Failed to finalize YouTube tracker or send email: {e}", exc_info=True)
 
         # -----------------------------------------------------
         # Database Cleanup — rely on database.py log, avoid duplicate logger.info
