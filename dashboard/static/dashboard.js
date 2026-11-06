@@ -3320,8 +3320,8 @@ function renderRuns(
                             <!-- USER -->
                             <td>
                                 ${escapeHtml(
-                                    userName
-                                )}
+                        userName
+                    )}
                             </td>
 
 
@@ -7012,6 +7012,16 @@ async function startOrStopSelectedAutomation() {
         ? document.addEventListener("DOMContentLoaded", boot, { once: true })
         : boot();
     window.addEventListener("load", () => setTimeout(pollAutomationJobStatus, 200));
+
+    // If user closes or navigates away from dashboard tab while an automation is active,
+    // trigger a graceful stop via beacon so report generation & cleanup run cleanly.
+    window.addEventListener("beforeunload", () => {
+        ["SEARCH", "YOUTUBE"].forEach(mode => {
+            if (state.automationJobs[mode]?.running) {
+                navigator.sendBeacon("/api/automation/stop", new Blob([JSON.stringify({ automation: mode })], { type: "application/json" }));
+            }
+        });
+    });
 })();
 
 /* =========================================================

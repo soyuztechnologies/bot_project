@@ -10,1404 +10,251 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
-        rel="stylesheet"
-    >
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
-    <link
-        rel="stylesheet"
-        href="{{ url_for('static', filename='dashboard.css') }}"
-    >
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
 
-<style>
-    .automation-loader {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(7, 11, 18, 0.46);
-        backdrop-filter: blur(2px);
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 180ms ease;
-    }
+    <style>
+        .automation-loader {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(7, 11, 18, 0.46);
+            backdrop-filter: blur(2px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 180ms ease;
+        }
 
-    .automation-loader.is-visible {
-        opacity: 1;
-        pointer-events: all;
-    }
+        .automation-loader.is-visible {
+            opacity: 1;
+            pointer-events: all;
+        }
 
-    .automation-loader-card {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 13px 17px;
-        border: 1px solid #243249;
-        border-radius: 12px;
-        background: #101827;
-        box-shadow: 0 16px 45px rgba(0, 0, 0, 0.35);
-        color: #aebbd0;
-        font-size: 12px;
-        font-weight: 600;
-    }
+        .automation-loader-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 13px 17px;
+            border: 1px solid #243249;
+            border-radius: 12px;
+            background: #101827;
+            box-shadow: 0 16px 45px rgba(0, 0, 0, 0.35);
+            color: #aebbd0;
+            font-size: 12px;
+            font-weight: 600;
+        }
 
-    .automation-loader-spinner {
-        width: 18px;
-        height: 18px;
-        border: 2px solid #26364f;
-        border-top-color: #5b8cff;
-        border-radius: 50%;
-        animation: automationLoaderSpin 700ms linear infinite;
-    }
+        .automation-loader-spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid #26364f;
+            border-top-color: #5b8cff;
+            border-radius: 50%;
+            animation: automationLoaderSpin 700ms linear infinite;
+        }
 
-    @keyframes automationLoaderSpin {
-        to { transform: rotate(360deg); }
-    }
+        @keyframes automationLoaderSpin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
 
-    .automation-switch-btn.is-loading {
-        opacity: 0.68;
-        cursor: wait;
-    }
+        .automation-switch-btn.is-loading {
+            opacity: 0.68;
+            cursor: wait;
+        }
 
-    .youtube-performance-chart-wrap {
-        height: 280px;
-    }
-</style>
+        .youtube-performance-chart-wrap {
+            height: 280px;
+        }
+    </style>
 
 </head>
 
 <body>
-<div id="automationLoader" class="automation-loader" hidden aria-live="polite" aria-label="Loading automation data">
-    <div class="automation-loader-card">
-        <span class="automation-loader-spinner" aria-hidden="true"></span>
-        <span>Loading automation data…</span>
+    <div id="automationLoader" class="automation-loader" hidden aria-live="polite" aria-label="Loading automation data">
+        <div class="automation-loader-card">
+            <span class="automation-loader-spinner" aria-hidden="true"></span>
+            <span>Loading automation data…</span>
+        </div>
     </div>
-</div>
 
 
-<div class="app-shell">
+    <div class="app-shell">
 
-    <!-- =====================================================
+        <!-- =====================================================
          SIDEBAR
     ====================================================== -->
 
-    <aside class="sidebar">
+        <aside class="sidebar">
 
-        <div class="brand">
-            <div class="brand-mark">
-                ⚙
-            </div>
+            <div class="brand">
+                <div class="brand-mark" aria-hidden="true">
+                    <img src="{{ url_for('static', filename='rankora_icon.png') }}" alt="Rankora Logo"
+                        class="brand-logo-img">
+                </div>
 
-            <div>
-                <div class="brand-name">
-                    AUTOMATION CENTER
+                <div class="brand-text">
+                    <div class="brand-name">
+                        RANKORA
+                    </div>
+                    <div class="brand-sub">AUTOMATION</div>
                 </div>
             </div>
-        </div>
 
 
-        <!-- PRIMARY ACTION: follows the selected Website / YouTube toggle -->
-        <div class="sidebar-automation-action">
-            <button type="button" class="generate-btn" id="startAutomationBtn">
-                <span class="automation-action-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" focusable="false">
-                        <circle cx="12" cy="12" r="9"></circle>
-                        <path d="M3 12h18M12 3c3 3.8 3 14.2 0 18M12 3c-3 3.8-3 14.2 0 18"></path>
-                    </svg>
-                </span>
-                Start Website Automation
-            </button>
+            <!-- PRIMARY ACTION: follows the selected Website / YouTube toggle -->
+            <div class="sidebar-automation-action">
+                <button type="button" class="generate-btn" id="startAutomationBtn">
+                    <span class="automation-action-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" focusable="false">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M3 12h18M12 3c3 3.8 3 14.2 0 18M12 3c-3 3.8-3 14.2 0 18"></path>
+                        </svg>
+                    </span>
+                    Start Website Automation
+                </button>
 
-            <small class="generate-status" id="startAutomationStatus">
-                Ready to start Website automation.
-            </small>
+                <small class="generate-status" id="startAutomationStatus">
+                    Ready to start Website automation.
+                </small>
 
-            <button type="button" class="bot-settings-sidebar-btn" id="sidebarBotSettingsBtn" title="Open Bot Settings">
-                <span class="bot-settings-icon" aria-hidden="true">⚙</span>
-                <span id="sidebarBotSettingsLabel">Bot Settings</span>
-            </button>
-        </div>
-
-        <nav>
-
-            <div class="nav-label">
-                CONTROL CENTER
+                <button type="button" class="bot-settings-sidebar-btn" id="sidebarBotSettingsBtn"
+                    title="Open Bot Settings">
+                    <span class="bot-settings-icon" aria-hidden="true">⚙</span>
+                    <span id="sidebarBotSettingsLabel">Bot Settings</span>
+                </button>
             </div>
 
-            <button
-                class="nav-item active"
-                data-view="overview"
-            >
-                <span>◈</span>
-                Overview
-            </button>
+            <nav>
+
+                <div class="nav-label">
+                    CONTROL CENTER
+                </div>
+
+                <button class="nav-item active" data-view="overview">
+                    <span>◈</span>
+                    Overview
+                </button>
 
 
-            <button
-                class="nav-item"
-                data-view="runs"
-            >
-                <span>◫</span>
-                Automation Runs
-            </button>
+                <button class="nav-item" data-view="runs">
+                    <span>◫</span>
+                    Automation Runs
+                </button>
 
 
-            <button
-                class="nav-item"
-                data-view="logs"
-            >
-                <span>≡</span>
-                Live Logs
-            </button>
-<div class="nav-label">
-                ANALYTICS
+                <button class="nav-item" data-view="logs">
+                    <span>≡</span>
+                    Live Logs
+                </button>
+                <div class="nav-label">
+                    ANALYTICS
+                </div>
+
+
+                <button class="nav-item" data-view="engines">
+                    <span>◎</span>
+                    Search Engines
+                </button>
+
+
+                <button class="nav-item" data-view="performance">
+                    <span>↗</span>
+                    Performance
+                </button>
+
+                <div class="nav-label">
+                    BACKLINKS
+                </div>
+
+
+                <button class="nav-item" data-view="backlinks">
+                    <span>🔗</span>
+                    Backlinks Summary
+                </button>
+
+            </nav>
+
+
+            <!-- GENERATE BACKLINKS -->
+
+            <div class="sidebar-generate">
+
+                <button type="button" class="generate-btn" id="generateBacklinksBtn">
+                    <span>⚡</span>
+                    Generate Backlinks
+                </button>
+
+                <small class="generate-status" id="generateBacklinksStatus">
+                    Ready to generate.
+                </small>
+
             </div>
 
 
-            <button
-                class="nav-item"
-                data-view="engines"
-            >
-                <span>◎</span>
-                Search Engines
-            </button>
+            <!-- DATABASE STATUS -->
+
+            <div class="sidebar-bottom">
+
+                <div class="db-pill">
+
+                    <span class="pulse"></span>
+
+                    <div>
+
+                        <b>
+                            Database
+                        </b>
+
+                        <small id="dbStatus">
+                            Checking...
+                        </small>
+
+                    </div>
+
+                </div>
 
 
-            <button
-                class="nav-item"
-                data-view="performance"
-            >
-                <span>↗</span>
-                Performance
-            </button>
-
-            <div class="nav-label">
-                BACKLINKS
-            </div>
-
-
-            <button
-                class="nav-item"
-                data-view="backlinks"
-            >
-                <span>🔗</span>
-                Backlinks Summary
-            </button>
-
-        </nav>
-
-
-        <!-- GENERATE BACKLINKS -->
-
-        <div class="sidebar-generate">
-
-            <button
-                type="button"
-                class="generate-btn"
-                id="generateBacklinksBtn"
-            >
-                <span>⚡</span>
-                Generate Backlinks
-            </button>
-
-            <small
-                class="generate-status"
-                id="generateBacklinksStatus"
-            >
-                Ready to generate.
-            </small>
-
-        </div>
-
-
-        <!-- DATABASE STATUS -->
-
-        <div class="sidebar-bottom">
-
-            <div class="db-pill">
-
-                <span class="pulse"></span>
-
-                <div>
-
-                    <b>
-                        Database
-                    </b>
-
-                    <small id="dbStatus">
-                        Checking...
-                    </small>
-
+                <div class="version">
+                    RANKORA • v1.0
                 </div>
 
             </div>
 
-
-            <div class="version">
-                RANKORA • v1.0
-            </div>
-
-        </div>
-
-    </aside>
+        </aside>
 
 
 
-    <!-- =====================================================
+        <!-- =====================================================
          MAIN CONTENT
     ====================================================== -->
 
-    <main class="main">
+        <main class="main">
 
 
-        <!-- TOP BAR -->
+            <!-- TOP BAR -->
 
-        <header class="topbar">
+            <header class="topbar">
 
-            <div id="pageTitleWrap">
-
-                <div class="eyebrow">
-                    AUTOMATION CONTROL CENTER
-                </div>
-
-                <h1 id="pageTitle">
-                    Website Automation
-                </h1>
-
-                <p id="pageSubtitle">
-                    Complete visibility into Website Automation.
-                </p>
-
-            </div>
-
-
-            <div class="top-actions">
-
-                
-                <!-- AUTOMATION CONTEXT SWITCH -->
-                <div
-                    class="automation-switch"
-                    role="tablist"
-                    aria-label="Select automation"
-                >
-                    <button
-                        type="button"
-                        class="automation-switch-btn active"
-                        data-automation="SEARCH"
-                        role="tab"
-                        aria-selected="true"
-                    >
-                        <span class="switch-icon">⌕</span>
-                        Website
-                    </button>
-
-                    <button
-                        type="button"
-                        class="automation-switch-btn"
-                        data-automation="YOUTUBE"
-                        role="tab"
-                        aria-selected="false"
-                    >
-                        <span class="switch-icon">▶</span>
-                        YouTube
-                    </button>
-                </div>
-
-                <select id="range">
-
-                    <option value="1">
-                        Today
-                    </option>
-
-                    <option value="7" selected>
-                        Last 7 days
-                    </option>
-
-                    <option value="30">
-                        Last 30 days
-                    </option>
-
-                    <option value="90">
-                        Last 90 days
-                    </option>
-
-                </select>
-
-
-                <button
-                    class="icon-btn"
-                    id="refreshBtn"
-                    title="Refresh"
-                >
-                    ↻
-                </button>
-
-            </div>
-
-        </header>
-
-
-
-        <!-- =====================================================
-             OVERVIEW
-        ====================================================== -->
-
-        <section
-            id="overview"
-            class="view active"
-            data-context="automation"
-        >
-
-            <!-- HERO -->
-
-            <div class="hero-strip">
-
-                <div>
-
-                    <span class="live-dot"></span>
-
-                    SYSTEM MONITORING
-
-                    <h2 id="heroTitle">
-                        Website automation is under control.
-                    </h2>
-
-                    <p id="generated">
-                        Fetching the latest database snapshot...
-                    </p>
-
-                </div>
-
-
-                <div class="hero-stat">
-
-                    <span>
-                        Overall Success Rate
-                    </span>
-
-                    <strong id="heroRate">
-                        —
-                    </strong>
-
-                </div>
-
-            </div>
-
-
-
-            <!-- KPI CARDS -->
-
-            <div class="metric-grid">
-
-
-                <article class="metric">
-
-                    <div class="metric-icon blue">
-                        Σ
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Total Runs
-                        </span>
-
-                        <strong id="totalRuns">
-                            —
-                        </strong>
-
-                        <small>
-                            Database activity
-                        </small>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon green">
-                        ✓
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Successful
-                        </span>
-
-                        <strong id="successRuns">
-                            —
-                        </strong>
-
-                        <small>
-                            Completed successfully
-                        </small>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon red">
-                        !
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Failed
-                        </span>
-
-                        <strong id="failedRuns">
-                            —
-                        </strong>
-
-                        <small>
-                            Needs attention
-                        </small>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon amber">
-                        ↻
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Retries
-                        </span>
-
-                        <strong id="retries">
-                            —
-                        </strong>
-
-                        <small>
-                            Recovery attempts
-                        </small>
-
-                    </div>
-
-                </article>
-                <article class="metric">
-
-                    <div class="metric-icon cyan">
-                        ⌕
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Unique Keywords
-                        </span>
-
-                        <strong id="keywords">
-                            —
-                        </strong>
-
-                        <small>
-                            Tracked keywords
-                        </small>
-
-                    </div>
-
-                </article>
-
-            </div>
-
-
-
-            <!-- CHARTS -->
-
-            <div class="grid-two">
-
-
-                <article class="panel large">
-
-                    <div class="panel-head">
-
-                        <div>
-
-                            <h3>
-                                Automation Activity
-                            </h3>
-
-                            <span>
-                                Runs, success and failure trend
-                            </span>
-
-                        </div>
-
-                        <span class="tag">
-                            LIVE DATA
-                        </span>
-
-                    </div>
-
-
-                    <div class="chart-wrap">
-
-                        <canvas id="activityChart"></canvas>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="panel">
-
-                    <div class="panel-head">
-
-                        <div>
-
-                            <h3>
-                                Run Health
-                            </h3>
-
-                            <span>
-                                Current period distribution
-                            </span>
-
-                        </div>
-
-                    </div>
-
-
-                    <div class="donut-wrap">
-
-                        <canvas id="healthChart"></canvas>
-
-
-                        <div class="donut-center">
-
-                            <strong id="donutRate">
-                                —
-                            </strong>
-
-                            <span>
-                                success
-                            </span>
-
-                        </div>
-
-                    </div>
-
-
-                    <div
-                        class="legend"
-                        id="healthLegend"
-                    ></div>
-
-                </article>
-
-            </div>
-
-
-
-            <!-- ENGINE + AUTOMATION TYPE -->
-
-            <div class="grid-two">
-
-                <!-- SEARCH ENGINE PERFORMANCE -->
-                <article
-                    class="panel"
-                    id="searchEnginePerformancePanel"
-                    style="grid-column: 1 / -1;"
-                >
-                    <div class="panel-head">
-                        <div>
-                            <h3>Search Engine Performance</h3>
-                            <span>Total runs by engine</span>
-                        </div>
-                    </div>
-
-                    <div class="chart-wrap performance-chart-wrap">
-                        <canvas id="searchEnginePerformanceChart"></canvas>
-                    </div>
-                </article>
-
-
-                
-
-            
-
-
-
-            <!-- RECENT RUNS -->
-
-            <article class="panel"
-                    style="grid-column: 1 / -1;">
-
-                <div class="panel-head">
-
-                    <div>
-
-                        <h3>
-                            Recent Automation Runs
-                        </h3>
-
-                        <span>
-                            Latest database records
-                        </span>
-
-                    </div>
-
-
-                    <button
-                        class="text-btn"
-                        data-view-target="runs"
-                    >
-                        View all →
-                    </button>
-
-                </div>
-
-
-                <div class="table-wrap">
-
-                    <table>
-
-                        <thead>
-
-                            <tr>
-
-                                <th>Status</th>
-                                <th>Type</th>
-                                <th>Keyword</th>
-                                <th>Engine</th>
-                                <th>Browser</th>
-                                <th>Started</th>
-                                <th>Duration</th>
-                                <th>Retries</th>
-
-                            </tr>
-
-                        </thead>
-
-
-                        <tbody id="recentTable"></tbody>
-
-                    </table>
-
-                </div>
-
-            </article>
-
-        </section>
-
-
-
-        <!-- =====================================================
-             AUTOMATION RUNS
-        ====================================================== -->
-
-        <section
-            id="runs"
-            class="view"
-        >
-
-            <div class="section-title">
-
-                <div>
+                <div id="pageTitleWrap">
 
                     <div class="eyebrow">
-                        DATABASE
+                        AUTOMATION CONTROL CENTER
                     </div>
 
-                    <h2>
-                        Automation Runs
-                    </h2>
-
-                    <p>
-                        Every keyword-level execution tracked by the bot.
-                    </p>
-
-                </div>
-
-            </div>
-
-
-            <article class="panel">
-
-                <div class="table-wrap">
-
-                    <table>
-
-                        <thead>
-
-                            <tr>
-
-                                <th>Status</th>
-                                <th>Type</th>
-                                <th>User</th>
-                                <th>Keyword</th>
-                                <th>Target</th>
-                                <th>Search Engine</th>
-                                <th>CAPTCHA Status</th>
-                                <th>Browser</th>
-                                <th>Started</th>
-                                <th>Duration</th>
-                                <th>Retries</th>
-
-                            </tr>
-
-                        </thead>
-
-
-                        <tbody id="runsTable"></tbody>
-
-                    </table>
-
-                </div>
-
-            </article>
-
-        </section>
-
-
-
-        <!-- =====================================================
-             LIVE LOGS
-        ====================================================== -->
-
-        <section
-            id="logs"
-            class="view"
-        >
-
-            <div class="section-title">
-
-                <div>
-
-                    <div class="eyebrow">
-                        OBSERVABILITY
-                    </div>
-
-                    <h2>
-                        Live Logs
-                    </h2>
-
-                    <p>
-                        Inspect the complete execution timeline of a run.
-                    </p>
-
-                </div>
-
-            </div>
-
-
-            <article class="panel">
-
-                <div class="log-toolbar">
-
-                    <select id="runSelect">
-
-                        <option value="">
-                            Select a recent run...
-                        </option>
-
-                    </select>
-
-
-                    <button
-                        class="primary-btn"
-                        id="loadLogs"
-                    >
-                        Load Timeline
-                    </button>
-
-                </div>
-
-
-                <div
-                    id="logTimeline"
-                    class="timeline empty"
-                >
-                    Choose a run to inspect its logs.
-                </div>
-
-            </article>
-
-        </section>
-
-
-
-        <!-- =====================================================
-             WEBSITE AUTOMATION
-        ====================================================== -->
-
-        <section
-            id="website"
-            class="view automation-detail-view"
-        >
-
-            <div class="section-title">
-
-                <div>
-
-                    <div class="eyebrow">
-                        AUTOMATION
-                    </div>
-
-                    <h2>
+                    <h1 id="pageTitle">
                         Website Automation
-                    </h2>
+                    </h1>
 
-                    <p>
-                        Monitor keyword searches, target website discovery
-                        and website visits.
-                    </p>
-
-                </div>
-
-            </div>
-
-
-
-            <!-- WEBSITE KPI -->
-
-            <div class="metric-grid compact">
-
-
-                <article class="metric">
-
-                    <div class="metric-icon blue">
-                        ⌕
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Website Runs
-                        </span>
-
-                        <strong id="webRuns">
-                            —
-                        </strong>
-
-                        <small>
-                            Search executions
-                        </small>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon green">
-                        ✓
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Successful
-                        </span>
-
-                        <strong id="webSuccess">
-                            —
-                        </strong>
-
-                        <small>
-                            Target found
-                        </small>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon red">
-                        !
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Failed
-                        </span>
-
-                        <strong id="webFailed">
-                            —
-                        </strong>
-
-                        <small>
-                            Unsuccessful runs
-                        </small>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon amber">
-                        ↻
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Retries
-                        </span>
-
-                        <strong id="webRetries">
-                            —
-                        </strong>
-
-                        <small>
-                            Recovery attempts
-                        </small>
-
-                    </div>
-
-                </article>
-
-            </div>
-
-
-
-            <!-- WEBSITE CHART -->
-
-            <div class="grid-two">
-
-
-                <article class="panel large">
-
-                    <div class="panel-head">
-
-                        <div>
-
-                            <h3>
-                                Website Automation Activity
-                            </h3>
-
-                            <span>
-                                Search → target website discovery trend
-                            </span>
-
-                        </div>
-
-                        <span class="tag">
-                            WEBSITE
-                        </span>
-
-                    </div>
-
-
-                    <div class="chart-wrap">
-
-                        <canvas id="websiteActivityChart"></canvas>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="panel">
-
-                    <div class="panel-head">
-
-                        <div>
-
-                            <h3>
-                                Website Success Rate
-                            </h3>
-
-                            <span>
-                                Selected period
-                            </span>
-
-                        </div>
-
-                    </div>
-
-
-                    <div class="donut-wrap">
-
-                        <canvas id="websiteHealthChart"></canvas>
-
-
-                        <div class="donut-center">
-
-                            <strong id="websiteRate">
-                                —
-                            </strong>
-
-                            <span>
-                                success
-                            </span>
-
-                        </div>
-
-                    </div>
-
-                </article>
-
-            </div>
-
-
-
-            <!-- WEBSITE ENGINE + TARGET -->
-
-            <div class="grid-two">
-
-
-                <article class="panel">
-
-                    <div class="panel-head">
-
-                        <div>
-
-                            <h3>
-                                Search Engine Performance
-                            </h3>
-
-                            <span>
-                                Website automation only
-                            </span>
-
-                        </div>
-
-                    </div>
-
-
-                    <div
-                        id="websiteEngineBars"
-                        class="bars"
-                    ></div>
-
-                </article>
-
-
-
-                <article class="panel">
-
-                    <div class="panel-head">
-
-                        <div>
-
-                            <h3>
-                                Target Website
-                            </h3>
-
-                            <span>
-                                Configured destination
-                            </span>
-
-                        </div>
-
-                    </div>
-
-
-                    <div class="target-card">
-
-                        <div class="target-icon">
-                            ↗
-                        </div>
-
-
-                        <div>
-
-                            <strong id="websiteTarget">
-                                anubhavtrainings.com
-                            </strong>
-
-                            <p>
-                                Website Automation target domain
-                            </p>
-
-                        </div>
-
-                    </div>
-
-                </article>
-
-            </div>
-
-
-
-            <!-- WEBSITE RUN TABLE -->
-
-            <article class="panel">
-
-                <div class="panel-head">
-
-                    <div>
-
-                        <h3>
-                            Website Automation Runs
-                        </h3>
-
-                        <span>
-                            Keyword-level execution history
-                        </span>
-
-                    </div>
-
-                </div>
-
-
-                <div class="table-wrap">
-
-                    <table>
-
-                        <thead>
-
-                            <tr>
-
-                                <th>Status</th>
-                                <th>Keyword</th>
-                                <th>Target</th>
-                                <th>Search Engine</th>
-                                <th>Browser</th>
-                                <th>Started</th>
-                                <th>Duration</th>
-                                <th>Retries</th>
-
-                            </tr>
-
-                        </thead>
-
-
-                        <tbody id="websiteTable"></tbody>
-
-                    </table>
-
-                </div>
-
-            </article>
-
-        </section>
-
-
-
-        <!-- =====================================================
-             YOUTUBE AUTOMATION
-        ====================================================== -->
-
-        <section
-            id="youtube"
-            class="view automation-detail-view"
-        >
-
-            <div class="section-title">
-
-                <div>
-
-                    <div class="eyebrow">
-                        AUTOMATION
-                    </div>
-
-                    <h2>
-                        YouTube Automation
-                    </h2>
-
-                    <p>
-                        Monitor YouTube keyword execution and target-channel runs.
-                    </p>
-
-                </div>
-
-            </div>
-
-
-
-            <div class="metric-grid compact">
-
-
-                <article class="metric">
-
-                    <div class="metric-icon violet">
-                        ▶
-                    </div>
-
-                    <div>
-
-                        <span>
-                            YouTube Runs
-                        </span>
-
-                        <strong id="ytRuns2">
-                            —
-                        </strong>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon green">
-                        ✓
-                    </div>
-
-                    <div>
-
-                        <span>
-                            YouTube Success
-                        </span>
-
-                        <strong id="ytSuccess">
-                            —
-                        </strong>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon red">
-                        !
-                    </div>
-
-                    <div>
-
-                        <span>
-                            YouTube Failed
-                        </span>
-
-                        <strong id="ytFailed">
-                            —
-                        </strong>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon cyan">
-                        ▶
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Target Channel
-                        </span>
-
-                        <strong>
-                            Anubhav
-                        </strong>
-
-                    </div>
-
-                </article>
-
-            </div>
-
-
-
-            <article class="panel">
-
-                <div class="panel-head">
-
-                    <div>
-
-                        <h3>
-                            YouTube Automation Runs
-                        </h3>
-
-                        <span>
-                            Keyword and video execution history
-                        </span>
-
-                    </div>
-
-                </div>
-
-
-                <div class="table-wrap">
-
-                    <table>
-
-                        <thead>
-
-                            <tr>
-
-                                <th>Status</th>
-                                <th>Keyword</th>
-                                <th>Target</th>
-                                <th>Browser</th>
-                                <th>Engine</th>
-                                <th>Duration</th>
-                                <th>Started</th>
-
-                            </tr>
-
-                        </thead>
-
-
-                        <tbody id="youtubeTable"></tbody>
-
-                    </table>
-
-                </div>
-
-            </article>
-
-        </section>
-
-
-
-        <!-- =====================================================
-             BACKLINKS SUMMARY
-        ====================================================== -->
-
-        <section
-            id="backlinks"
-            class="view"
-        >
-
-            <div class="section-title">
-
-                <div>
-
-                    <div class="eyebrow">
-                        BACKLINKS
-                    </div>
-
-                    <h2>
-                        Backlinks Summary
-                    </h2>
-
-                    <p>
-                        Every ping-site submission, stored in the dedicated backlinks collection.
+                    <p id="pageSubtitle">
+                        Complete visibility into Website Automation.
                     </p>
 
                 </div>
@@ -1415,758 +262,1760 @@
 
                 <div class="top-actions">
 
-                    <button
-                        class="primary-btn"
-                        id="refreshBacklinksBtn"
-                        title="Reload backlink data"
-                    >
-                        ↻ Reload
-                    </button>
 
-                </div>
+                    <!-- AUTOMATION CONTEXT SWITCH -->
+                    <div class="automation-switch" role="tablist" aria-label="Select automation">
+                        <button type="button" class="automation-switch-btn active" data-automation="SEARCH" role="tab"
+                            aria-selected="true">
+                            <span class="switch-icon">⌕</span>
+                            Website
+                        </button>
 
-            </div>
-
-
-
-            <div class="metric-grid compact">
-
-
-                <article class="metric">
-
-                    <div class="metric-icon blue">
-                        🔗
+                        <button type="button" class="automation-switch-btn" data-automation="YOUTUBE" role="tab"
+                            aria-selected="false">
+                            <span class="switch-icon">▶</span>
+                            YouTube
+                        </button>
                     </div>
 
-                    <div>
+                    <select id="range">
 
-                        <span>
-                            Total Submissions
-                        </span>
+                        <option value="1">
+                            Today
+                        </option>
 
-                        <strong id="blRunsTotal">
-                            —
-                        </strong>
+                        <option value="7" selected>
+                            Last 7 days
+                        </option>
 
-                    </div>
+                        <option value="30">
+                            Last 30 days
+                        </option>
 
-                </article>
+                        <option value="90">
+                            Last 90 days
+                        </option>
 
+                    </select>
 
 
-                <article class="metric">
-
-                    <div class="metric-icon green">
-                        ✓
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Successful
-                        </span>
-
-                        <strong id="blRunsSuccess">
-                            —
-                        </strong>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon red">
-                        !
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Failed
-                        </span>
-
-                        <strong id="blRunsFailed">
-                            —
-                        </strong>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon cyan">
-                        %
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Success Rate
-                        </span>
-
-                        <strong id="blRunsRate">
-                            —
-                        </strong>
-
-                    </div>
-
-                </article>
-
-            </div>
-
-
-
-            <article class="panel">
-
-                <div class="panel-head">
-
-                    <div>
-
-                        <h3>
-                            Performance by Ping Site
-                        </h3>
-
-                        <span>
-                            Submissions grouped per ping website
-                        </span>
-
-                    </div>
-
-                </div>
-
-
-                <div class="table-wrap">
-
-                    <table>
-
-                        <thead>
-
-                            <tr>
-
-                                <th>Ping Site</th>
-                                <th>Site URL</th>
-                                <th>Total</th>
-                                <th>Success</th>
-                                <th>Failed</th>
-                                <th>Success Rate</th>
-
-                            </tr>
-
-                        </thead>
-
-
-                        <tbody id="backlinkSitesTable"></tbody>
-
-                    </table>
-
-                </div>
-
-            </article>
-
-
-
-            <article class="panel">
-
-                <div class="panel-head">
-
-                    <div>
-
-                        <h3>
-                            Backlink Submissions
-                        </h3>
-
-                        <span>
-                            Detailed per-URL submission history
-                        </span>
-
-                    </div>
-
-                </div>
-
-
-                <div class="table-wrap">
-
-                    <table>
-
-                        <thead>
-
-                            <tr>
-
-                                <th>Status</th>
-                                <th>Ping Site</th>
-                                <th>Target URL</th>
-                                <th>Keyword</th>
-                                <th>Result</th>
-                                <th>Duration</th>
-                                <th>Started</th>
-
-                            </tr>
-
-                        </thead>
-
-
-                        <tbody id="backlinksTable"></tbody>
-
-                    </table>
-
-                </div>
-
-            </article>
-
-        </section>
-
-
-
-        <!-- =====================================================
-             SEARCH ENGINE ANALYTICS
-        ====================================================== -->
-
-        <section
-            id="engines"
-            class="view"
-        >
-
-            <div class="section-title">
-
-                <div>
-
-                    <div class="eyebrow">
-                        ANALYTICS
-                    </div>
-
-                    <h2>
-                        Search Engines
-                    </h2>
-
-                    <p>
-                        Compare execution volume and outcomes across search engines.
-                    </p>
-
-                </div>
-
-            </div>
-
-
-            <article class="panel">
-
-                <div class="chart-wrap tall">
-
-                    <canvas id="engineChart"></canvas>
-
-                </div>
-
-            </article>
-
-        </section>
-
-
-
-        <!-- =====================================================
-             PERFORMANCE
-        ====================================================== -->
-
-        <section
-            id="performance"
-            class="view"
-        >
-
-            <div class="section-title">
-
-                <div>
-
-                    <div class="eyebrow">
-                        ANALYTICS
-                    </div>
-
-                    <h2>
-                        Performance
-                    </h2>
-
-                    <p>
-                        Operational metrics from the automation database.
-                    </p>
-
-                </div>
-
-            </div>
-
-
-
-            <div class="metric-grid compact">
-
-
-                <article class="metric">
-
-                    <div class="metric-icon blue">
-                        ⏱
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Average Duration
-                        </span>
-
-                        <strong id="avgDuration">
-                            —
-                        </strong>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon amber">
+                    <button class="icon-btn" id="refreshBtn" title="Refresh">
                         ↻
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Retry Rate
-                        </span>
-
-                        <strong id="retryRate">
-                            —
-                        </strong>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon cyan">
-                        ⚡
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Runs / Day
-                        </span>
-
-                        <strong id="runsPerDay">
-                            —
-                        </strong>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="metric">
-
-                    <div class="metric-icon green">
-                        ✓
-                    </div>
-
-                    <div>
-
-                        <span>
-                            Success Rate
-                        </span>
-
-                        <strong id="perfRate">
-                            —
-                        </strong>
-
-                    </div>
-
-                </article>
-
-            </div>
-
-
-
-            <article class="panel">
-
-                <div class="panel-head">
-
-                    <div>
-
-                        <h3>
-                            Operational Insights
-                        </h3>
-
-                        <span>
-                            Derived from stored run records
-                        </span>
-
-                    </div>
+                    </button>
 
                 </div>
 
-
-                <div
-                    class="insights"
-                    id="insights"
-                ></div>
-
-            </article>
-
-        </section>
+            </header>
 
 
-        <!-- =====================================================
-             BOT CONFIGURATION & SETTINGS VIEW
+
+            <!-- =====================================================
+             OVERVIEW
         ====================================================== -->
 
-        <section
-            id="settings"
-            class="view"
-        >
+            <section id="overview" class="view active" data-context="automation">
 
-            <!-- ACTION TOOLBAR (DIRECT SETTINGS CONTROLS) -->
-            <div class="config-toolbar-wrap">
+                <!-- HERO -->
 
-                <span
-                    id="configSaveStatus"
-                    class="config-status-badge"
-                ></span>
+                <div class="hero-strip">
 
-                <div class="config-header-actions">
+                    <div>
 
-                    <button
-                        type="button"
-                        class="config-reset-btn"
-                        id="backToOverviewBtn"
-                        title="Return to Overview"
-                    >
-                        ← Back to Dashboard
-                    </button>
+                        <span class="live-dot"></span>
 
-                    <button
-                        type="button"
-                        class="config-reset-btn"
-                        id="resetConfigBtn"
-                    >
-                        ↺ Reset Defaults
-                    </button>
+                        SYSTEM MONITORING
 
-                    <button
-                        type="button"
-                        class="generate-btn"
-                        id="saveConfigBtn"
-                        style="display: none; width: auto; min-width: 140px; padding: 10px 18px;"
-                    >
-                        <span>💾</span>
-                        Save Settings
-                    </button>
+                        <h2 id="heroTitle">
+                            Website automation is under control.
+                        </h2>
+
+                        <p id="generated">
+                            Fetching the latest database snapshot...
+                        </p>
+
+                    </div>
+
+
+                    <div class="hero-stat">
+
+                        <span>
+                            Overall Success Rate
+                        </span>
+
+                        <strong id="heroRate">
+                            —
+                        </strong>
+
+                    </div>
 
                 </div>
 
-            </div>
 
 
-            <!-- TWO-COLUMN CONFIG FORM -->
+                <!-- KPI CARDS -->
 
-            <div class="grid-two">
+                <div class="metric-grid">
 
-                <!-- BOT PROFILE & SPEED -->
 
-                <article class="panel">
+                    <article class="metric">
 
-                    <div class="panel-head">
+                        <div class="metric-icon blue">
+                            Σ
+                        </div>
 
                         <div>
-                            <h3>🤖 Bot Profile & Speed</h3>
-                            <span>Configure bot name and how many windows run at once</span>
-                        </div>
 
-                        <span class="tag">ESSENTIALS</span>
+                            <span>
+                                Total Runs
+                            </span>
 
-                    </div>
+                            <strong id="totalRuns">
+                                —
+                            </strong>
 
-                    <div class="config-card-body">
-
-                        <div class="config-form-group">
-
-                            <label for="cfgUserName">
-                                Bot Name
-                                <span class="field-hint">(Default: Bot)</span>
-                            </label>
-
-                            <input
-                                type="text"
-                                id="cfgUserName"
-                                class="config-input-field"
-                                placeholder="Bot"
-                                value="Bot"
-                            />
-
-                            <small class="field-desc">
-                                Name displayed on automation run logs and in the subject of email reports.
+                            <small>
+                                Database activity
                             </small>
 
                         </div>
 
+                    </article>
 
-                        <div class="config-form-group">
 
-                            <label for="cfgParallelSessions">
-                                Parallel Windows (Speed)
-                                <span class="field-hint">(Default: 3)</span>
-                            </label>
 
-                            <input
-                                type="number"
-                                id="cfgParallelSessions"
-                                class="config-input-field"
-                                min="1"
-                                max="10"
-                                placeholder="3"
-                                value="3"
-                            />
+                    <article class="metric">
 
-                            <small class="field-desc">
-                                Number of browser windows operating concurrently. Recommended: 2 to 4 for best balance of speed and stability.
-                            </small>
-
+                        <div class="metric-icon green">
+                            ✓
                         </div>
-
-                    </div>
-
-                </article>
-
-
-                <!-- BROWSER & SEARCH ENGINES (COMBINED IN ONE BOX) -->
-
-                <article class="panel">
-
-                    <div class="panel-head">
 
                         <div>
-                            <h3>🌐 Browser & Search Engines</h3>
-                            <span>Web browser selection and search engine rotation</span>
-                        </div>
 
-                        <span class="tag">BROWSER</span>
+                            <span>
+                                Successful
+                            </span>
 
-                    </div>
+                            <strong id="successRuns">
+                                —
+                            </strong>
 
-                    <div class="config-card-body">
-
-                        <div class="config-form-group">
-
-                            <label for="cfgBrowserName">
-                                Web Browser
-                                <span class="field-hint">(Choose your browser)</span>
-                            </label>
-
-                            <select
-                                id="cfgBrowserName"
-                                class="config-select-field"
-                            >
-                                <option value="chrome" selected>Google Chrome (Recommended)</option>
-                                <option value="edge">Microsoft Edge</option>
-                                <option value="firefox">Mozilla Firefox</option>
-                                <option value="opera">Opera Browser</option>
-                                <option value="brave">Brave Browser</option>
-                            </select>
-
-                            <small class="field-desc">
-                                The browser launched on your computer to perform automated search visits and video sessions.
+                            <small>
+                                Completed successfully
                             </small>
 
                         </div>
 
+                    </article>
 
-                        <div class="config-form-group">
 
-                            <label for="cfgUserMode">
-                                Run Mode
-                                <span class="field-hint">(Foreground / Background)</span>
-                            </label>
 
-                            <select
-                                id="cfgUserMode"
-                                class="config-select-field"
-                            >
-                                <option value="background" selected>Background (hidden browser, recommended)</option>
-                                <option value="foreground">Foreground (visible browser window)</option>
-                            </select>
+                    <article class="metric">
 
-                            <small class="field-desc">
-                                Foreground opens real browser windows you can watch. Background runs them hidden (headless) and uses less CPU/RAM. Applies to the next run you start.
+                        <div class="metric-icon red">
+                            !
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Failed
+                            </span>
+
+                            <strong id="failedRuns">
+                                —
+                            </strong>
+
+                            <small>
+                                Needs attention
                             </small>
 
                         </div>
 
+                    </article>
 
-                        <!-- SEARCH ENGINES SECTION INSIDE SAME BOX -->
 
-                        <div class="config-subpanel-divider"></div>
 
-                        <div class="config-form-group" style="margin-bottom: 0;">
+                    <article class="metric">
 
-                            <label>
-                                Active Search Engines
-                                <span class="field-hint">(Auto-Rotated)</span>
-                            </label>
+                        <div class="metric-icon amber">
+                            ↻
+                        </div>
 
-                            <small class="field-desc" style="margin-top: 0; margin-bottom: 9px;">
-                                Searches are randomly rotated across these search engines for natural, diverse organic traffic:
+                        <div>
+
+                            <span>
+                                Retries
+                            </span>
+
+                            <strong id="retries">
+                                —
+                            </strong>
+
+                            <small>
+                                Recovery attempts
                             </small>
 
-                            <div
-                                id="cfgSearchEnginesList"
-                                class="engine-badge-wrap"
-                            >
-                                <span class="engine-badge">DuckDuckGo</span>
-                                <span class="engine-badge">Bing</span>
-                                <span class="engine-badge">Google</span>
-                                <span class="engine-badge">Yahoo</span>
+                        </div>
+
+                    </article>
+                    <article class="metric">
+
+                        <div class="metric-icon cyan">
+                            ⌕
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Unique Keywords
+                            </span>
+
+                            <strong id="keywords">
+                                —
+                            </strong>
+
+                            <small>
+                                Tracked keywords
+                            </small>
+
+                        </div>
+
+                    </article>
+
+                </div>
+
+
+
+                <!-- CHARTS -->
+
+                <div class="grid-two">
+
+
+                    <article class="panel large">
+
+                        <div class="panel-head">
+
+                            <div>
+
+                                <h3>
+                                    Automation Activity
+                                </h3>
+
+                                <span>
+                                    Runs, success and failure trend
+                                </span>
+
+                            </div>
+
+                            <span class="tag">
+                                LIVE DATA
+                            </span>
+
+                        </div>
+
+
+                        <div class="chart-wrap">
+
+                            <canvas id="activityChart"></canvas>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="panel">
+
+                        <div class="panel-head">
+
+                            <div>
+
+                                <h3>
+                                    Run Health
+                                </h3>
+
+                                <span>
+                                    Current period distribution
+                                </span>
+
                             </div>
 
                         </div>
 
+
+                        <div class="donut-wrap">
+
+                            <canvas id="healthChart"></canvas>
+
+
+                            <div class="donut-center">
+
+                                <strong id="donutRate">
+                                    —
+                                </strong>
+
+                                <span>
+                                    success
+                                </span>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="legend" id="healthLegend"></div>
+
+                    </article>
+
+                </div>
+
+
+
+                <!-- ENGINE + AUTOMATION TYPE -->
+
+                <div class="grid-two">
+
+                    <!-- SEARCH ENGINE PERFORMANCE -->
+                    <article class="panel" id="searchEnginePerformancePanel" style="grid-column: 1 / -1;">
+                        <div class="panel-head">
+                            <div>
+                                <h3>Search Engine Performance</h3>
+                                <span>Total runs by engine</span>
+                            </div>
+                        </div>
+
+                        <div class="chart-wrap performance-chart-wrap">
+                            <canvas id="searchEnginePerformanceChart"></canvas>
+                        </div>
+                    </article>
+
+
+
+
+
+
+
+
+                    <!-- RECENT RUNS -->
+
+                    <article class="panel" style="grid-column: 1 / -1;">
+
+                        <div class="panel-head">
+
+                            <div>
+
+                                <h3>
+                                    Recent Automation Runs
+                                </h3>
+
+                                <span>
+                                    Latest database records
+                                </span>
+
+                            </div>
+
+
+                            <button class="text-btn" data-view-target="runs">
+                                View all →
+                            </button>
+
+                        </div>
+
+
+                        <div class="table-wrap">
+
+                            <table>
+
+                                <thead>
+
+                                    <tr>
+
+                                        <th>Status</th>
+                                        <th>Type</th>
+                                        <th>Keyword</th>
+                                        <th>Engine</th>
+                                        <th>Browser</th>
+                                        <th>Started</th>
+                                        <th>Duration</th>
+                                        <th>Retries</th>
+
+                                    </tr>
+
+                                </thead>
+
+
+                                <tbody id="recentTable"></tbody>
+
+                            </table>
+
+                        </div>
+
+                    </article>
+
+            </section>
+
+
+
+            <!-- =====================================================
+             AUTOMATION RUNS
+        ====================================================== -->
+
+            <section id="runs" class="view">
+
+                <div class="section-title">
+
+                    <div>
+
+                        <div class="eyebrow">
+                            DATABASE
+                        </div>
+
+                        <h2>
+                            Automation Runs
+                        </h2>
+
+                        <p>
+                            Every keyword-level execution tracked by the bot.
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <article class="panel">
+
+                    <div class="table-wrap">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+
+                                    <th>Status</th>
+                                    <th>Type</th>
+                                    <th>User</th>
+                                    <th>Keyword</th>
+                                    <th>Target</th>
+                                    <th>Search Engine</th>
+                                    <th>CAPTCHA Status</th>
+                                    <th>Browser</th>
+                                    <th>Started</th>
+                                    <th>Duration</th>
+                                    <th>Retries</th>
+
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody id="runsTable"></tbody>
+
+                        </table>
+
                     </div>
 
                 </article>
 
-            </div>
+            </section>
 
 
-            <!-- EMAIL REPORTING CONFIG -->
 
-            <article class="panel" style="margin-bottom: 14px;">
+            <!-- =====================================================
+             LIVE LOGS
+        ====================================================== -->
 
-                <div class="panel-head">
+            <section id="logs" class="view">
+
+                <div class="section-title">
 
                     <div>
-                        <h3>✉ Email Notifications & Reporting</h3>
-                        <span>Receive beautiful HTML performance summaries after each run</span>
-                    </div>
 
-                    <span class="tag">REPORTS</span>
+                        <div class="eyebrow">
+                            OBSERVABILITY
+                        </div>
+
+                        <h2>
+                            Live Logs
+                        </h2>
+
+                        <p>
+                            Inspect the complete execution timeline of a run.
+                        </p>
+
+                    </div>
 
                 </div>
 
-                <div class="config-card-body">
 
-                    <div class="grid-two" style="margin-bottom: 0;">
+                <article class="panel">
 
-                        <div class="config-form-group">
+                    <div class="log-toolbar">
 
-                            <label for="cfgEmailTo">
-                                Your Email Address (To)
-                                <span class="field-hint">(Recipient)</span>
-                            </label>
+                        <select id="runSelect">
 
-                            <input
-                                type="email"
-                                id="cfgEmailTo"
-                                class="config-input-field"
-                                placeholder="Enter your email (e.g. user@gmail.com)"
-                            />
+                            <option value="">
+                                Select a recent run...
+                            </option>
 
-                            <small class="field-desc">
-                                Enter your email ID here. The comprehensive summary report will be sent to this address once automation finishes.
+                        </select>
+
+
+                        <button class="primary-btn" id="loadLogs">
+                            Load Timeline
+                        </button>
+
+                    </div>
+
+
+                    <div id="logTimeline" class="timeline empty">
+                        Choose a run to inspect its logs.
+                    </div>
+
+                </article>
+
+            </section>
+
+
+
+            <!-- =====================================================
+             WEBSITE AUTOMATION
+        ====================================================== -->
+
+            <section id="website" class="view automation-detail-view">
+
+                <div class="section-title">
+
+                    <div>
+
+                        <div class="eyebrow">
+                            AUTOMATION
+                        </div>
+
+                        <h2>
+                            Website Automation
+                        </h2>
+
+                        <p>
+                            Monitor keyword searches, target website discovery
+                            and website visits.
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+
+                <!-- WEBSITE KPI -->
+
+                <div class="metric-grid compact">
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon blue">
+                            ⌕
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Website Runs
+                            </span>
+
+                            <strong id="webRuns">
+                                —
+                            </strong>
+
+                            <small>
+                                Search executions
                             </small>
 
                         </div>
 
+                    </article>
 
-                        <div class="config-form-group">
 
-                            <label for="cfgEmailCc">
-                                Default CC Recipients
-                                <span class="field-hint">🔒 Admin CC</span>
-                            </label>
 
-                            <input
-                                type="text"
-                                id="cfgEmailCc"
-                                class="config-input-field cfg-locked"
-                                readonly
-                                value=""
-                                placeholder="Loaded from config.json"
-                            />
+                    <article class="metric">
 
-                            <small class="field-desc">
-                                Leads & administrators automatically copied on all execution summaries.
+                        <div class="metric-icon green">
+                            ✓
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Successful
+                            </span>
+
+                            <strong id="webSuccess">
+                                —
+                            </strong>
+
+                            <small>
+                                Target found
                             </small>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon red">
+                            !
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Failed
+                            </span>
+
+                            <strong id="webFailed">
+                                —
+                            </strong>
+
+                            <small>
+                                Unsuccessful runs
+                            </small>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon amber">
+                            ↻
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Retries
+                            </span>
+
+                            <strong id="webRetries">
+                                —
+                            </strong>
+
+                            <small>
+                                Recovery attempts
+                            </small>
+
+                        </div>
+
+                    </article>
+
+                </div>
+
+
+
+                <!-- WEBSITE CHART -->
+
+                <div class="grid-two">
+
+
+                    <article class="panel large">
+
+                        <div class="panel-head">
+
+                            <div>
+
+                                <h3>
+                                    Website Automation Activity
+                                </h3>
+
+                                <span>
+                                    Search → target website discovery trend
+                                </span>
+
+                            </div>
+
+                            <span class="tag">
+                                WEBSITE
+                            </span>
+
+                        </div>
+
+
+                        <div class="chart-wrap">
+
+                            <canvas id="websiteActivityChart"></canvas>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="panel">
+
+                        <div class="panel-head">
+
+                            <div>
+
+                                <h3>
+                                    Website Success Rate
+                                </h3>
+
+                                <span>
+                                    Selected period
+                                </span>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="donut-wrap">
+
+                            <canvas id="websiteHealthChart"></canvas>
+
+
+                            <div class="donut-center">
+
+                                <strong id="websiteRate">
+                                    —
+                                </strong>
+
+                                <span>
+                                    success
+                                </span>
+
+                            </div>
+
+                        </div>
+
+                    </article>
+
+                </div>
+
+
+
+                <!-- WEBSITE ENGINE + TARGET -->
+
+                <div class="grid-two">
+
+
+                    <article class="panel">
+
+                        <div class="panel-head">
+
+                            <div>
+
+                                <h3>
+                                    Search Engine Performance
+                                </h3>
+
+                                <span>
+                                    Website automation only
+                                </span>
+
+                            </div>
+
+                        </div>
+
+
+                        <div id="websiteEngineBars" class="bars"></div>
+
+                    </article>
+
+
+
+                    <article class="panel">
+
+                        <div class="panel-head">
+
+                            <div>
+
+                                <h3>
+                                    Target Website
+                                </h3>
+
+                                <span>
+                                    Configured destination
+                                </span>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="target-card">
+
+                            <div class="target-icon">
+                                ↗
+                            </div>
+
+
+                            <div>
+
+                                <strong id="websiteTarget">
+                                    anubhavtrainings.com
+                                </strong>
+
+                                <p>
+                                    Website Automation target domain
+                                </p>
+
+                            </div>
+
+                        </div>
+
+                    </article>
+
+                </div>
+
+
+
+                <!-- WEBSITE RUN TABLE -->
+
+                <article class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <h3>
+                                Website Automation Runs
+                            </h3>
+
+                            <span>
+                                Keyword-level execution history
+                            </span>
 
                         </div>
 
                     </div>
 
-                    
 
-                </div>
+                    <div class="table-wrap">
 
-            </article>
+                        <table>
+
+                            <thead>
+
+                                <tr>
+
+                                    <th>Status</th>
+                                    <th>Keyword</th>
+                                    <th>Target</th>
+                                    <th>Search Engine</th>
+                                    <th>Browser</th>
+                                    <th>Started</th>
+                                    <th>Duration</th>
+                                    <th>Retries</th>
+
+                                </tr>
+
+                            </thead>
 
 
-            <!-- TARGET KEYWORDS POOL (CLEAN FULL-WIDTH VIEWER) -->
+                            <tbody id="websiteTable"></tbody>
 
-            <article class="panel">
+                        </table>
 
-                <div class="panel-head">
+                    </div>
+
+                </article>
+
+            </section>
+
+
+
+            <!-- =====================================================
+             YOUTUBE AUTOMATION
+        ====================================================== -->
+
+            <section id="youtube" class="view automation-detail-view">
+
+                <div class="section-title">
 
                     <div>
-                        <h3>🎯 Target Keywords Pool</h3>
-                        <span>Keywords automatically searched and visited by the bot</span>
-                    </div>
 
-                    <span
-                        id="cfgKeywordsCount"
-                        class="tag"
-                    >
-                        36 Keywords
-                    </span>
+                        <div class="eyebrow">
+                            AUTOMATION
+                        </div>
 
-                </div>
+                        <h2>
+                            YouTube Automation
+                        </h2>
 
-                <div class="config-card-body">
+                        <p>
+                            Monitor YouTube keyword execution and target-channel runs.
+                        </p>
 
-                    <div class="keyword-filter-bar">
-
-                        <input
-                            type="text"
-                            id="cfgKeywordSearch"
-                            class="config-input-field keyword-search"
-                            placeholder="🔍 Type here to search or filter keywords..."
-                        />
-
-                    </div>
-
-                    <div
-                        id="cfgKeywordsList"
-                        class="keyword-pills-box"
-                    >
-                        <div class="keyword-loading-msg">Loading keywords...</div>
                     </div>
 
                 </div>
 
-            </article>
-
-        </section>
-
-    </main>
-
-</div>
 
 
-<!-- Dashboard JavaScript -->
+                <div class="metric-grid compact">
 
-<script
-    src="{{ url_for('static', filename='dashboard.js') }}"
-></script>
+
+                    <article class="metric">
+
+                        <div class="metric-icon violet">
+                            ▶
+                        </div>
+
+                        <div>
+
+                            <span>
+                                YouTube Runs
+                            </span>
+
+                            <strong id="ytRuns2">
+                                —
+                            </strong>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon green">
+                            ✓
+                        </div>
+
+                        <div>
+
+                            <span>
+                                YouTube Success
+                            </span>
+
+                            <strong id="ytSuccess">
+                                —
+                            </strong>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon red">
+                            !
+                        </div>
+
+                        <div>
+
+                            <span>
+                                YouTube Failed
+                            </span>
+
+                            <strong id="ytFailed">
+                                —
+                            </strong>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon cyan">
+                            ▶
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Target Channel
+                            </span>
+
+                            <strong>
+                                Anubhav
+                            </strong>
+
+                        </div>
+
+                    </article>
+
+                </div>
+
+
+
+                <article class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <h3>
+                                YouTube Automation Runs
+                            </h3>
+
+                            <span>
+                                Keyword and video execution history
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="table-wrap">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+
+                                    <th>Status</th>
+                                    <th>Keyword</th>
+                                    <th>Target</th>
+                                    <th>Browser</th>
+                                    <th>Engine</th>
+                                    <th>Duration</th>
+                                    <th>Started</th>
+
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody id="youtubeTable"></tbody>
+
+                        </table>
+
+                    </div>
+
+                </article>
+
+            </section>
+
+
+
+            <!-- =====================================================
+             BACKLINKS SUMMARY
+        ====================================================== -->
+
+            <section id="backlinks" class="view">
+
+                <div class="section-title">
+
+                    <div>
+
+                        <div class="eyebrow">
+                            BACKLINKS
+                        </div>
+
+                        <h2>
+                            Backlinks Summary
+                        </h2>
+
+                        <p>
+                            Every ping-site submission, stored in the dedicated backlinks collection.
+                        </p>
+
+                    </div>
+
+
+                    <div class="top-actions">
+
+                        <button class="primary-btn" id="refreshBacklinksBtn" title="Reload backlink data">
+                            ↻ Reload
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+
+                <div class="metric-grid compact">
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon blue">
+                            🔗
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Total Submissions
+                            </span>
+
+                            <strong id="blRunsTotal">
+                                —
+                            </strong>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon green">
+                            ✓
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Successful
+                            </span>
+
+                            <strong id="blRunsSuccess">
+                                —
+                            </strong>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon red">
+                            !
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Failed
+                            </span>
+
+                            <strong id="blRunsFailed">
+                                —
+                            </strong>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon cyan">
+                            %
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Success Rate
+                            </span>
+
+                            <strong id="blRunsRate">
+                                —
+                            </strong>
+
+                        </div>
+
+                    </article>
+
+                </div>
+
+
+
+                <article class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <h3>
+                                Performance by Ping Site
+                            </h3>
+
+                            <span>
+                                Submissions grouped per ping website
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="table-wrap">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+
+                                    <th>Ping Site</th>
+                                    <th>Site URL</th>
+                                    <th>Total</th>
+                                    <th>Success</th>
+                                    <th>Failed</th>
+                                    <th>Success Rate</th>
+
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody id="backlinkSitesTable"></tbody>
+
+                        </table>
+
+                    </div>
+
+                </article>
+
+
+
+                <article class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <h3>
+                                Backlink Submissions
+                            </h3>
+
+                            <span>
+                                Detailed per-URL submission history
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="table-wrap">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+
+                                    <th>Status</th>
+                                    <th>Ping Site</th>
+                                    <th>Target URL</th>
+                                    <th>Keyword</th>
+                                    <th>Result</th>
+                                    <th>Duration</th>
+                                    <th>Started</th>
+
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody id="backlinksTable"></tbody>
+
+                        </table>
+
+                    </div>
+
+                </article>
+
+            </section>
+
+
+
+            <!-- =====================================================
+             SEARCH ENGINE ANALYTICS
+        ====================================================== -->
+
+            <section id="engines" class="view">
+
+                <div class="section-title">
+
+                    <div>
+
+                        <div class="eyebrow">
+                            ANALYTICS
+                        </div>
+
+                        <h2>
+                            Search Engines
+                        </h2>
+
+                        <p>
+                            Compare execution volume and outcomes across search engines.
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <article class="panel">
+
+                    <div class="chart-wrap tall">
+
+                        <canvas id="engineChart"></canvas>
+
+                    </div>
+
+                </article>
+
+            </section>
+
+
+
+            <!-- =====================================================
+             PERFORMANCE
+        ====================================================== -->
+
+            <section id="performance" class="view">
+
+                <div class="section-title">
+
+                    <div>
+
+                        <div class="eyebrow">
+                            ANALYTICS
+                        </div>
+
+                        <h2>
+                            Performance
+                        </h2>
+
+                        <p>
+                            Operational metrics from the automation database.
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+
+                <div class="metric-grid compact">
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon blue">
+                            ⏱
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Average Duration
+                            </span>
+
+                            <strong id="avgDuration">
+                                —
+                            </strong>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon amber">
+                            ↻
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Retry Rate
+                            </span>
+
+                            <strong id="retryRate">
+                                —
+                            </strong>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon cyan">
+                            ⚡
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Runs / Day
+                            </span>
+
+                            <strong id="runsPerDay">
+                                —
+                            </strong>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon green">
+                            ✓
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Success Rate
+                            </span>
+
+                            <strong id="perfRate">
+                                —
+                            </strong>
+
+                        </div>
+
+                    </article>
+
+                </div>
+
+
+
+                <article class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <h3>
+                                Operational Insights
+                            </h3>
+
+                            <span>
+                                Derived from stored run records
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="insights" id="insights"></div>
+
+                </article>
+
+            </section>
+
+
+            <!-- =====================================================
+             BOT CONFIGURATION & SETTINGS VIEW
+        ====================================================== -->
+
+            <section id="settings" class="view">
+
+                <!-- ACTION TOOLBAR (DIRECT SETTINGS CONTROLS) -->
+                <div class="config-toolbar-wrap">
+
+                    <span id="configSaveStatus" class="config-status-badge"></span>
+
+                    <div class="config-header-actions">
+
+                        <button type="button" class="config-reset-btn" id="backToOverviewBtn"
+                            title="Return to Overview">
+                            ← Back to Dashboard
+                        </button>
+
+                        <button type="button" class="config-reset-btn" id="resetConfigBtn">
+                            ↺ Reset Defaults
+                        </button>
+
+                        <button type="button" class="generate-btn" id="saveConfigBtn"
+                            style="display: none; width: auto; min-width: 140px; padding: 10px 18px;">
+                            <span>💾</span>
+                            Save Settings
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+                <!-- TWO-COLUMN CONFIG FORM -->
+
+                <div class="grid-two">
+
+                    <!-- BOT PROFILE & SPEED -->
+
+                    <article class="panel">
+
+                        <div class="panel-head">
+
+                            <div>
+                                <h3>🤖 Bot Profile & Speed</h3>
+                                <span>Configure bot name and how many windows run at once</span>
+                            </div>
+
+                            <span class="tag">ESSENTIALS</span>
+
+                        </div>
+
+                        <div class="config-card-body">
+
+                            <div class="config-form-group">
+
+                                <label for="cfgUserName">
+                                    Bot Name
+                                    <span class="field-hint">(Default: Bot)</span>
+                                </label>
+
+                                <input type="text" id="cfgUserName" class="config-input-field" placeholder="Bot"
+                                    value="Bot" />
+
+                                <small class="field-desc">
+                                    Name displayed on automation run logs and in the subject of email reports.
+                                </small>
+
+                            </div>
+
+
+                            <div class="config-form-group">
+
+                                <label for="cfgParallelSessions">
+                                    Parallel Windows (Speed)
+                                    <span class="field-hint">(Default: 3)</span>
+                                </label>
+
+                                <input type="number" id="cfgParallelSessions" class="config-input-field" min="1"
+                                    max="10" placeholder="3" value="3" />
+
+                                <small class="field-desc">
+                                    Number of browser windows operating concurrently. Recommended: 2 to 4 for best
+                                    balance of speed and stability.
+                                </small>
+
+                            </div>
+
+                        </div>
+
+                    </article>
+
+
+                    <!-- BROWSER & SEARCH ENGINES (COMBINED IN ONE BOX) -->
+
+                    <article class="panel">
+
+                        <div class="panel-head">
+
+                            <div>
+                                <h3>🌐 Browser & Search Engines</h3>
+                                <span>Web browser selection and search engine rotation</span>
+                            </div>
+
+                            <span class="tag">BROWSER</span>
+
+                        </div>
+
+                        <div class="config-card-body">
+
+                            <div class="config-form-group">
+
+                                <label for="cfgBrowserName">
+                                    Web Browser
+                                    <span class="field-hint">(Choose your browser)</span>
+                                </label>
+
+                                <select id="cfgBrowserName" class="config-select-field">
+                                    <option value="chrome" selected>Google Chrome (Recommended)</option>
+                                    <option value="edge">Microsoft Edge</option>
+                                    <option value="firefox">Mozilla Firefox</option>
+                                    <option value="opera">Opera Browser</option>
+                                    <option value="brave">Brave Browser</option>
+                                </select>
+
+                                <small class="field-desc">
+                                    The browser launched on your computer to perform automated search visits and video
+                                    sessions.
+                                </small>
+
+                            </div>
+
+
+                            <div class="config-form-group">
+
+                                <label for="cfgUserMode">
+                                    Run Mode
+                                    <span class="field-hint">(Foreground / Background)</span>
+                                </label>
+
+                                <select id="cfgUserMode" class="config-select-field">
+                                    <option value="background" selected>Background (hidden browser, recommended)
+                                    </option>
+                                    <option value="foreground">Foreground (visible browser window)</option>
+                                </select>
+
+                                <small class="field-desc">
+                                    Foreground opens real browser windows you can watch. Background runs them hidden
+                                    (headless) and uses less CPU/RAM. Applies to the next run you start.
+                                </small>
+
+                            </div>
+
+
+                            <!-- SEARCH ENGINES SECTION INSIDE SAME BOX -->
+
+                            <div class="config-subpanel-divider"></div>
+
+                            <div class="config-form-group" style="margin-bottom: 0;">
+
+                                <label>
+                                    Active Search Engines
+                                    <span class="field-hint">(Auto-Rotated)</span>
+                                </label>
+
+                                <small class="field-desc" style="margin-top: 0; margin-bottom: 9px;">
+                                    Searches are randomly rotated across these search engines for natural, diverse
+                                    organic traffic:
+                                </small>
+
+                                <div id="cfgSearchEnginesList" class="engine-badge-wrap">
+                                    <span class="engine-badge">DuckDuckGo</span>
+                                    <span class="engine-badge">Bing</span>
+                                    <span class="engine-badge">Google</span>
+                                    <span class="engine-badge">Yahoo</span>
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </article>
+
+                </div>
+
+
+                <!-- EMAIL REPORTING CONFIG -->
+
+                <article class="panel" style="margin-bottom: 14px;">
+
+                    <div class="panel-head">
+
+                        <div>
+                            <h3>✉ Email Notifications & Reporting</h3>
+                            <span>Receive beautiful HTML performance summaries after each run</span>
+                        </div>
+
+                        <span class="tag">REPORTS</span>
+
+                    </div>
+
+                    <div class="config-card-body">
+
+                        <div class="grid-two" style="margin-bottom: 0;">
+
+                            <div class="config-form-group">
+
+                                <label for="cfgEmailTo">
+                                    Your Email Address (To)
+                                    <span class="field-hint">(Recipient)</span>
+                                </label>
+
+                                <input type="email" id="cfgEmailTo" class="config-input-field"
+                                    placeholder="Enter your email (e.g. user@gmail.com)" />
+
+                                <small class="field-desc">
+                                    Enter your email ID here. The comprehensive summary report will be sent to this
+                                    address once automation finishes.
+                                </small>
+
+                            </div>
+
+
+                            <div class="config-form-group">
+
+                                <label for="cfgEmailCc">
+                                    Default CC Recipients
+                                    <span class="field-hint">🔒 Admin CC</span>
+                                </label>
+
+                                <input type="text" id="cfgEmailCc" class="config-input-field cfg-locked" readonly
+                                    value="" placeholder="Loaded from config.json" />
+
+                                <small class="field-desc">
+                                    Leads & administrators automatically copied on all execution summaries.
+                                </small>
+
+                            </div>
+
+                        </div>
+
+
+
+                    </div>
+
+                </article>
+
+
+                <!-- TARGET KEYWORDS POOL (CLEAN FULL-WIDTH VIEWER) -->
+
+                <article class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+                            <h3>🎯 Target Keywords Pool</h3>
+                            <span>Keywords automatically searched and visited by the bot</span>
+                        </div>
+
+                        <span id="cfgKeywordsCount" class="tag">
+                            36 Keywords
+                        </span>
+
+                    </div>
+
+                    <div class="config-card-body">
+
+                        <div class="keyword-filter-bar">
+
+                            <input type="text" id="cfgKeywordSearch" class="config-input-field keyword-search"
+                                placeholder="🔍 Type here to search or filter keywords..." />
+
+                        </div>
+
+                        <div id="cfgKeywordsList" class="keyword-pills-box">
+                            <div class="keyword-loading-msg">Loading keywords...</div>
+                        </div>
+
+                    </div>
+
+                </article>
+
+            </section>
+
+        </main>
+
+    </div>
+
+
+    <!-- Dashboard JavaScript -->
+
+    <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
 
 </body>
 
