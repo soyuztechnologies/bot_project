@@ -63,7 +63,7 @@ def main():
     args = parser.parse_args()
 
     print("======================================================================")
-    print(f"  SEO BOT - 24-HOUR MULTI-USER SUMMARY REPORT GENERATOR")
+    print(f"  RANKORA - 24-HOUR MULTI-USER SUMMARY REPORT GENERATOR")
     print("======================================================================")
     print(f"  Window:      Past {args.hours} hours")
     if args.to:

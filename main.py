@@ -15,6 +15,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 from automation.website_session import start_parallel_sessions
+from browser.browser import sweep_stale_profiles_at_startup
 from utils.local_tracker import get_run_tracker
 # from utils.vpn_manager import connect_vpn, disconnect_vpn  # VPN DISABLED - commented out
 from utils.database import check_db_connection, initialize_database, DatabaseHandler, close_connection_pool, reconcile_stale_runs
@@ -297,7 +298,7 @@ def print_summary(stats, config):
  
 def main():
     """Main function to run Rankora."""
-    start_time = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    start_time = datetime.now(timezone.utc)  # must be real UTC: the report computes duration from it
     stats = None
     config = None
     interrupted = False
@@ -330,7 +331,8 @@ def main():
         # Load main config
         config = load_json(BASE_DIR / "config.json")
         tracker.set_config(config)
- 
+        sweep_stale_profiles_at_startup(config)
+
         # Load project data
         keywords = load_json(project_path(config["files"]["keywords"]))
         search_engines = load_json(project_path(config["files"]["searchEngines"]))

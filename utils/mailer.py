@@ -1,5 +1,6 @@
 import logging
 import smtplib
+import time
 from email.message import EmailMessage
 from pathlib import Path
 import os
@@ -66,12 +67,13 @@ Detailed Session Target Links:
 {detailed_lines}"""
 
 def send_report_email(config, summary, results, html_path=None, json_path=None):
+    """Send one run report. Returns "sent", "skipped" (disabled / no password) or "failed"."""
     if not isinstance(config, dict):
         config = {}
     email_config = config.get("email", {})
     if not email_config.get("enabled", True):
         logger.info("Report email disabled (email.enabled=false) — skipping.")
-        return
+        return "skipped"
 
     # Try loading from .env if not explicitly passed
     load_dotenv()
@@ -80,7 +82,7 @@ def send_report_email(config, summary, results, html_path=None, json_path=None):
     
     if not app_password:
         logger.info("Report email skipped: GMAIL_APP_PASSWORD is not set in environment.")
-        return
+        return "skipped"
 
     # Sender / recipients come ONLY from config.json -> "email" (no hardcoded addresses).
     from_email = str(email_config.get("from", "") or "").strip() or "wednesday.ui5@gmail.com"
@@ -170,23 +172,39 @@ def send_report_email(config, summary, results, html_path=None, json_path=None):
                 json_data = f.read()
                 msg.add_attachment(json_data, maintype='application', subtype='json', filename='report.json')
 
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as smtp:
-            try:
-                smtp.login(from_email, app_password)
-            except smtplib.SMTPServerDisconnected as e:
-                # Gmail closes the connection instead of a clean 535 when the
-                # app password is wrong/revoked — tell the user exactly that.
-                raise smtplib.SMTPAuthenticationError(
-                    535,
-                    b"Login rejected: Gmail closed the connection. "
-                    b"Regenerate an App Password (Google Account > 2-Step Verification > App passwords) "
-                    b"and update GMAIL_APP_PASSWORD in .env / GitHub Secrets.",
-                ) from e
-            smtp.send_message(msg)
-            
-        logger.info(f"Report email (User: {user_name}, Email: {user_email_display}) sent successfully to {to_email} (CC: {cc_email})")
     except Exception as e:
-        logger.error(f"Failed to send report email: {e}")
+        logger.error(f"Failed to attach report files (sending without them): {e}")
+
+    # Parallel runs (website + youtube + backlink) can all finish at once and a
+    # network blip must not lose a report, so transient SMTP errors are retried.
+    max_tries = 3
+    for attempt in range(1, max_tries + 1):
+        try:
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as smtp:
+                try:
+                    smtp.login(from_email, app_password)
+                except smtplib.SMTPServerDisconnected as e:
+                    # Gmail closes the connection instead of a clean 535 when the
+                    # app password is wrong/revoked — tell the user exactly that.
+                    raise smtplib.SMTPAuthenticationError(
+                        535,
+                        b"Login rejected: Gmail closed the connection. "
+                        b"Regenerate an App Password (Google Account > 2-Step Verification > App passwords) "
+                        b"and update GMAIL_APP_PASSWORD in .env / GitHub Secrets.",
+                    ) from e
+                smtp.send_message(msg)
+            logger.info(f"Report email (User: {user_name}, Email: {user_email_display}) sent successfully to {to_email} (CC: {cc_email})")
+            return "sent"
+        except smtplib.SMTPAuthenticationError as e:
+            logger.error(f"Failed to send report email (authentication, not retrying): {e}")
+            return "failed"
+        except Exception as e:
+            if attempt < max_tries:
+                logger.warning(f"Report email attempt {attempt}/{max_tries} failed: {e} — retrying")
+                time.sleep(5 * attempt)
+            else:
+                logger.error(f"Failed to send report email after {max_tries} attempts: {e}")
+    return "failed"
 
 
 # Re-export 24-hour summary mailer flow

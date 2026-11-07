@@ -1,9 +1,10 @@
-# docker-compose.yml — SEO Automation Bot
+# docker-compose.yml — Rankora
 #
 # Services:
 #   bot        Interactive launcher (website / youtube / backlinks).
 #              Started automatically by the dashboard UI.
-#   dashboard  Flask dashboard on http://localhost:5050
+#   dashboard  Flask dashboard on http://localhost:${RANKORA_PORT:-5050}
+#              (Rankora-Setup.exe sets RANKORA_NAME / RANKORA_PORT per install)
 #              Start with:  LAUNCH.bat  (double-click)
 #              Or manually: docker compose up -d dashboard
 #
@@ -17,8 +18,8 @@
 services:
   bot:
     build: .
-    image: seo-bot:latest
-    container_name: seo-bot
+    image: ${RANKORA_NAME:-rankora}:latest
+    container_name: ${RANKORA_NAME:-rankora}-bot
     stdin_open: true
     tty: true
     env_file:
@@ -33,8 +34,8 @@ services:
 
   dashboard:
     build: .
-    image: seo-bot:latest
-    container_name: seo-bot-dashboard
+    image: ${RANKORA_NAME:-rankora}:latest
+    container_name: ${RANKORA_NAME:-rankora}-dashboard
     restart: unless-stopped
     env_file:
       - .env
@@ -43,7 +44,7 @@ services:
       - DASHBOARD_HOST=0.0.0.0
       - DASHBOARD_PORT=5050
     ports:
-      - "5050:5050"
+      - "${RANKORA_PORT:-5050}:5050"
     volumes:
       - ./config.json:/app/config.json
       - ./data:/app/data

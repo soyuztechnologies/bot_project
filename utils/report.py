@@ -29,7 +29,7 @@ def escape_html(text):
     return "".join(html_escape_table.get(c, c) for c in text)
 
 class RunLogger:
-    def __init__(self, logs_dir="logs", target_urls=None, started_at=None, automation_type="Unknown", user_name=None, user_email=None):
+    def __init__(self, logs_dir="logs", target_urls=None, started_at=None, automation_type="Unknown", user_name=None, user_email=None, run_tag=None):
         if started_at:
             self.started_at = started_at
         else:
@@ -50,6 +50,11 @@ class RunLogger:
             self.logs_dir.mkdir(parents=True, exist_ok=True)
             
         stamp = self.started_at.strftime("%Y-%m-%dT%H-%M-%S")
+        if run_tag:
+            # Parallel runs (website/youtube/backlink) can start in the same
+            # second; a tag keeps each run's report file separate.
+            safe_tag = "".join(c for c in str(run_tag) if c.isalnum() or c in "-_")
+            stamp = f"{stamp}-{safe_tag}"
         self.json_path = self.logs_dir / f"run-{stamp}.json"
         self.html_path = self.logs_dir / f"run-{stamp}.html"
 

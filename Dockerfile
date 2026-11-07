@@ -1,5 +1,5 @@
 # =============================================================
-# Dockerfile — SEO Automation Bot
+# Dockerfile — Rankora
 # =============================================================
 # Multi-purpose image used by both services in docker-compose:
 #   dashboard  -> python dashboard/app.py   (Flask, port 5050)

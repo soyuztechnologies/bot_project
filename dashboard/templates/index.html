@@ -15,6 +15,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
     <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+    <script src="{{ url_for('static', filename='version.js') }}?v={{ app_version.version }}"></script>
 
     <style>
         .automation-loader {
@@ -109,7 +110,7 @@
             </div>
 
 
-            <!-- PRIMARY ACTION: follows the selected Website / YouTube toggle -->
+            <!-- PRIMARY ACTION: follows the selected Website / YouTube / Backlinks toggle -->
             <div class="sidebar-automation-action">
                 <button type="button" class="generate-btn" id="startAutomationBtn">
                     <span class="automation-action-icon" aria-hidden="true">
@@ -170,33 +171,7 @@
                     Performance
                 </button>
 
-                <div class="nav-label">
-                    BACKLINKS
-                </div>
-
-
-                <button class="nav-item" data-view="backlinks">
-                    <span>🔗</span>
-                    Backlinks Summary
-                </button>
-
             </nav>
-
-
-            <!-- GENERATE BACKLINKS -->
-
-            <div class="sidebar-generate">
-
-                <button type="button" class="generate-btn" id="generateBacklinksBtn">
-                    <span>⚡</span>
-                    Generate Backlinks
-                </button>
-
-                <small class="generate-status" id="generateBacklinksStatus">
-                    Ready to generate.
-                </small>
-
-            </div>
 
 
             <!-- DATABASE STATUS -->
@@ -222,8 +197,8 @@
                 </div>
 
 
-                <div class="version">
-                    RANKORA • v1.0
+                <div class="version" title="{{ app_version.get('commit', '') }} {{ app_version.get('built_at', '') }}">
+                    RANKORA • {{ app_version.version }}
                 </div>
 
             </div>
@@ -275,6 +250,12 @@
                             aria-selected="false">
                             <span class="switch-icon">▶</span>
                             YouTube
+                        </button>
+
+                        <button type="button" class="backlink-switch-btn" id="backlinkSwitchBtn" role="tab"
+                            aria-selected="false">
+                            <span class="switch-icon">🔗</span>
+                            Backlinks
                         </button>
                     </div>
 
@@ -1311,30 +1292,36 @@
 
             <section id="backlinks" class="view">
 
-                <div class="section-title">
+                <!-- HERO (same layout as Website / YouTube overview) -->
+
+                <div class="hero-strip">
 
                     <div>
 
-                        <div class="eyebrow">
-                            BACKLINKS
-                        </div>
+                        <span class="live-dot"></span>
 
-                        <h2>
-                            Backlinks Summary
+                        SYSTEM MONITORING
+
+                        <h2 id="blHeroTitle">
+                            Backlinks automation is under control.
                         </h2>
 
-                        <p>
-                            Every ping-site submission, stored in the dedicated backlinks collection.
+                        <p id="blGenerated">
+                            Fetching the latest database snapshot...
                         </p>
 
                     </div>
 
 
-                    <div class="top-actions">
+                    <div class="hero-stat">
 
-                        <button class="primary-btn" id="refreshBacklinksBtn" title="Reload backlink data">
-                            ↻ Reload
-                        </button>
+                        <span>
+                            Overall Success Rate
+                        </span>
+
+                        <strong id="blRunsRate">
+                            —
+                        </strong>
 
                     </div>
 
@@ -1342,13 +1329,15 @@
 
 
 
-                <div class="metric-grid compact">
+                <!-- KPI CARDS -->
+
+                <div class="metric-grid">
 
 
                     <article class="metric">
 
                         <div class="metric-icon blue">
-                            🔗
+                            Σ
                         </div>
 
                         <div>
@@ -1360,6 +1349,10 @@
                             <strong id="blRunsTotal">
                                 —
                             </strong>
+
+                            <small>
+                                Database activity
+                            </small>
 
                         </div>
 
@@ -1383,6 +1376,10 @@
                                 —
                             </strong>
 
+                            <small>
+                                Completed successfully
+                            </small>
+
                         </div>
 
                     </article>
@@ -1405,6 +1402,36 @@
                                 —
                             </strong>
 
+                            <small>
+                                Needs attention
+                            </small>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="metric">
+
+                        <div class="metric-icon amber">
+                            🔗
+                        </div>
+
+                        <div>
+
+                            <span>
+                                Ping Sites
+                            </span>
+
+                            <strong id="blSitesCount">
+                                —
+                            </strong>
+
+                            <small>
+                                Sites submitted to
+                            </small>
+
                         </div>
 
                     </article>
@@ -1414,18 +1441,22 @@
                     <article class="metric">
 
                         <div class="metric-icon cyan">
-                            %
+                            ⌕
                         </div>
 
                         <div>
 
                             <span>
-                                Success Rate
+                                Unique Target URLs
                             </span>
 
-                            <strong id="blRunsRate">
+                            <strong id="blTargetsCount">
                                 —
                             </strong>
+
+                            <small>
+                                Tracked URLs
+                            </small>
 
                         </div>
 
@@ -1435,102 +1466,216 @@
 
 
 
-                <article class="panel">
+                <!-- CHARTS -->
 
-                    <div class="panel-head">
+                <div class="grid-two">
 
-                        <div>
 
-                            <h3>
-                                Performance by Ping Site
-                            </h3>
+                    <article class="panel large">
 
-                            <span>
-                                Submissions grouped per ping website
+                        <div class="panel-head">
+
+                            <div>
+
+                                <h3>
+                                    Automation Activity
+                                </h3>
+
+                                <span>
+                                    Submissions, success and failure trend
+                                </span>
+
+                            </div>
+
+                            <span class="tag">
+                                LIVE DATA
                             </span>
 
                         </div>
 
-                    </div>
 
+                        <div class="chart-wrap">
 
-                    <div class="table-wrap">
-
-                        <table>
-
-                            <thead>
-
-                                <tr>
-
-                                    <th>Ping Site</th>
-                                    <th>Site URL</th>
-                                    <th>Total</th>
-                                    <th>Success</th>
-                                    <th>Failed</th>
-                                    <th>Success Rate</th>
-
-                                </tr>
-
-                            </thead>
-
-
-                            <tbody id="backlinkSitesTable"></tbody>
-
-                        </table>
-
-                    </div>
-
-                </article>
-
-
-
-                <article class="panel">
-
-                    <div class="panel-head">
-
-                        <div>
-
-                            <h3>
-                                Backlink Submissions
-                            </h3>
-
-                            <span>
-                                Detailed per-URL submission history
-                            </span>
+                            <canvas id="blActivityChart"></canvas>
 
                         </div>
 
-                    </div>
+                    </article>
 
 
-                    <div class="table-wrap">
 
-                        <table>
+                    <article class="panel">
 
-                            <thead>
+                        <div class="panel-head">
 
-                                <tr>
+                            <div>
 
-                                    <th>Status</th>
-                                    <th>Ping Site</th>
-                                    <th>Target URL</th>
-                                    <th>Keyword</th>
-                                    <th>Result</th>
-                                    <th>Duration</th>
-                                    <th>Started</th>
+                                <h3>
+                                    Run Health
+                                </h3>
 
-                                </tr>
+                                <span>
+                                    Current period distribution
+                                </span>
 
-                            </thead>
+                            </div>
+
+                        </div>
 
 
-                            <tbody id="backlinksTable"></tbody>
+                        <div class="donut-wrap">
 
-                        </table>
+                            <canvas id="blHealthChart"></canvas>
 
-                    </div>
 
-                </article>
+                            <div class="donut-center">
+
+                                <strong id="blDonutRate">
+                                    —
+                                </strong>
+
+                                <span>
+                                    success
+                                </span>
+
+                            </div>
+
+                        </div>
+
+                    </article>
+
+                </div>
+
+
+
+                <!-- PING SITE PERFORMANCE + TABLES -->
+
+                <div class="grid-two">
+
+                    <article class="panel" style="grid-column: 1 / -1;">
+
+                        <div class="panel-head">
+
+                            <div>
+
+                                <h3>
+                                    Ping Site Performance
+                                </h3>
+
+                                <span>
+                                    Total submissions by ping site
+                                </span>
+
+                            </div>
+
+                        </div>
+
+                        <div class="chart-wrap performance-chart-wrap">
+                            <canvas id="blSitePerformanceChart"></canvas>
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="panel" style="grid-column: 1 / -1;">
+
+                        <div class="panel-head">
+
+                            <div>
+
+                                <h3>
+                                    Performance by Ping Site
+                                </h3>
+
+                                <span>
+                                    Submissions grouped per ping website
+                                </span>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="table-wrap">
+
+                            <table>
+
+                                <thead>
+
+                                    <tr>
+
+                                        <th>Ping Site</th>
+                                        <th>Site URL</th>
+                                        <th>Total</th>
+                                        <th>Success</th>
+                                        <th>Failed</th>
+                                        <th>Success Rate</th>
+
+                                    </tr>
+
+                                </thead>
+
+
+                                <tbody id="backlinkSitesTable"></tbody>
+
+                            </table>
+
+                        </div>
+
+                    </article>
+
+
+
+                    <article class="panel" style="grid-column: 1 / -1;">
+
+                        <div class="panel-head">
+
+                            <div>
+
+                                <h3>
+                                    Recent Backlink Submissions
+                                </h3>
+
+                                <span>
+                                    Latest database records
+                                </span>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="table-wrap">
+
+                            <table>
+
+                                <thead>
+
+                                    <tr>
+
+                                        <th>Status</th>
+                                        <th>Ping Site</th>
+                                        <th>Target URL</th>
+                                        <th>Keyword</th>
+                                        <th>Result</th>
+                                        <th>Duration</th>
+                                        <th>Started</th>
+
+                                    </tr>
+
+                                </thead>
+
+
+                                <tbody id="backlinksTable"></tbody>
+
+                            </table>
+
+                        </div>
+
+                    </article>
+
+                </div>
 
             </section>
 

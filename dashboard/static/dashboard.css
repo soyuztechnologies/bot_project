@@ -789,7 +789,8 @@ td {
 
 /* Individual option */
 
-.automation-switch .automation-switch-btn {
+.automation-switch .automation-switch-btn,
+.automation-switch .backlink-switch-btn {
 
     position: relative;
 
@@ -830,7 +831,8 @@ td {
 
 /* Hover */
 
-.automation-switch .automation-switch-btn:hover {
+.automation-switch .automation-switch-btn:hover,
+.automation-switch .backlink-switch-btn:hover {
 
     color: #e8edf5;
 
@@ -842,7 +844,8 @@ td {
 
 /* Active option */
 
-.automation-switch .automation-switch-btn.active {
+.automation-switch .automation-switch-btn.active,
+.automation-switch .backlink-switch-btn.active {
 
     color: #ffffff;
 
@@ -859,7 +862,8 @@ td {
 
 /* Active indicator */
 
-.automation-switch .automation-switch-btn.active::after {
+.automation-switch .automation-switch-btn.active::after,
+.automation-switch .backlink-switch-btn.active::after {
 
     content: "";
 
@@ -886,7 +890,8 @@ td {
 
 /* Press */
 
-.automation-switch .automation-switch-btn:active {
+.automation-switch .automation-switch-btn:active,
+.automation-switch .backlink-switch-btn:active {
 
     transform: scale(0.97);
 }
@@ -894,7 +899,8 @@ td {
 
 /* Keyboard focus */
 
-.automation-switch .automation-switch-btn:focus-visible {
+.automation-switch .automation-switch-btn:focus-visible,
+.automation-switch .backlink-switch-btn:focus-visible {
 
     outline: 2px solid rgba(255, 255, 255, 0.28);
 
@@ -904,7 +910,8 @@ td {
 
 /* Icon */
 
-.automation-switch .automation-switch-btn .switch-icon {
+.automation-switch .automation-switch-btn .switch-icon,
+.automation-switch .backlink-switch-btn .switch-icon {
 
     display: inline-flex;
 
@@ -922,7 +929,8 @@ td {
 
 /* Active icon */
 
-.automation-switch .automation-switch-btn.active .switch-icon {
+.automation-switch .automation-switch-btn.active .switch-icon,
+.automation-switch .backlink-switch-btn.active .switch-icon {
 
     opacity: 1;
 }
@@ -938,7 +946,8 @@ td {
 
     }
 
-    .automation-switch .automation-switch-btn {
+    .automation-switch .automation-switch-btn,
+    .automation-switch .backlink-switch-btn {
 
         flex: 1;
 

@@ -25,6 +25,7 @@ from utils.exceptions import (
 )
  
 from automation.youtube_session import start_parallel_sessions
+from browser.browser import sweep_stale_profiles_at_startup
 # from utils.vpn_manager import connect_vpn, disconnect_vpn  # VPN DISABLED - commented out
 from utils.database import (
     check_db_connection,
@@ -176,7 +177,7 @@ def main():
     """
  
     db_initialized = False
-    start_time = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    start_time = datetime.now(timezone.utc)  # must be real UTC: the report computes duration from it
     database_handler = None
     config = None
     keywords = None
@@ -253,6 +254,7 @@ def main():
         config = load_json(
             BASE_DIR / "config.json"
         )
+        sweep_stale_profiles_at_startup(config)
  
         # -----------------------------------------------------
         # Load Keywords

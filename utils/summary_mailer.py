@@ -1976,7 +1976,7 @@ def send_24h_summary_report(config=None, hours=24, recipient=None, cc=None, save
     summary = report_data["summary"]
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     subject = (
-        f"[SEO Bot] 24-Hour Multi-User Summary - {summary['total_users']} User(s), "
+        f"[Rankora] 24-Hour Multi-User Summary - {summary['total_users']} User(s), "
         f"{summary['total_runs']} Runs ({summary['overall_success_rate']}% Success) - {date_str}"
     )
 

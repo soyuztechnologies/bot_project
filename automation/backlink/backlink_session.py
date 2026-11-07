@@ -198,6 +198,7 @@ def run_backlink_job(site, target, config, stop_event, stats):
                     "detail": str(detail or ""),
                     "browser": selected_browser,
                     "browser_mode": build_browser_mode(config, selected_browser),
+                    "user_name": user_name,
                     "started_at": job_started_at,
                     "finished_at": finished_at,
                     "duration_seconds": round((finished_at - job_started_at).total_seconds(), 1),

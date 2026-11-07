@@ -116,7 +116,8 @@ function updateAutomationToggle() {
                 ).toUpperCase();
 
             const active =
-                buttonMode === current;
+                buttonMode === current &&
+                state.activeView !== "backlinks";
 
             button.classList.toggle(
                 "active",
@@ -138,8 +139,13 @@ function updateAutomationToggle() {
    ========================================================= */
 
 function updateHeader() {
+    const inBacklinks =
+        state.activeView === "backlinks";
+
     const name =
-        getAutomationName();
+        inBacklinks
+            ? "Backlinks"
+            : getAutomationName();
 
     const title =
         $("pageTitle");
@@ -151,7 +157,7 @@ function updateHeader() {
         if (state.activeView === "settings") {
             title.textContent = "Bot Settings";
         }
-        else if (state.activeView === "overview") {
+        else if (state.activeView === "overview" || inBacklinks) {
             title.textContent =
                 `${name} Automation Overview`;
         }
@@ -165,7 +171,7 @@ function updateHeader() {
         if (state.activeView === "settings") {
             subtitle.textContent = "Configure browser, parallel speed, and email reporting";
         }
-        else if (state.activeView === "overview") {
+        else if (state.activeView === "overview" || inBacklinks) {
             subtitle.textContent =
                 `Performance overview for ${name} automation`;
         }
@@ -4867,11 +4873,12 @@ function updateDashboardContext() {
 
 
 /* =========================================================
-   BACKLINKS FULL-PAGE CHROME
+   BACKLINKS CONTEXT CHROME
    =========================================================
-   The Backlinks Summary section owns the whole page:
-   hide the Website/YouTube header toggle while it is active.
-   Sidebar navigation is untouched.
+   Backlinks is the third option in the top toggle
+   (Website / YouTube / Backlinks). While it is selected:
+   - the Backlinks toggle is highlighted, the others are not
+   - the shared sidebar Start/Stop button drives backlink_main.py
    ========================================================= */
 
 function updateBacklinksChrome() {
@@ -4879,40 +4886,38 @@ function updateBacklinksChrome() {
     const inBacklinks =
         state.activeView === "backlinks";
 
-    const display =
-        inBacklinks
-            ? "none"
-            : "";
+    const backlinkToggle = $("backlinkSwitchBtn");
 
-    document
-        .querySelectorAll(
-            ".automation-switch"
-        )
-        .forEach(element => {
+    if (backlinkToggle) {
+        backlinkToggle.classList.toggle("active", inBacklinks);
+        backlinkToggle.setAttribute(
+            "aria-selected",
+            inBacklinks ? "true" : "false"
+        );
+    }
 
-            element.style.display =
-                display;
-        });
+    if (inBacklinks) {
+        document
+            .querySelectorAll(".automation-switch-btn")
+            .forEach(button => {
+                button.classList.remove("active", "selected");
+                button.setAttribute("aria-selected", "false");
+            });
+    }
 
-    document
-        .querySelectorAll(
-            "#pageTitleWrap"
-        )
-        .forEach(element => {
+    /* Re-sync the shared Start/Stop button when the context flips. */
+    if (state.backlinkChromeActive !== inBacklinks) {
+        state.backlinkChromeActive = inBacklinks;
 
-            element.style.display =
-                display;
-        });
-
-    document
-        .querySelectorAll(
-            ".sidebar-automation-action"
-        )
-        .forEach(element => {
-
-            element.style.display =
-                display;
-        });
+        if (inBacklinks) {
+            syncBacklinkJobUI(state.backlinkJob || {});
+        }
+        else if (state.automationJobs) {
+            syncAutomationStartUI(
+                state.automationJobs[selectedAutomationMode()] || {}
+            );
+        }
+    }
 }
 
 
@@ -6498,37 +6503,159 @@ async function loadBacklinks() {
 
 function renderBacklinksView() {
     updateBacklinksChrome();
+    updateHeader();
 
-    const title = $("pageTitle");
-    const subtitle = $("pageSubtitle");
+    const data = state.backlinks || {};
+    const summary = data.summary || {};
+    const rate = `${toNumber(summary.success_rate).toFixed(1)}%`;
 
-    if (title) {
-        title.textContent = "Backlinks Summary";
+    setText("blRunsTotal", formatNumber(toNumber(summary.total)));
+    setText("blRunsSuccess", formatNumber(toNumber(summary.success)));
+    setText("blRunsFailed", formatNumber(toNumber(summary.failed)));
+    setText("blSitesCount", formatNumber(toNumber(summary.sites ?? (data.sites || []).length)));
+    setText("blTargetsCount", formatNumber(toNumber(summary.unique_targets)));
+    setText("blRunsRate", rate);
+    setText("blDonutRate", rate);
+
+    const generated = $("blGenerated");
+
+    if (generated) {
+        generated.textContent = data.generated_at
+            ? `Last database refresh: ${new Date(data.generated_at).toLocaleString("en-IN")}`
+            : "Fetching the latest database snapshot...";
     }
 
-    if (subtitle) {
-        subtitle.textContent =
-            "Ping-site submissions from the dedicated backlinks collection.";
+    renderBacklinkActivityChart(data.daily || []);
+    renderBacklinkHealthChart(summary);
+    renderBacklinkSiteChart(data.sites || []);
+
+    renderBacklinkSitesTable(data.sites || []);
+    renderBacklinksTable(data.recent || []);
+}
+
+
+/* Same look as the Overview "Automation Activity" line chart. */
+function renderBacklinkActivityChart(daily = []) {
+    const canvas = $("blActivityChart");
+
+    destroyChart("backlinkActivity");
+
+    if (!canvas || typeof Chart === "undefined") {
+        return;
     }
 
-    const summary =
-        (state.backlinks && state.backlinks.summary) || {};
+    const series = (key) => daily.map(item => Number(item[key] || 0));
+    const line = (label, data, color) => ({
+        label, data, borderColor: color, backgroundColor: color, tension: 0.35, fill: false
+    });
 
-    setText("blRunsTotal", toNumber(summary.total));
-    setText("blRunsSuccess", toNumber(summary.success));
-    setText("blRunsFailed", toNumber(summary.failed));
-    setText(
-        "blRunsRate",
-        `${toNumber(summary.success_rate).toFixed(1)}%`
-    );
+    state.charts.backlinkActivity = new Chart(canvas, {
+        type: "line",
+        data: {
+            labels: daily.map(item => item.date || item.day || item.label || ""),
+            datasets: [
+                line("Total", series("total"), "#5b8cff"),
+                line("Successful", series("success"), "#35d39a"),
+                line("Failed", series("failed"), "#ff6577")
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { intersect: false, mode: "index" },
+            plugins: { legend: { display: true }, tooltip: { enabled: true } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+    });
+}
 
-    renderBacklinkSitesTable(
-        (state.backlinks && state.backlinks.sites) || []
-    );
 
-    renderBacklinksTable(
-        (state.backlinks && state.backlinks.recent) || []
-    );
+/* Same look as the Overview "Run Health" doughnut. */
+function renderBacklinkHealthChart(summary = {}) {
+    const canvas = $("blHealthChart");
+
+    destroyChart("backlinkHealth");
+
+    if (!canvas || typeof Chart === "undefined") {
+        return;
+    }
+
+    state.charts.backlinkHealth = new Chart(canvas, {
+        type: "doughnut",
+        data: {
+            labels: ["Successful", "Failed", "Running", "Interrupted"],
+            datasets: [{
+                data: [
+                    toNumber(summary.success),
+                    toNumber(summary.failed),
+                    toNumber(summary.running),
+                    toNumber(summary.interrupted)
+                ],
+                backgroundColor: ["#35d39a", "#ff6577", "#f4bd54", "#ffd45c"]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: "70%",
+            plugins: { legend: { display: true, position: "bottom" } }
+        }
+    });
+}
+
+
+/* Same look as the Overview "Search Engine Performance" bar chart. */
+function renderBacklinkSiteChart(sites = []) {
+    const canvas = $("blSitePerformanceChart");
+
+    destroyChart("backlinkSites");
+
+    if (!canvas || typeof Chart === "undefined" || !sites.length) {
+        return;
+    }
+
+    state.charts.backlinkSites = new Chart(canvas, {
+        type: "bar",
+        data: {
+            labels: sites.map(site => site.site_id || "Unknown"),
+            datasets: [{
+                label: "Total Submissions",
+                data: sites.map(site => toNumber(site.total)),
+                backgroundColor: "#5b8cff",
+                borderColor: "#5b8cff",
+                borderWidth: 0,
+                borderRadius: 6,
+                barPercentage: 0.55,
+                categoryPercentage: 0.65
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    enabled: true,
+                    backgroundColor: "#101827",
+                    borderColor: "#243249",
+                    borderWidth: 1,
+                    titleColor: "#ffffff",
+                    bodyColor: "#aebbd0",
+                    padding: 12,
+                    displayColors: false,
+                    callbacks: { label: context => ` ${formatNumber(context.raw)} submissions` }
+                }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { color: "#8b98aa", font: { size: 11 } } },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: "rgba(139,152,170,0.08)" },
+                    ticks: { color: "#707d91", precision: 0, font: { size: 10 } }
+                }
+            }
+        }
+    });
 }
 
 
@@ -6544,7 +6671,7 @@ function renderBacklinkSitesTable(sites = []) {
             <tr>
                 <td colspan="6" class="empty-state">
                     No backlink submissions found for this period.
-                    Press “Generate Backlinks” to run backlink_main.py.
+                    Press “Start Backlinks Automation” to run backlink_main.py.
                 </td>
             </tr>
         `;
@@ -6644,44 +6771,49 @@ function renderBacklinksTable(rows = []) {
    GENERATE BACKLINKS (calls backlink_main.py)
    ========================================================= */
 
+const BACKLINK_ACTION_ICON =
+    `<span class="automation-action-icon" aria-hidden="true">🔗</span>`;
+
 function syncBacklinkJobUI(job = {}) {
-    const button = $("generateBacklinksBtn");
-    const status = $("generateBacklinksStatus");
+    state.backlinkJob = job;
+
+    /* The shared button belongs to Website/YouTube unless Backlinks is selected. */
+    if (state.activeView !== "backlinks") {
+        return;
+    }
+
+    const button = $("startAutomationBtn");
+    const status = $("startAutomationStatus");
 
     const running = Boolean(job.running);
-
-    state.backlinkJob = job;
 
     if (button) {
         /* Stays clickable while running: pressing it stops the script. */
         button.disabled = false;
         button.classList.toggle("busy", running);
         button.innerHTML = running
-            ? `<span>⏹</span> Stop Backlinks`
-            : `<span>⚡</span> Generate Backlinks`;
+            ? `${BACKLINK_ACTION_ICON} Stop Backlinks Automation`
+            : `${BACKLINK_ACTION_ICON} Start Backlinks Automation`;
     }
 
     if (status) {
         if (running) {
-            const started = job.started_at
-                ? formatDateTime(job.started_at)
-                : "";
             status.textContent = job.stop_requested
-                ? `Stopping backlink_main.py… ${started}`.trim()
-                : `Running backlink_main.py… press Stop to halt it. ${started}`.trim();
+                ? "Stopping Backlinks automation…"
+                : "Running Backlinks automation… press Stop to halt it.";
         }
         else if (job.finished_at) {
-            if (job.returncode === 0 && !job.error) {
-                status.textContent = "Last run finished successfully. Tables refreshed.";
-            }
-            else {
-                status.textContent = `Last run: ${job.error || `exited with code ${job.returncode ?? "?"}`}. Press Generate to run again.`;
-            }
+            status.textContent =
+                job.returncode === 0 && !job.error
+                    ? "Last Backlinks run finished successfully."
+                    : `Last Backlinks run: ${job.error || `exited with code ${job.returncode ?? "?"}`}`;
         }
         else {
-            status.textContent = "Ready to generate.";
+            status.textContent = "Ready to start Backlinks automation.";
         }
     }
+
+    updateBotSettingsButtonUI();
 }
 
 
@@ -6731,11 +6863,11 @@ async function pollBacklinkJobStatus() {
 
 
 async function triggerBacklinkGenerate() {
-    const button = $("generateBacklinksBtn");
+    const button = $("startAutomationBtn");
 
     if (button) {
         button.disabled = true;
-        button.innerHTML = `<span>⏳</span> Starting…`;
+        button.innerHTML = `${BACKLINK_ACTION_ICON} Starting…`;
     }
 
     try {
@@ -6766,10 +6898,10 @@ async function triggerBacklinkGenerate() {
             error
         );
 
-        const status = $("generateBacklinksStatus");
+        const status = $("startAutomationStatus");
 
         if (status) {
-            status.textContent = `Could not start: ${error.message}`;
+            status.textContent = `Could not start Backlinks automation: ${error.message}`;
         }
 
         if (button) {
@@ -6780,12 +6912,12 @@ async function triggerBacklinkGenerate() {
 
 
 async function triggerBacklinkStop() {
-    const button = $("generateBacklinksBtn");
-    const status = $("generateBacklinksStatus");
+    const button = $("startAutomationBtn");
+    const status = $("startAutomationStatus");
 
     if (button) {
         button.disabled = true;
-        button.innerHTML = `<span>⏳</span> Stopping…`;
+        button.innerHTML = `${BACKLINK_ACTION_ICON} Stopping…`;
     }
 
     if (status) {
@@ -6824,18 +6956,31 @@ async function triggerBacklinkStop() {
 
 
 function initializeBacklinksUI() {
-    const generateBtn = $("generateBacklinksBtn");
+    const backlinkToggle = $("backlinkSwitchBtn");
 
-    if (generateBtn && generateBtn.dataset.backlinksBound !== "true") {
-        generateBtn.dataset.backlinksBound = "true";
-        generateBtn.addEventListener("click", () => {
-            if (state.backlinkJob && state.backlinkJob.running) {
-                triggerBacklinkStop();
-            }
-            else {
-                triggerBacklinkGenerate();
-            }
+    if (backlinkToggle && backlinkToggle.dataset.backlinksBound !== "true") {
+        backlinkToggle.dataset.backlinksBound = "true";
+        backlinkToggle.addEventListener("click", event => {
+            event.preventDefault();
+            showBacklinksContext();
         });
+    }
+
+    /*
+     * Website / YouTube toggles: when leaving Backlinks, drop back to the
+     * Overview first (capture phase runs before the toggles' own handlers).
+     */
+    const switchContainer = document.querySelector(".automation-switch");
+
+    if (switchContainer && switchContainer.dataset.backlinksBound !== "true") {
+        switchContainer.dataset.backlinksBound = "true";
+        switchContainer.addEventListener("click", event => {
+            const toggle = event.target.closest(".automation-switch-btn");
+
+            if (toggle && state.activeView === "backlinks") {
+                showView("overview");
+            }
+        }, true);
     }
 
     const reloadBtn = $("refreshBacklinksBtn");
@@ -6878,6 +7023,15 @@ function initializeBacklinksUI() {
     /* If a job was already running (e.g. page reloaded), resume polling. */
     pollBacklinkJobStatus();
     loadBacklinks();
+}
+
+
+function showBacklinksContext() {
+    showView("backlinks");
+    renderBacklinksView();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    loadBacklinks();
+    pollBacklinkJobStatus();
 }
 
 
@@ -6933,6 +7087,10 @@ function syncAutomationStartUI(job = {}) {
     const icon = mode === "YOUTUBE" ? youtubeIcon : websiteIcon;
     state.automationJobs[mode] = job;
 
+    if (state.activeView === "backlinks") {
+        return;
+    }
+
     if (button) {
         button.disabled = false;
         button.classList.toggle("busy", running);
@@ -6974,6 +7132,16 @@ async function pollAutomationJobStatus() {
 }
 
 async function startOrStopSelectedAutomation() {
+    if (state.activeView === "backlinks") {
+        if (state.backlinkJob && state.backlinkJob.running) {
+            await triggerBacklinkStop();
+        }
+        else {
+            await triggerBacklinkGenerate();
+        }
+        return;
+    }
+
     const mode = selectedAutomationMode();
     const job = state.automationJobs[mode] || {};
     const button = $("startAutomationBtn");
@@ -7192,6 +7360,15 @@ async function startOrStopSelectedAutomation() {
 
             savedConfigSnapshot = submittedSnapshot;
             updateSaveButtonVisibility();
+
+            // Dashboard data is scoped to the configured user name,
+            // so reload runs, logs and backlinks for the new user.
+            try {
+                if (typeof refreshDashboard === "function") refreshDashboard();
+                if (typeof loadBacklinks === "function") loadBacklinks();
+            } catch (refreshErr) {
+                console.warn("[DASHBOARD CONFIG] Refresh after save failed:", refreshErr);
+            }
 
             if (statusEl) {
                 statusEl.className = "config-status-badge success";

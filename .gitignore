@@ -41,3 +41,6 @@ dashboard.html
 last_report.html
 downloaded_files/
 browser_profiles
+dist
+packaging
+test_mail.py

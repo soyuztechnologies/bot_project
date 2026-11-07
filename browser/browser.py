@@ -204,6 +204,26 @@ def _sweep_stale_profiles_once(profile_root, stale_after_minutes) -> None:
         cleanup_stale_profiles(profile_root, stale_after_minutes)
     except Exception as e:
         logging.getLogger(__name__).debug(f"Stale profile cleanup failed: {e}")
+
+
+def sweep_stale_profiles_at_startup(config) -> None:
+    """Run the stale-profile sweep at application start (before any browser opens).
+
+    Uses the same profile root / stale threshold as setup_browser, and the same
+    once-per-process guard, so the later call inside setup_browser is a no-op.
+    """
+    try:
+        browser_config = (config or {}).get("browser", {}) or {}
+        profile_root = browser_config.get(
+            "profile_dir",
+            os.path.join(os.getcwd(), "browser_profiles"),
+        )
+        _sweep_stale_profiles_once(
+            profile_root,
+            browser_config.get("stale_profile_minutes", DEFAULT_STALE_PROFILE_MINUTES),
+        )
+    except Exception as e:
+        logging.getLogger(__name__).debug(f"Startup profile cleanup failed: {e}")
  
  
 def get_brave_binary():

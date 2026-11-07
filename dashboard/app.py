@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -29,10 +30,36 @@ from dotenv import load_dotenv
 # Switch DB by changing database.current_db in config.json.
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 load_dotenv(BASE_DIR / ".env")
 load_dotenv()
 
 app = Flask(__name__)
+
+
+def _load_app_version():
+    """Version from dashboard/static/version.js, plus the build stamp that
+    packaging/build.py writes to version.json (absent in a dev checkout).
+    The installer matches built_at via /api/health to confirm an update is live."""
+    info = {"name": "Rankora", "version": "dev"}
+    try:
+        text = (BASE_DIR / "dashboard" / "static" / "version.js").read_text("utf-8")
+        match = re.search(r"""RANKORA_VERSION\s*=\s*["']([^"']+)["']""", text)
+        if match:
+            info["version"] = match.group(1)
+    except OSError:
+        pass
+    try:
+        build = json.loads((BASE_DIR / "version.json").read_text("utf-8"))
+        if isinstance(build, dict):
+            info.update(build)
+    except (OSError, ValueError):
+        pass
+    return info
+
+
+APP_VERSION = _load_app_version()
 
 with open(BASE_DIR / "config.json", encoding="utf-8") as file:
     _CONFIG = json.load(file)
@@ -172,11 +199,40 @@ def _norm_automation(value):
     return str(value or "").strip().upper()
 
 
-def _fetch_runs(automation_type, cutoff):
-    """Fetch runs since cutoff, filtered to automation (case/space tolerant)."""
+# Placeholder names that mean "no specific user" -> show everyone's data.
+_NO_USER_NAMES = {"", "bot", "unknown", "all", "none"}
+
+
+def _active_user():
+    """Username the dashboard data should be scoped to, or None for all users.
+
+    Priority: explicit ?user= query param, then config.json user_name.
+    Empty / default placeholder names ("Bot", "unknown") mean no filter.
+    """
+    raw = request.args.get("user")
+    if raw is None:
+        try:
+            raw = _load_full_config().get("user_name")
+        except Exception:
+            raw = ""
+    name = str(raw or "").strip()
+    return None if name.lower() in _NO_USER_NAMES else name
+
+
+def _user_match(user):
+    """Case-insensitive exact match on user_name."""
+    return {"$regex": f"^{re.escape(user)}$", "$options": "i"}
+
+
+def _fetch_runs(automation_type, cutoff, user=None):
+    """Fetch runs since cutoff, filtered to automation (case/space tolerant)
+    and, when given, to a single user."""
+    query = {"started_at": {"$gte": cutoff}}
+    if user:
+        query["user_name"] = _user_match(user)
     docs = list(
         runs_collection().find(
-            {"started_at": {"$gte": cutoff}},
+            query,
             {"_id": 0},
         )
     )
@@ -301,7 +357,7 @@ def _serialise_run(r):
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", app_version=APP_VERSION)
 
 
 def automation_filter(mode):
@@ -338,10 +394,13 @@ def dashboard():
             )
         )
 
+        user = _active_user()
+
         print(
             "[DASHBOARD API]",
             f"automation={automation_type}",
             f"days={days}",
+            f"user={user or 'ALL'}",
         )
 
         # Midnight (UTC) of (days-1) days ago, like
@@ -352,7 +411,7 @@ def dashboard():
         cutoff = today_midnight - timedelta(days=days - 1)
 
         query_start = time.perf_counter()
-        matched = _fetch_runs(automation_type, cutoff)
+        matched = _fetch_runs(automation_type, cutoff, user)
         print(
             "[DASHBOARD API]",
             f"matched={len(matched)} "
@@ -391,6 +450,7 @@ def dashboard():
             "engines": engines,
             "youtube": youtube,
             "recent": recent,
+            "user": user,
             "generated_at": _utcnow().isoformat(),
         }
 
@@ -439,6 +499,15 @@ def logs(run_id):
     request_start = time.perf_counter()
 
     try:
+        user = _active_user()
+        if user and not runs_collection().find_one(
+            {"run_id": str(run_id), "user_name": _user_match(user)},
+            {"_id": 1},
+        ):
+            # Run belongs to another user (or doesn't exist) -> hide its logs.
+            print("[DASHBOARD LOGS]", f"run_id={run_id}", f"hidden for user={user}")
+            return jsonify([])
+
         docs = list(
             logs_collection()
             .find({"run_id": str(run_id)})
@@ -565,25 +634,43 @@ def backlinks():
         _ensure_backlinks_indexes()
         today_midnight = _utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         cutoff = today_midnight - timedelta(days=days - 1)
+        user = _active_user()
+        query = {"started_at": {"$gte": cutoff}}
+        if user:
+            # Newer backlink docs carry user_name; older ones are matched
+            # through their run_id in automation_runs.
+            user_run_ids = runs_collection().distinct(
+                "run_id",
+                {"started_at": {"$gte": cutoff}, "user_name": _user_match(user)},
+            )
+            query["$or"] = [
+                {"user_name": _user_match(user)},
+                {"run_id": {"$in": [str(r) for r in user_run_ids]}},
+            ]
         docs = list(
             backlinks_collection()
-            .find({"started_at": {"$gte": cutoff}}, {"_id": 0})
+            .find(query, {"_id": 0})
             .sort("started_at", DESCENDING)
             .limit(500)
         )
         summary = _build_backlink_summary(docs)
         sites = _build_backlink_sites(docs)
+        summary["sites"] = len(sites)
+        summary["unique_targets"] = len({d.get("target_url") for d in docs if d.get("target_url")})
+        daily = _build_daily(docs)
         recent = [_serialise_backlink(d) for d in docs[:200]]
         print(
             "[DASHBOARD BACKLINKS]",
-            f"days={days} matched={len(docs)} "
+            f"days={days} user={user or 'ALL'} matched={len(docs)} "
             f"time={(time.perf_counter() - request_start) * 1000:.1f}ms",
         )
         return jsonify(
             {
                 "summary": summary,
                 "sites": sites,
+                "daily": daily,
                 "recent": recent,
+                "user": user,
                 "generated_at": _utcnow().isoformat(),
             }
         )
@@ -615,6 +702,7 @@ _backlink_proc = None
 def _run_backlink_job(cmd):
     global _backlink_proc
     started = _utcnow()
+    child_pid = None
     try:
         with _backlink_proc_lock:
             _backlink_proc = subprocess.Popen(
@@ -624,14 +712,11 @@ def _run_backlink_job(cmd):
                 stderr=subprocess.STDOUT,
                 text=True,
             )
+            child_pid = _backlink_proc.pid
             print(f"[DASHBOARD BACKLINK JOB] pid={_backlink_proc.pid}")
-        try:
-            out, _ = _backlink_proc.communicate(timeout=6 * 3600)
-            returncode = _backlink_proc.returncode
-        except subprocess.TimeoutExpired:
-            _kill_backlink_tree()
-            out, _ = _backlink_proc.communicate()
-            returncode = _backlink_proc.returncode
+        # No time limit: a run may last any number of hours.
+        out, _ = _backlink_proc.communicate()
+        returncode = _backlink_proc.returncode
         tail = (out or "")[-6000:]
         with _backlink_job_lock:
             stopped = bool(_backlink_job.get("stop_requested"))
@@ -663,6 +748,7 @@ def _run_backlink_job(cmd):
     finally:
         with _backlink_proc_lock:
             _backlink_proc = None
+        _report_ended_run("Backlink", child_pid, started)
     print(f"[DASHBOARD BACKLINK JOB] finished in {(_utcnow() - started).total_seconds():.1f}s")
 
 
@@ -831,95 +917,43 @@ def _stop_automation_process(mode):
     return True
 
 
-def _dispatch_automation_report_if_needed(mode, started_at_dt):
-    """
-    Generate and email report for a dashboard-driven automation run if the child process
-    did not already produce/email one (e.g. when stopped early via stop button or page close).
+def _report_ended_run(automation_type, pid, started_at_dt):
+    """Make sure a finished dashboard-started run has sent its report email.
+
+    The child normally sends it itself. When it could not (Stop button kills the
+    process tree, crash, closed window) its run record is still "pending" and is
+    reported here from what the child saved. Matching is by the child's pid, so
+    parallel website / youtube / backlink runs never mask each other.
     """
     try:
-        # Check if child process already generated a report HTML during or after started_at_dt
-        logs_dir = BASE_DIR / "logs"
-        if logs_dir.exists():
-            recent_htmls = [
-                p for p in logs_dir.glob("run-*.html")
-                if datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc) >= started_at_dt - timedelta(seconds=5)
-            ]
-            if recent_htmls:
-                print(f"[DASHBOARD {mode} REPORT] Report already generated by process: {[h.name for h in recent_htmls]}")
-                return
-
-        # Child didn't generate report (e.g. killed via taskkill/stop or interrupted before final block)
-        with open(BASE_DIR / "config.json", encoding="utf-8") as f:
-            cfg = json.load(f)
-
-        email_cfg = cfg.get("email", {})
-        if not email_cfg.get("enabled", False):
-            print(f"[DASHBOARD {mode} REPORT] Email reporting disabled in config.")
+        from utils.local_tracker import recover_unreported_runs, report_unstarted_run
+        if pid is None:
+            report_unstarted_run(automation_type, started_at=started_at_dt,
+                                 reason="Automation process could not be started.")
+            print(f"[DASHBOARD {automation_type} REPORT] process never started; report sent.")
             return
-
-        from utils.report import RunLogger
-        from utils.mailer import send_report_email
-
-        auto_type = "Web" if mode == "SEARCH" else "YouTube"
-        target_urls = [cfg.get("website", {}).get("domain", "")] if mode == "SEARCH" else [cfg.get("youtube", {}).get("targetChannel", "")]
-        user_name = os.getenv("USER_NAME") or cfg.get("user_name", "Unknown")
-        user_email = os.getenv("USER_EMAIL") or email_cfg.get("to") or cfg.get("user_email", "")
-
-        reporter = RunLogger(
-            target_urls=target_urls,
-            started_at=started_at_dt,
-            automation_type=auto_type,
-            user_name=user_name,
-            user_email=user_email
-        )
-
-        # Pull any runs recorded in DB during this automation window
-        runs = []
-        try:
-            db_docs = _fetch_runs(mode, started_at_dt - timedelta(seconds=10))
-            runs = [r for r in db_docs if (_as_datetime(r.get("started_at")) or _utcnow()) >= started_at_dt - timedelta(seconds=10)]
-        except Exception as db_err:
-            print(f"[DASHBOARD {mode} REPORT DB WARN] Could not query runs: {db_err}")
-
-        stats = {"success": [], "failed": [], "interrupted": []}
-        for r in runs:
-            st = str(r.get("status", "")).strip().lower()
-            bucket = "success" if st == "success" else ("interrupted" if st == "interrupted" else "failed")
-            dur = r.get("duration_seconds")
-            dur_ms = int(dur * 1000) if dur is not None else None
-            stats[bucket].append({
-                "browser": r.get("browser_mode") or cfg.get("browser", {}).get("name", "chrome"),
-                "target": r.get("target") or (target_urls[0] if target_urls else ""),
-                "keyword": r.get("search_keyword") or r.get("original_keyword") or "",
-                "message": r.get("error") or "",
-                "durationMs": dur_ms,
-                "captcha_encountered": r.get("captcha_encountered", False),
-                "engine": r.get("search_engine") or "google",
-                "assignedEngine": r.get("assigned_engine") or r.get("search_engine") or "google",
-            })
-
-        reporter.set_results_from_stats(stats, cfg)
-        json_path = reporter.write_json()
-        html_path = reporter.write_html()
-        send_report_email(cfg, reporter.summary(), reporter.results, html_path, json_path)
-        print(f"[DASHBOARD {mode} REPORT] Successfully dispatched fallback summary email.")
+        res = recover_unreported_runs(pid=pid, since=started_at_dt)
+        if res.get("recovered"):
+            print(f"[DASHBOARD {automation_type} REPORT] run ended without its own report; sent it (pid={pid}).")
+        elif not res.get("found"):
+            report_unstarted_run(automation_type, started_at=started_at_dt,
+                                 reason="Automation process ended before it recorded its run.")
+            print(f"[DASHBOARD {automation_type} REPORT] no run record for pid={pid}; minimal report sent.")
     except Exception as exc:
-        print(f"[DASHBOARD {mode} REPORT ERROR] Failed to dispatch report email: {exc}")
+        print(f"[DASHBOARD {automation_type} REPORT ERROR] {exc!r}")
 
 
 def _run_automation_job(mode, cmd):
     started = _utcnow()
+    proc = None
     try:
         proc = subprocess.Popen(cmd, cwd=str(BASE_DIR), stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True)
         with _automation_job_lock:
             _automation_processes[mode] = proc
         print(f"[DASHBOARD {mode} JOB] pid={proc.pid}")
-        try:
-            output, _ = proc.communicate(timeout=6 * 3600)
-        except subprocess.TimeoutExpired:
-            _stop_automation_process(mode)
-            output, _ = proc.communicate()
+        # No time limit: a run may last any number of hours.
+        output, _ = proc.communicate()
         with _automation_job_lock:
             job = _automation_jobs[mode]
             stopped = job["stop_requested"]
@@ -937,7 +971,8 @@ def _run_automation_job(mode, cmd):
     finally:
         with _automation_job_lock:
             _automation_processes[mode] = None
-        _dispatch_automation_report_if_needed(mode, started)
+        _report_ended_run("Web" if mode == "SEARCH" else "YouTube",
+                          proc.pid if proc is not None else None, started)
     print(f"[DASHBOARD {mode} JOB] finished in {(_utcnow() - started).total_seconds():.1f}s")
 
 
@@ -1245,6 +1280,7 @@ def health():
                 "status": "connected",
                 "database": get_mongo_db().name,
                 "environment": CURRENT_DB,
+                "version": APP_VERSION,
             }
         )
 
@@ -1259,6 +1295,7 @@ def health():
             {
                 "status": "disconnected",
                 "error": str(exc),
+                "version": APP_VERSION,
             }
         ), 503
 
@@ -1267,7 +1304,34 @@ def health():
 # ENTRY POINT
 # =========================================================
 
+def _report_runs_left_unreported_on_startup():
+    """Runs killed while the dashboard was closed (window closed, PC shut down)."""
+    def _scan():
+        try:
+            from utils.local_tracker import recover_unreported_runs
+            res = recover_unreported_runs()
+            if res.get("recovered"):
+                print(f"[DASHBOARD REPORT] sent {res['recovered']} report(s) for runs that ended unreported.")
+        except Exception as exc:
+            print(f"[DASHBOARD REPORT] startup scan skipped: {exc!r}")
+    threading.Thread(target=_scan, daemon=True, name="UnreportedRunScan").start()
+
+
+def _clear_browser_profiles_on_startup():
+    """Empty browser_profiles when the dashboard starts (keeps anything a running browser uses)."""
+    try:
+        if str(BASE_DIR) not in sys.path:
+            sys.path.insert(0, str(BASE_DIR))
+        from utils.profile_cleanup import clear_profile_root
+        clear_profile_root(_CONFIG, BASE_DIR)
+    except Exception as exc:
+        print(f"[PROFILE CLEANUP] skipped: {exc}")
+
+
 if __name__ == "__main__":
+
+    _clear_browser_profiles_on_startup()
+    _report_runs_left_unreported_on_startup()
 
     # debug=False intentionally avoids Flask's development
     # reloader while we diagnose dashboard stability.

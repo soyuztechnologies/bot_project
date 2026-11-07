@@ -31,6 +31,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from automation.backlink.backlink_session import start_parallel_backlink_sessions
+from browser.browser import sweep_stale_profiles_at_startup
 from automation.backlink.engine import site_accepts_target
 from utils.database import check_db_connection, close_connection_pool, initialize_database, DatabaseHandler
 from utils.exceptions import ConfigError, ConfigFileNotFoundError, ConfigInvalidError, ValidationError, wrap_unexpected
@@ -149,7 +150,7 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    start_time = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    start_time = datetime.now(timezone.utc)  # must be real UTC: the report computes duration from it
     stats = None
     config = None
     targets = []
@@ -168,6 +169,7 @@ def main(argv=None):
 
         config = load_json(BASE_DIR / "config.json")
         tracker.set_config(config)
+        sweep_stale_profiles_at_startup(config)
         sites_path, targets_path = resolve_backlink_files(config)
         sites = load_json(sites_path)
         targets = load_json(targets_path)
