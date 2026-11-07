@@ -320,6 +320,10 @@ class LocalRunTracker:
         # detected (dead pid) and reported by the dashboard / the next start.
         self.pid = os.getpid()
         self.pid_create_time = _process_create_time(self.pid)
+        # The pid the dashboard knows: a venv's python.exe on Windows is a small
+        # launcher that runs the real interpreter as its child, so the dashboard's
+        # Popen pid is our parent, not us.
+        self.parent_pid = _parent_pid()
         self.host = socket.gethostname()
         self.report_state = REPORT_PENDING
         self._heartbeat_stop = threading.Event()
@@ -719,6 +723,7 @@ class LocalRunTracker:
                 "results": current_results,
                 "pid": getattr(self, "pid", None),
                 "pid_create_time": getattr(self, "pid_create_time", None),
+                "parent_pid": getattr(self, "parent_pid", None),
                 "host": getattr(self, "host", None),
                 "report_state": getattr(self, "report_state", REPORT_PENDING),
                 "last_update": _iso_utc(_utcnow()),
@@ -856,6 +861,13 @@ class LocalRunTracker:
         return state
 
 
+def _parent_pid():
+    try:
+        return os.getppid() or None
+    except Exception:
+        return None
+
+
 def _process_create_time(pid):
     try:
         import psutil
@@ -930,6 +942,7 @@ def _detached_tracker(record=None, automation_type="Web", started_at=None, confi
     t._email_sent_lock = threading.Lock()
     t.pid = record.get("pid")
     t.pid_create_time = record.get("pid_create_time")
+    t.parent_pid = record.get("parent_pid")
     t.host = record.get("host")
     t.report_state = REPORT_RECOVERING
     t._heartbeat_stop = threading.Event()
@@ -965,7 +978,9 @@ def recover_unreported_runs(pid=None, since=None, exclude_pid=None, reason=None)
                 if exclude_pid and int(rec_pid) == int(exclude_pid):
                     continue
                 if pid is not None:
-                    if int(rec_pid) != int(pid):
+                    # pid is what the dashboard started: this run's process, or the
+                    # venv launcher whose child it is.
+                    if int(pid) not in (int(rec_pid), int(rec.get("parent_pid") or 0)):
                         continue
                     started = _parse_iso(rec.get("started_at"))
                     if since and started and started < since - timedelta(seconds=10):
