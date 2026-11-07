@@ -58,8 +58,32 @@ REPORT_RECOVERING = "recovering"  # another process is sending its report
 REPORT_SENT = "sent"
 REPORT_SKIPPED = "skipped"        # email disabled or no password
 REPORT_FAILED = "failed"          # send attempted, failed after retries
+REPORT_SENDING = "sending"        # email was being sent: may already be delivered, never re-sent
 _ACTIVE_TRACKER = None
 _ACTIVE_TRACKER_LOCK = threading.Lock()
+
+
+@contextmanager
+def _ignore_interrupts():
+    """Ignore Ctrl+C / Ctrl+Break / SIGTERM for the block (main thread only)."""
+    saved = []
+    if threading.current_thread() is threading.main_thread():
+        for name in ("SIGINT", "SIGBREAK", "SIGTERM"):
+            sig = getattr(signal, name, None)
+            if sig is None:
+                continue
+            try:
+                saved.append((sig, signal.signal(sig, signal.SIG_IGN)))
+            except Exception:
+                pass
+    try:
+        yield
+    finally:
+        for sig, handler in saved:
+            try:
+                signal.signal(sig, handler)
+            except Exception:
+                pass
 
 
 def _ensure_logs_dir():
@@ -805,26 +829,30 @@ class LocalRunTracker:
         except Exception as e:
             logger.error(f"[LocalTracker] Failed to write report files: {e}", exc_info=True)
 
-        # Send report email
+        # Send report email. Marked "sending" first: if this process dies from
+        # here on, the mail may already be out, so nobody re-sends it (a report
+        # must arrive once, never twice). A second Ctrl+C / close / SIGBREAK is
+        # ignored meanwhile so the send and its "sent" record can't be split.
         state = REPORT_FAILED
-        try:
-            from utils.mailer import send_report_email
-            summary = self._build_summary()
-            state = send_report_email(self.config, summary, list(self.results), html_path, json_path) or REPORT_FAILED
-            if state == REPORT_SENT:
-                logger.info(
-                    f"[LocalTracker] Summary report email sent for run {self.run_id} "
-                    f"(Status: {self.status})!"
-                )
-            else:
-                logger.warning(f"[LocalTracker] Report email for run {self.run_id} not sent ({state}).")
-        except Exception as e:
-            logger.error(f"[LocalTracker] Failed to send report email: {e}", exc_info=True)
-        # A KeyboardInterrupt mid-send propagates and leaves the run "pending",
-        # so recover_unreported_runs() sends it later.
+        with _ignore_interrupts():
+            self.report_state = REPORT_SENDING
+            self._persist_to_local_file()
+            try:
+                from utils.mailer import send_report_email
+                summary = self._build_summary()
+                state = send_report_email(self.config, summary, list(self.results), html_path, json_path) or REPORT_FAILED
+                if state == REPORT_SENT:
+                    logger.info(
+                        f"[LocalTracker] Summary report email sent for run {self.run_id} "
+                        f"(Status: {self.status})!"
+                    )
+                else:
+                    logger.warning(f"[LocalTracker] Report email for run {self.run_id} not sent ({state}).")
+            except Exception as e:
+                logger.error(f"[LocalTracker] Failed to send report email: {e}", exc_info=True)
 
-        self.report_state = state
-        self._persist_to_local_file()
+            self.report_state = state
+            self._persist_to_local_file()
         return state
 
 
